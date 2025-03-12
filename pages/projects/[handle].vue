@@ -1,109 +1,119 @@
 <template>
-  <div v-if="project" class="container py-5">
-    <div class="d-flex justify-content-between align-items-center mb-5">
-      <h1 class="mb-0 fw-bold">{{ project.title }}</h1>
-      <button class="btn btn-info px-4">
-        <i class="bi bi-pencil-square me-2"></i>
-        Edit Project
-      </button>
-    </div>
-
-    <div class="row g-4">
-      <!-- Main content -->
-      <div class="col-md-8">
-        <section class="mb-5">
-          <h2 class="h4 mb-3">Stage</h2>
-          <div class="bg-primary text-white p-3 rounded-3 d-inline-block">
-            <i class="bi bi-flag-fill me-2"></i>
-            {{ project.stage }}
-          </div>
-        </section>
-
-        <section class="mb-5">
-          <h2 class="h4 mb-3">README</h2>
-          <div class="card border-0 shadow-sm">
-            <div class="card-body p-4">
-              <h3 class="h5 mb-4">Overview</h3>
-              <div v-if="project.readme" class="readme-content" v-html="renderedReadme"></div>
-              <div v-else class="text-muted fst-italic">No README content available.</div>
-            </div>
-          </div>
-        </section>
-
-        <section v-if="project.tags?.length" class="mb-5">
-          <h2 class="h4 mb-3">Tags</h2>
-          <div class="d-flex flex-wrap gap-2">
-            <span v-for="tag in project.tags" :key="tag.id"
-                  class="badge rounded-pill"
-                  :class="{
-                    'bg-primary': tag.class === 'tech',
-                    'bg-success': tag.class === 'topic',
-                    'bg-info': tag.class === 'event'
-                  }">
-              <i :class="{
-                'bi-code-slash': tag.class === 'tech',
-                'bi-bookmark-fill': tag.class === 'topic',
-                'bi-calendar-event': tag.class === 'event'
-              }" class="bi me-1"></i>
-              {{ tag.title }}
-            </span>
-          </div>
-        </section>
+  <div class="min-h-screen bg-gray-50">
+    <div v-if="project" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">{{ project.title }}</h1>
+        <button class="inline-flex items-center px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
+          <i class="bi bi-pencil-square mr-2"></i>
+          Edit Project
+        </button>
       </div>
 
-      <!-- Sidebar -->
-      <div class="col-md-4">
-        <div class="card border-0 shadow-sm mb-4">
-          <div class="card-header bg-light border-0 py-3">
-            <h2 class="h5 mb-0">Project Info</h2>
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Main content -->
+        <div class="lg:col-span-2 space-y-8">
+          <section>
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Stage</h2>
+            <div class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg">
+              <i class="bi bi-flag-fill mr-2"></i>
+              {{ project.stage }}
+            </div>
+          </section>
+
+          <section>
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">README</h2>
+            <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+              <div class="p-6">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Overview</h3>
+                <div v-if="project.readme" class="readme-content prose max-w-none" v-html="renderedReadme"></div>
+                <div v-else class="text-gray-500 italic">No README content available.</div>
+              </div>
+            </div>
+          </section>
+
+          <section v-if="project.tags?.length">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Tags</h2>
+            <div class="flex flex-wrap gap-2">
+              <span v-for="tag in project.tags" :key="tag.id"
+                    class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium"
+                    :class="{
+                      'bg-blue-100 text-blue-800': tag.class === 'tech',
+                      'bg-green-100 text-green-800': tag.class === 'topic',
+                      'bg-purple-100 text-purple-800': tag.class === 'event'
+                    }">
+                <i :class="{
+                  'bi-code-slash': tag.class === 'tech',
+                  'bi-bookmark-fill': tag.class === 'topic',
+                  'bi-calendar-event': tag.class === 'event'
+                }" class="bi mr-1.5"></i>
+                {{ tag.title }}
+              </span>
+            </div>
+          </section>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="space-y-6">
+          <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+            <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
+              <h2 class="text-lg font-medium text-gray-900">Project Info</h2>
+            </div>
+            <div class="p-4 space-y-3">
+              <a v-if="project.users_url"
+                 :href="project.users_url"
+                 class="inline-flex w-full items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                 target="_blank">
+                <i class="bi bi-people-fill mr-2"></i>
+                Users' Site
+              </a>
+
+              <a v-if="project.developers_url"
+                 :href="project.developers_url"
+                 class="inline-flex w-full items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                 target="_blank">
+                <i class="bi bi-code-square mr-2"></i>
+                Developers' Site
+              </a>
+
+              <a v-if="project.chat_channel"
+                 :href="'https://chat.codeforphilly.org/channel/' + project.chat_channel"
+                 class="inline-flex w-full items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                 target="_blank">
+                <div>
+                  <i class="bi bi-chat-dots-fill mr-2"></i>
+                  Chat Channel
+                  <div class="text-sm opacity-75 mt-1">#{{ project.chat_channel }}</div>
+                </div>
+              </a>
+            </div>
           </div>
-          <div class="card-body p-4">
-            <div v-if="project.users_url" class="mb-3">
-              <a :href="project.users_url" class="btn btn-primary w-100 py-2" target="_blank">
-                <i class="bi bi-people-fill me-2"></i>Users' Site
-              </a>
-            </div>
 
-            <div v-if="project.developers_url" class="mb-3">
-              <a :href="project.developers_url" class="btn btn-success w-100 py-2" target="_blank">
-                <i class="bi bi-code-square me-2"></i>Developers' Site
-              </a>
+          <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+            <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
+              <h2 class="text-lg font-medium text-gray-900">Members</h2>
             </div>
-
-            <div v-if="project.chat_channel" class="mb-3">
-              <a :href="'https://chat.codeforphilly.org/channel/' + project.chat_channel"
-                 class="btn btn-success w-100 py-2" target="_blank">
-                <i class="bi bi-chat-dots-fill me-2"></i>Chat Channel
-                <small class="d-block text-white-50 mt-1">#{{ project.chat_channel }}</small>
-              </a>
+            <div class="p-4">
+              <!-- TODO: Add members list once we have the data structure -->
+              <button class="inline-flex w-full items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                <i class="bi bi-plus-circle mr-2"></i>
+                Add
+              </button>
             </div>
           </div>
         </div>
-
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-light border-0 py-3">
-            <h2 class="h5 mb-0">Members</h2>
-          </div>
-          <div class="card-body p-4">
-            <!-- TODO: Add members list once we have the data structure -->
-            <button class="btn btn-success w-100 py-2">
-              <i class="bi bi-plus-circle me-2"></i>Add
-            </button>
-          </div>
-        </div>
       </div>
     </div>
-  </div>
-  <div v-else-if="error" class="container py-5">
-    <div class="alert alert-danger shadow-sm">
-      <i class="bi bi-exclamation-triangle-fill me-2"></i>
-      {{ error }}
+
+    <div v-else-if="error" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <i class="bi bi-exclamation-triangle-fill mr-2"></i>
+        {{ error }}
+      </div>
     </div>
-  </div>
-  <div v-else class="container py-5">
-    <div class="d-flex justify-content-center">
-      <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
+
+    <div v-else class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="flex justify-center">
+        <div class="animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-blue-600"></div>
       </div>
     </div>
   </div>
