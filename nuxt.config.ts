@@ -14,5 +14,11 @@ export default defineNuxtConfig({
     viewer: true,
   },
 
-  compatibilityDate: '2025-03-11'
+  compatibilityDate: '2025-03-11',
+
+  vue: {
+      transformAssetUrls: {
+        track: ['src']
+      }
+  }
 })

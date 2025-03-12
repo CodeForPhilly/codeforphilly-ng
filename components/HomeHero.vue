@@ -19,7 +19,7 @@
       <div class="relative aspect-video overflow-hidden rounded-lg shadow-xl">
         <video class="w-full h-full object-cover" autoplay muted loop poster="~/assets/videos/video.jpg">
           <source src="~/assets/videos/video.mp4" type="video/mp4">
-          <track label="English" kind="subtitles" srclang="en" src="/_nuxt/assets/videos/video.en.vtt" default="">
+          <track label="English" kind="subtitles" srclang="en" src="~/assets/videos/video.en.vtt" default="">
         </video>
       </div>
     </div>
