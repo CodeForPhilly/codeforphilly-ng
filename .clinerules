@@ -35,13 +35,14 @@ This is a Nuxt 3 + Supabase project using TypeScript
 - supabase/.env: Local Supabase configuration (copy from .env.example)
 - tsconfig.json: TypeScript configuration
 - .env: Frontend environment variables (base64 encoded in GitHub secrets)
+- supabase/seed.sql: Contains test data for development
 
 ## Development Requirements
 
 - Node.js is managed via asdf (.tool-versions)
 - Supabase requires Docker for local development
 - Environment setup requires:
-    1. Copying supabase/.env.example to supabase/.env
+    1. Copying supabase/.env.example to supabase/.env (ONLY if .env doesn't exist)
     2. Setting up .env with frontend configuration
 
 ## Deployment
@@ -63,6 +64,24 @@ This is a Nuxt 3 + Supabase project using TypeScript
 - Enums:
     - project_stage: Project lifecycle stages
     - tag_class: Tag categories (tech, topic, event)
+
+### Test Data (supabase/seed.sql)
+
+Before implementing features, always examine seed.sql to understand:
+
+- Available test data for development
+- Data relationships and structure
+- Example values for each field
+- Tag categories and their usage
+- Project stages and their values
+
+For example, seed.sql contains:
+
+- 20 sample projects with varied stages and relationships
+- Tech tags (JavaScript, Python, React, etc.)
+- Topic tags (Civic Engagement, Education, etc.)
+- Event tags (Civic Hackathon 2024, Code Sprint 2024)
+- Project-tag relationships showing proper usage
 
 ### Frontend Types (types/supabase.ts)
 
@@ -112,8 +131,6 @@ This is a Nuxt 3 + Supabase project using TypeScript
    const client = useSupabaseClient<Database>()
 
    // Async data fetching
-
-   ```typescript
    const { data, pending, error } = await useLazyAsyncData<Project[]>('key', async () => {
      const { data, error } = await client
        .from('projects')
@@ -165,13 +182,18 @@ This is a Nuxt 3 + Supabase project using TypeScript
 - Changes to Supabase configuration require Docker container restart
 - Components follow a modular design pattern with clear separation of concerns
 - Video and image assets are stored in /assets directory and referenced using ~/assets path
-- When replicating existing pages, first capture a full-resolution screenshot:
+- NEVER overwrite existing .env files with .env.example - they may contain important local configuration
+- ALWAYS examine seed.sql before implementing features to understand available test data
+- When examining any codeforphilly.org URL, ALWAYS use the puppeteer screenshot command first:
 
     ```bash
-    # Example for capturing homepage:
+    # REQUIRED: Capture full-resolution screenshot before examining any codeforphilly.org URL
+    puppeteer screenshot --viewport 1280x720 <url> .scratch/<descriptive-name>.png
+
+    # Examples:
     puppeteer screenshot --viewport 1280x720 https://codeforphilly.org/ .scratch/home.png
-    # Example for capturing projects page:
     puppeteer screenshot --viewport 1280x720 https://codeforphilly.org/projects .scratch/projects.png
+    puppeteer screenshot --viewport 1280x720 https://codeforphilly.org/projects/neighborhood-safety .scratch/project-details.png
     ```
 
     Then examine the saved image to ensure accurate replication at desktop resolution
