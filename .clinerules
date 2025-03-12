@@ -1,0 +1,31 @@
+# Project Context for Cline Agents
+
+## Project Type
+
+This is a Nuxt 3 + Supabase project using TypeScript
+
+## Key Directories
+
+- /server: Server-side TypeScript configuration
+- /supabase: Local Supabase instance configuration
+- /public: Static assets
+
+## Critical Files
+
+- app.vue: Main application entry point
+- nuxt.config.ts: Nuxt configuration
+- supabase/.env: Local Supabase configuration (copy from .env.example)
+- tsconfig.json: TypeScript configuration
+
+## Development Requirements
+
+- Node.js is managed via asdf (.tool-versions)
+- Supabase requires Docker for local development
+- Environment setup requires copying supabase/.env.example to supabase/.env
+
+## Important Considerations
+
+- Always ensure Supabase Docker containers are running before development
+- The application runs on port 3000, Supabase on port 8000
+- TypeScript is used throughout the project
+- Changes to Supabase configuration require Docker container restart

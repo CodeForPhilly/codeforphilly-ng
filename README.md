@@ -1,75 +1,91 @@
-# Nuxt Minimal Starter
+# Nuxt + Supabase Project
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+A web application built with Nuxt 3 and Supabase.
 
-## Setup
+## Prerequisites
 
-Make sure to install dependencies:
+- [asdf](https://asdf-vm.com/) version manager
+- [Docker](https://www.docker.com/) and Docker Compose
+- Node.js 23.9.0 (managed via asdf)
+
+## Getting Started
+
+### 1. Clone the repository
 
 ```bash
-# npm
+git clone [repository-url]
+cd [repository-name]
+```
+
+### 2. Install Node.js using asdf
+
+```bash
+asdf install
+```
+
+### 3. Install dependencies
+
+```bash
 npm install
-
-# pnpm
-pnpm install
-
-# yarn
-yarn install
-
-# bun
-bun install
 ```
 
-## Development Server
+### 4. Set up Supabase
 
-Start the development server on `http://localhost:3000`:
+1. Navigate to the Supabase directory:
+
+    ```bash
+    cd supabase
+    ```
+
+2. Create your environment file:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+3. Update the following required variables in `.env`:
+
+    - `POSTGRES_PASSWORD`
+    - `JWT_SECRET`
+    - `DASHBOARD_PASSWORD`
+    - `VAULT_ENC_KEY`
+
+4. Start Supabase services:
+
+    ```bash
+    docker compose up -d
+    ```
+
+5. Return to the project root:
+
+    ```bash
+    cd ..
+    ```
+
+### 5. Start the development server
 
 ```bash
-# npm
 npm run dev
-
-# pnpm
-pnpm dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
 ```
 
-## Production
+The application will be available at `http://localhost:3000`
 
-Build the application for production:
+## Available Scripts
 
-```bash
-# npm
-npm run build
+- `npm run dev` - Start development server
+- `npm run build` - Build the application
+- `npm run generate` - Generate static files
+- `npm run preview` - Preview the build
+- `npm run postinstall` - Run Nuxt preparation steps
 
-# pnpm
-pnpm build
+## Development Resources
 
-# yarn
-yarn build
+- [Nuxt 3 Documentation](https://nuxt.com/docs)
+- [Supabase Documentation](https://supabase.com/docs)
+- [Vue 3 Documentation](https://vuejs.org/guide/introduction.html)
 
-# bun
-bun run build
-```
+## Project Structure
 
-Locally preview production build:
-
-```bash
-# npm
-npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
-```
-
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+- `/server` - Server-side TypeScript configuration
+- `/supabase` - Supabase configuration and Docker setup
+- `/public` - Static assets
