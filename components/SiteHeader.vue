@@ -11,10 +11,10 @@
         <div class="flex items-center space-x-8">
           <div class="flex items-center space-x-6">
             <button class="text-white hover:text-gray-300">GET INVOLVED</button>
-            <NuxtLink to="/chat" class="text-white hover:text-gray-300">
+            <NuxtLink to="/coming-soon/chat" class="text-white hover:text-gray-300">
               CHAT (SLACK)
             </NuxtLink>
-            <button class="text-white hover:text-gray-300">ABOUT</button>
+            <NuxtLink to="/coming-soon/about" class="text-white hover:text-gray-300">ABOUT</NuxtLink>
           </div>
 
           <!-- Search -->
@@ -28,10 +28,10 @@
 
           <!-- Auth -->
           <div class="flex items-center space-x-4">
-            <NuxtLink to="/login" class="text-white hover:text-gray-300">
+            <NuxtLink to="/coming-soon/login" class="text-white hover:text-gray-300">
               LOGIN
             </NuxtLink>
-            <NuxtLink to="/signup" class="text-white hover:text-gray-300">
+            <NuxtLink to="/coming-soon/signup" class="text-white hover:text-gray-300">
               SIGNUP
             </NuxtLink>
           </div>

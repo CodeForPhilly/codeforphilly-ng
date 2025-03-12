@@ -184,6 +184,11 @@ For example, seed.sql contains:
 - Video and image assets are stored in /assets directory and referenced using ~/assets path
 - NEVER overwrite existing .env files with .env.example - they may contain important local configuration
 - ALWAYS examine seed.sql before implementing features to understand available test data
+- ALWAYS use the /coming-soon/[page] route for links to pages that don't exist yet:
+    - The route automatically displays a "Coming Soon" message with the page name
+    - Example: Use `/coming-soon/about` instead of `/about` for unimplemented pages
+    - Exception: Keep direct links for implemented pages (e.g., `/projects`)
+    - This helps users understand which features are available vs. in development
 - When examining any codeforphilly.org URL, ALWAYS use the puppeteer screenshot command first:
 
     ```bash
