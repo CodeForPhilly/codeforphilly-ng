@@ -2,9 +2,7 @@
   <div class="min-h-screen bg-white">
     <!-- Hero Section -->
     <div class="max-w-6xl mx-auto px-4 py-12 text-center">
-      <div class="text-red-600 text-6xl font-bold mb-8">
-        CODE<br>FOR<br>PHILLY
-      </div>
+      <img src="~/assets/img/logo-square.svg" alt="Code for Philly" class="h-48 mx-auto mb-8">
       <div class="max-w-2xl mx-auto">
         <h1 class="text-2xl font-bold text-blue-700 mb-2">
           Contribute towards technology-related projects that benefit the City of Philadelphia.

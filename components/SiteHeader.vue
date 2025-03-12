@@ -3,8 +3,8 @@
     <div class="container mx-auto px-4">
       <div class="flex items-center justify-between h-14">
         <!-- Logo -->
-        <NuxtLink to="/" class="flex-shrink-0 text-red-600 font-bold text-xl">
-          CfP
+        <NuxtLink to="/" class="flex-shrink-0">
+          <img src="~/assets/img/logo-square.svg" alt="Code for Philly" class="h-8">
         </NuxtLink>
 
         <!-- Navigation -->
