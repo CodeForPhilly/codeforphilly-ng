@@ -104,8 +104,9 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed } from '#imports'
+import type { Project, ProjectWithTags, Tag, Database } from '~/types/supabase'
 
 const searchQuery = ref('')
 const selectedStage = ref('')
@@ -128,7 +129,7 @@ const stageClasses = {
   'Drifting': 'bg-red-100 text-red-800'
 }
 
-const formatDate = (dateString) => {
+const formatDate = (dateString: string | null) => {
   if (!dateString) return 'N/A'
   return new Date(dateString).toLocaleDateString('en-US', {
     year: 'numeric',
@@ -137,8 +138,8 @@ const formatDate = (dateString) => {
   })
 }
 
-const { data: projects, pending, error } = await useLazyAsyncData('all-projects', async () => {
-  const client = useSupabaseClient()
+const { data: projects, pending, error } = await useLazyAsyncData<ProjectWithTags[]>('all-projects', async () => {
+  const client = useSupabaseClient<Database>()
   const { data, error } = await client
     .from('projects')
     .select(`
@@ -157,18 +158,18 @@ const { data: projects, pending, error } = await useLazyAsyncData('all-projects'
     throw error
   }
 
-  return data?.map(project => ({
+  return data?.map((project: Project & { project_tags: { tags: Tag }[] }) => ({
     ...project,
     tags: project.project_tags
       ?.map(pt => pt.tags)
-      .filter(tag => tag.class === 'tech') || []
+      .filter((tag): tag is Tag => tag.class === 'tech') || []
   }))
 })
 
 const filteredProjects = computed(() => {
   if (!projects.value) return []
 
-  return projects.value.filter(project => {
+  return projects.value.filter((project: ProjectWithTags) => {
     const matchesSearch = !searchQuery.value ||
       project.title.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       project.readme?.toLowerCase().includes(searchQuery.value.toLowerCase())

@@ -32,9 +32,10 @@
   </div>
 </template>
 
-<script setup>
-const { data: projects, pending, error } = await useLazyAsyncData('projects', async () => {
-  const client = useSupabaseClient()
+<script setup lang="ts">
+import type { Project, Database } from '~/types/supabase'
+const { data: projects, pending, error } = await useLazyAsyncData<Project[]>('projects', async () => {
+  const client = useSupabaseClient<Database>()
   const { data, error } = await client
     .from('projects')
     .select('*')
