@@ -46,20 +46,24 @@
         <div class="p-6">
           <div class="flex items-start justify-between">
             <div class="flex-1">
-              <h2 class="text-xl font-semibold text-gray-900">{{ project.title }}</h2>
-              <div class="mt-2 flex items-center space-x-2">
-                <span
-                  :class="[
-                    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                    stageClasses[project.stage] || 'bg-gray-100 text-gray-800'
-                  ]"
-                >
-                  {{ project.stage }}
-                </span>
-                <span class="text-gray-500 text-sm">
-                  Last updated: {{ formatDate(project.modified_at) }}
-                </span>
-              </div>
+              <NuxtLink :to="`/projects/${project.handle}`" class="group block">
+                <h2 class="text-xl font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                  {{ project.title }}
+                </h2>
+                <div class="mt-2 flex items-center space-x-2">
+                  <span
+                    :class="[
+                      'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                      stageClasses[project.stage] || 'bg-gray-100 text-gray-800'
+                    ]"
+                  >
+                    {{ project.stage }}
+                  </span>
+                  <span class="text-gray-500 text-sm">
+                    Last updated: {{ formatDate(project.modified_at) }}
+                  </span>
+                </div>
+              </NuxtLink>
             </div>
             <div class="flex space-x-3">
               <a
