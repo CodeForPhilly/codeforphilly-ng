@@ -62,7 +62,17 @@ npm install
     cd ..
     ```
 
-### 5. Start the development server
+### 5. Configure environment variables
+
+1. Create your root environment file:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+2. Set `SUPABASE_KEY` in `.env` to the `ANON_KEY` value from `supabase/.env`
+
+### 6. Start the development server
 
 ```bash
 npm run dev
