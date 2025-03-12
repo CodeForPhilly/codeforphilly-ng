@@ -111,7 +111,7 @@
 
 <script setup lang="ts">
 import { marked } from 'marked'
-import type { ProjectWithTags } from '~/types/supabase'
+import type { ProjectWithTags, Tag, TagClass } from '~/types/supabase'
 
 const route = useRoute()
 const handle = route.params.handle as string
@@ -145,7 +145,14 @@ const { data: project, error } = await useLazyAsyncData<ProjectWithTags>(
     const tags = data.project_tags?.map(pt => pt.tags).filter(Boolean) || []
     const projectData = { ...data }
     delete projectData.project_tags
-    return { ...projectData, tags }
+    return {
+      ...projectData,
+      tags: tags.sort((a: Tag, b: Tag) => {
+        // Sort by tag class: tech first, then topic, then event
+        const classOrder: Record<TagClass, number> = { tech: 1, topic: 2, event: 3 }
+        return classOrder[a.class] - classOrder[b.class]
+      })
+    }
   },
   {
     default: () => null
