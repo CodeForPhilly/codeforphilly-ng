@@ -74,21 +74,44 @@ This is a Nuxt 3 + Supabase project using TypeScript
     - ProjectWithTags: Extended project with nested tags
     - Database: Complete Supabase schema type
 
-### Using Supabase in Components
+### Auto-imports in Nuxt
 
-1. Import types:
+1. Components are auto-imported:
+
+   ```vue
+   <template>
+     <!-- No import needed for components -->
+     <ProjectsList />
+     <FeaturedProjects />
+     <HomeHero />
+   </template>
+   ```
+
+2. Composables and Vue utilities are auto-imported:
 
    ```typescript
+   // Only need to import types - everything else is auto-imported
    import type { Project, Database } from '~/types/supabase'
+
+   // These are auto-imported by Nuxt:
+   // - ref()
+   // - computed()
+   // - useSupabaseClient()
+   // - useLazyAsyncData()
+   // - definePageMeta()
+   // and many more...
+
+   const searchQuery = ref('')  // no import needed
+   const client = useSupabaseClient<Database>()  // no import needed
    ```
 
-2. Type the Supabase client:
+3. Using Supabase client with auto-imports:
 
    ```typescript
+   // Type-safe Supabase client
    const client = useSupabaseClient<Database>()
-   ```
 
-3. Use with useLazyAsyncData:
+   // Async data fetching
 
    ```typescript
    const { data, pending, error } = await useLazyAsyncData<Project[]>('key', async () => {
@@ -100,7 +123,9 @@ This is a Nuxt 3 + Supabase project using TypeScript
    })
    ```
 
-4. Handle nested relationships:
+   Note: Ignore Vetur errors about top-level await - this is supported in Nuxt 3.
+
+4. Handling nested relationships:
 
    ```typescript
    // Example: Fetching projects with tags
@@ -119,6 +144,8 @@ This is a Nuxt 3 + Supabase project using TypeScript
 
 ### Best Practices
 
+- Leverage Nuxt's auto-imports to keep components clean
+- Only import types explicitly - let Nuxt handle the rest
 - Transform data after fetching to match frontend needs
 - Use type predicates for filtering:
 

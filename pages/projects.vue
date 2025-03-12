@@ -5,9 +5,7 @@
 </template>
 
 <script setup lang="ts">
-// Page component for /projects route
 definePageMeta({
-  layout: 'default',
   title: 'Projects - Code for Philly'
 })
 </script>

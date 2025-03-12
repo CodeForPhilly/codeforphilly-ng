@@ -105,7 +105,6 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from '#imports'
 import type { Project, ProjectWithTags, Tag, Database } from '~/types/supabase'
 
 const searchQuery = ref('')
