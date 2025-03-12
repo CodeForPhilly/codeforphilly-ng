@@ -6,9 +6,22 @@ This is a Nuxt 3 + Supabase project using TypeScript
 
 ## Key Directories
 
+- /assets: Project assets (images, videos, CSS)
+    - /img: Image assets including logo
+    - /videos: Video assets with subtitles
+    - /css: Global styles
+- /components: Vue components organized by feature
 - /server: Server-side TypeScript configuration
 - /supabase: Local Supabase instance configuration
 - /public: Static assets
+
+## Component Organization
+
+- SiteHeader: Main navigation and search
+- HomeHero: Hero section with side-by-side video and content
+- ProjectsList: Grid display of projects from Supabase
+- GetInvolved: Call-to-action section with engagement options
+- SiteFooter: Site navigation and links
 
 ## Critical Files
 
@@ -16,12 +29,22 @@ This is a Nuxt 3 + Supabase project using TypeScript
 - nuxt.config.ts: Nuxt configuration
 - supabase/.env: Local Supabase configuration (copy from .env.example)
 - tsconfig.json: TypeScript configuration
+- .env: Frontend environment variables (base64 encoded in GitHub secrets)
 
 ## Development Requirements
 
 - Node.js is managed via asdf (.tool-versions)
 - Supabase requires Docker for local development
-- Environment setup requires copying supabase/.env.example to supabase/.env
+- Environment setup requires:
+    1. Copying supabase/.env.example to supabase/.env
+    2. Setting up .env with frontend configuration
+
+## Deployment
+
+- Static site generation using `npm run generate`
+- Automated deployment to GitHub Pages via Actions workflow
+- Environment variables handled through FRONTEND_ENV_BASE64 secret
+- Custom domain configured through CNAME
 
 ## Important Considerations
 
@@ -29,3 +52,15 @@ This is a Nuxt 3 + Supabase project using TypeScript
 - The application runs on port 3000, Supabase on port 8000
 - TypeScript is used throughout the project
 - Changes to Supabase configuration require Docker container restart
+- Components follow a modular design pattern with clear separation of concerns
+- Video and image assets are stored in /assets directory and referenced using ~/assets path
+- When replicating existing pages, first capture a full-resolution screenshot:
+
+    ```bash
+    # Example for capturing homepage:
+    puppeteer screenshot --viewport 1280x720 https://codeforphilly.org/ .scratch/home.png
+    # Example for capturing projects page:
+    puppeteer screenshot --viewport 1280x720 https://codeforphilly.org/projects .scratch/projects.png
+    ```
+
+    Then examine the saved image to ensure accurate replication at desktop resolution
