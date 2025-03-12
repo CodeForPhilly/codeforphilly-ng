@@ -184,11 +184,65 @@ For example, seed.sql contains:
 - Video and image assets are stored in /assets directory and referenced using ~/assets path
 - NEVER overwrite existing .env files with .env.example - they may contain important local configuration
 - ALWAYS examine seed.sql before implementing features to understand available test data
+
+### Page Routing and Navigation
+
 - ALWAYS use the /coming-soon/[page] route for links to pages that don't exist yet:
     - The route automatically displays a "Coming Soon" message with the page name
     - Example: Use `/coming-soon/about` instead of `/about` for unimplemented pages
     - Exception: Keep direct links for implemented pages (e.g., `/projects`)
     - This helps users understand which features are available vs. in development
+
+### Page Styling Guidelines
+
+When creating new pages, follow these styling conventions:
+
+- Use consistent max-width containers:
+
+    ```html
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    ```
+
+- Follow proper heading hierarchy:
+
+    ```html
+    <h1 class="text-3xl font-bold text-gray-900 mb-4">Page Title</h1>
+    <h2 class="text-xl font-semibold text-gray-900 mb-3">Section Title</h2>
+    ```
+
+- Use card-based layouts for content sections:
+
+    ```html
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <div class="p-6">
+        <!-- Content here -->
+      </div>
+    </div>
+    ```
+
+- Implement responsive grids:
+
+    ```html
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div class="lg:col-span-2">Main Content</div>
+      <div>Sidebar</div>
+    </div>
+    ```
+
+- Add hover states for interactive elements:
+
+    ```html
+    <button class="bg-blue-500 hover:bg-blue-600 transition-colors">
+    ```
+
+- Use consistent spacing:
+    - Vertical spacing between sections: mb-8
+    - Padding inside cards: p-6
+    - Grid gaps: gap-8
+    - Form field spacing: space-y-4
+
+### Content Examination
+
 - When examining any codeforphilly.org URL, ALWAYS use the puppeteer screenshot command first:
 
     ```bash
