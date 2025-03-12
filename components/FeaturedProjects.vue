@@ -14,8 +14,9 @@
 
     <!-- Projects Grid -->
     <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-      <div v-for="project in projects" :key="project.id"
-           class="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+      <NuxtLink v-for="project in projects" :key="project.id"
+                :to="`/projects/${project.handle}`"
+                class="bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group">
         <!-- Project Logo/Image -->
         <div class="h-48 bg-gray-100 flex items-center justify-center p-4">
           <img v-if="project.logo_url" :src="project.logo_url" :alt="project.title" class="max-h-full">
@@ -24,10 +25,10 @@
 
         <!-- Project Info -->
         <div class="p-4">
-          <h3 class="font-bold text-lg mb-2">{{ project.title }}</h3>
+          <h3 class="font-bold text-lg mb-2 group-hover:text-blue-600 transition-colors">{{ project.title }}</h3>
           <p class="text-gray-600 text-sm mb-4 line-clamp-2">{{ project.readme }}</p>
         </div>
-      </div>
+      </NuxtLink>
     </div>
   </div>
 </template>
