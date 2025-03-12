@@ -13,13 +13,18 @@ This is a Nuxt 3 + Supabase project using TypeScript
 - /components: Vue components organized by feature
 - /server: Server-side TypeScript configuration
 - /supabase: Local Supabase instance configuration
+    - /supabase/volumes/db/init/*.sql: Initial database schema definitions
 - /public: Static assets
+- /types: TypeScript type definitions
+    - /types/supabase.ts: Database schema types
+    - /types/index.ts: Central type exports
 
 ## Component Organization
 
 - SiteHeader: Main navigation and search
 - HomeHero: Hero section with side-by-side video and content
 - ProjectsList: Grid display of projects from Supabase
+- FeaturedProjects: Featured projects grid for homepage
 - GetInvolved: Call-to-action section with engagement options
 - SiteFooter: Site navigation and links
 
@@ -45,6 +50,85 @@ This is a Nuxt 3 + Supabase project using TypeScript
 - Automated deployment to GitHub Pages via Actions workflow
 - Environment variables handled through FRONTEND_ENV_BASE64 secret
 - Custom domain configured through CNAME
+
+## Data Models and Supabase Integration
+
+### Backend Schema (supabase/volumes/db/init/*.sql)
+
+- Database schema defined in SQL migration files
+- Key tables:
+    - projects: Core project information
+    - tags: Reusable tags for projects
+    - project_tags: Many-to-many relationship
+- Enums:
+    - project_stage: Project lifecycle stages
+    - tag_class: Tag categories (tech, topic, event)
+
+### Frontend Types (types/supabase.ts)
+
+- TypeScript types mirror the database schema
+- Key types:
+    - Project: Base project attributes
+    - Tag: Tag metadata
+    - ProjectTag: Junction table type
+    - ProjectWithTags: Extended project with nested tags
+    - Database: Complete Supabase schema type
+
+### Using Supabase in Components
+
+1. Import types:
+
+   ```typescript
+   import type { Project, Database } from '~/types/supabase'
+   ```
+
+2. Type the Supabase client:
+
+   ```typescript
+   const client = useSupabaseClient<Database>()
+   ```
+
+3. Use with useLazyAsyncData:
+
+   ```typescript
+   const { data, pending, error } = await useLazyAsyncData<Project[]>('key', async () => {
+     const { data, error } = await client
+       .from('projects')
+       .select('*')
+     if (error) throw error
+     return data
+   })
+   ```
+
+4. Handle nested relationships:
+
+   ```typescript
+   // Example: Fetching projects with tags
+   .from('projects')
+   .select(`
+     *,
+     project_tags (
+       tags (
+         id,
+         title,
+         class
+       )
+     )
+   `)
+   ```
+
+### Best Practices
+
+- Transform data after fetching to match frontend needs
+- Use type predicates for filtering:
+
+  ```typescript
+  .filter((tag): tag is Tag => tag.class === 'tech')
+  ```
+
+- Handle loading and error states consistently
+- Use computed properties for filtered data
+- Keep database types in sync with Supabase schema
 
 ## Important Considerations
 
