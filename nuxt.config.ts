@@ -5,6 +5,8 @@ export default defineNuxtConfig({
     '@nuxtjs/tailwindcss'
   ],
 
+  ssr: true,
+
   supabase: {
     redirect: false
   },
