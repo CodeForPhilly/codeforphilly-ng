@@ -1,6 +1,18 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  compatibilityDate: '2024-11-01',
-  devtools: { enabled: true },
-  modules: ['@nuxtjs/supabase']
+  modules: [
+    '@nuxtjs/supabase',
+    '@nuxtjs/tailwindcss'
+  ],
+
+  supabase: {
+    redirect: false
+  },
+
+  tailwindcss: {
+    exposeConfig: true,
+    viewer: true,
+  },
+
+  compatibilityDate: '2025-03-11'
 })
