@@ -6,18 +6,20 @@ This is a Nuxt 3 + Supabase project using TypeScript
 
 ## Key Directories
 
-- /assets: Project assets (images, videos, CSS)
-    - /img: Image assets including logo
-    - /videos: Video assets with subtitles
-    - /css: Global styles
-- /components: Vue components organized by feature
+- /app: Main application directory
+    - /assets: Project assets (images, videos, CSS)
+        - /img: Image assets including logo
+        - /videos: Video assets with subtitles
+        - /css: Global styles
+    - /components: Vue components organized by feature
+    - /pages: Application routes
+    - /types: TypeScript type definitions
+        - /types/supabase.ts: Database schema types
+        - /types/index.ts: Central type exports
 - /server: Server-side TypeScript configuration
 - /supabase: Local Supabase instance configuration
     - /supabase/volumes/db/init/*.sql: Initial database schema definitions
 - /public: Static assets
-- /types: TypeScript type definitions
-    - /types/supabase.ts: Database schema types
-    - /types/index.ts: Central type exports
 
 ## Component Organization
 
@@ -30,7 +32,9 @@ This is a Nuxt 3 + Supabase project using TypeScript
 
 ## Critical Files
 
-- app.vue: Main application entry point
+- app/app.config.ts: UI theme configuration
+- app/app.vue: Main application entry point
+- app/assets/css/main.css: Global styles
 - nuxt.config.ts: Nuxt configuration
 - supabase/.env: Local Supabase configuration (copy from .env.example)
 - tsconfig.json: TypeScript configuration
@@ -193,53 +197,263 @@ For example, seed.sql contains:
     - Exception: Keep direct links for implemented pages (e.g., `/projects`)
     - This helps users understand which features are available vs. in development
 
-### Page Styling Guidelines
+### UI Theme Configuration
 
-When creating new pages, follow these styling conventions:
+The project uses Nuxt UI with a custom theme defined in `app/app.config.ts`:
 
-- Use consistent max-width containers:
+- Colors:
+    - Primary: blue (for main actions)
+    - Secondary: green (for secondary actions)
+    - CTA: red (for calls-to-action and emphasis)
+    - Error: red (only for actual error states)
+    - Neutral: slate (for secondary elements)
 
-    ```html
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+### Color Usage
+
+When applying colors, use the appropriate syntax:
+
+1. For Nuxt UI components, use the color prop:
+
+    ```vue
+    <!-- Buttons -->
+    <UButton color="primary" />  <!-- Main actions -->
+    <UButton color="secondary" />  <!-- Secondary actions -->
+    <UButton color="cta" />      <!-- Call-to-action -->
+    <UButton color="error" />    <!-- Error states -->
+    <UButton color="neutral" />  <!-- Secondary actions -->
+
+    <!-- Alerts -->
+    <UAlert color="error" />     <!-- Only for actual errors -->
+
+    <!-- Button variants -->
+    <UButton variant="solid" />  <!-- Default, filled button -->
+    <UButton variant="outline" /> <!-- Outlined button -->
+    <UButton variant="link" />   <!-- Link-style button -->
     ```
 
-- Follow proper heading hierarchy:
+2. For text colors on HTML elements, use CSS variables:
 
-    ```html
-    <h1 class="text-3xl font-bold text-gray-900 mb-4">Page Title</h1>
-    <h2 class="text-xl font-semibold text-gray-900 mb-3">Section Title</h2>
+    ```vue
+    <!-- Headings -->
+    <h3>Regular heading</h3>
+    <h3 class="text-(--ui-cta)">Call to Action</h3>
+
+    <!-- Regular text -->
+    <p>Regular content</p>
+    <p class="text-(--ui-primary)">Highlighted primary text</p>
+    <p class="text-(--ui-cta)">Call to action text</p>
     ```
 
-- Use card-based layouts for content sections:
+3. For dark backgrounds, override color variables:
 
-    ```html
-    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
-      <div class="p-6">
-        <!-- Content here -->
+    ```vue
+    <!-- Example: White text in dark header -->
+    <header class="bg-gray-900 [--ui-primary:theme(colors.white)]">
+      <UButton color="primary" variant="link">White Link</UButton>
+    </header>
+    ```
+
+### Layout Structure
+
+1. Main Layout:
+
+    ```vue
+    <!-- app.vue -->
+    <UApp>
+      <div class="min-h-screen bg-white flex flex-col">
+        <SiteHeader />
+        <main class="flex-grow py-12">
+          <NuxtPage />
+        </main>
+        <SiteFooter />
       </div>
+    </UApp>
+    ```
+
+2. Page Layout:
+
+    ```vue
+    <UContainer class="py-12">
+      <!-- Page content -->
+    </UContainer>
+    ```
+
+3. Navigation:
+
+    ```vue
+    <!-- Header navigation -->
+    <UButton
+      variant="link"
+      color="primary"
+      label="NAVIGATION ITEM"
+    />
+
+    <!-- Footer navigation -->
+    <UButton
+      variant="link"
+      color="cta"
+      label="FOOTER LINK"
+      class="block"
+    />
+    ```
+
+4. Loading States:
+
+    ```vue
+    <!-- Loading state with progress indicator -->
+    <div class="text-center py-12">
+      <UProgress class="mx-auto" indeterminate />
+      <p class="mt-2 text-gray-600">Loading...</p>
     </div>
     ```
 
-- Implement responsive grids:
+5. Form Elements:
 
-    ```html
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      <div class="lg:col-span-2">Main Content</div>
-      <div>Sidebar</div>
+    ```vue
+    <!-- Search input -->
+    <UInput
+      placeholder="Search"
+      icon="i-lucide-search"
+      size="sm"
+      color="primary"
+      variant="outline"
+    />
+    ```
+
+2. Headings:
+
+    ```vue
+    <!-- Main heading -->
+    <h2 class="text-3xl font-bold text-center mb-12">
+      PAGE TITLE
+    </h2>
+
+    <!-- Section heading -->
+    <h3 class="font-bold mb-2">
+      Section Title
+    </h3>
+    ```
+
+3. Grid Layouts:
+
+    ```vue
+    <!-- Basic grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+    <!-- Custom ratio grid (e.g., 7:4 with 1 gap) -->
+    <div class="grid grid-cols-12 gap-8">
+      <div class="col-span-12 lg:col-span-7">Main content</div>
+      <div class="col-span-12 lg:col-span-4">Sidebar</div>
     </div>
     ```
 
-- Add hover states for interactive elements:
+4. Cards:
 
-    ```html
-    <button class="bg-blue-500 hover:bg-blue-600 transition-colors">
+    ```vue
+    <UCard class="hover:shadow-md transition-all duration-200">
+      <!-- Card content -->
+    </UCard>
     ```
 
-- Use consistent spacing:
-    - Vertical spacing between sections: mb-8
-    - Padding inside cards: p-6
+5. Icons:
+
+    ```vue
+    <!-- Icon with color -->
+    <div class="text-(--ui-cta)">
+      <UIcon
+        name="i-lucide-heart"
+        class="h-16 w-16"
+      />
+    </div>
+    ```
+
+6. Spacing:
+    - Vertical section spacing: py-12 or py-16
     - Grid gaps: gap-8
-    - Form field spacing: space-y-4
+    - Text spacing: space-y-4
+    - Card padding: default UCard padding
+
+### Component Examples
+
+1. Hero Section:
+
+    ```vue
+    <UContainer class="py-12">
+      <div class="grid grid-cols-12 gap-8">
+        <div class="col-span-12 lg:col-span-7">
+          <!-- Main content -->
+        </div>
+        <div class="col-span-12 lg:col-span-4">
+          <h2 class="text-2xl font-bold text-(--ui-primary)">
+            Main Message
+          </h2>
+          <p class="text-xl text-(--ui-cta)">
+            Supporting Message
+          </p>
+          <UButton
+            icon="i-lucide-heart"
+            label="Call to Action"
+            color="cta"
+            size="lg"
+          />
+        </div>
+      </div>
+    </UContainer>
+    ```
+
+2. Card Grid:
+
+    ```vue
+    <UContainer class="py-12">
+      <h2 class="text-3xl font-bold text-center mb-12 text-(--ui-primary)">
+        SECTION TITLE
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <UCard v-for="item in items" :key="item.id">
+          <div class="text-(--ui-cta) mb-4">
+            <UIcon :name="item.icon" class="h-16 w-16 mx-auto" />
+          </div>
+          <h3 class="font-bold mb-2">{{ item.title }}</h3>
+          <p class="text-sm text-gray-600">{{ item.description }}</p>
+        </UCard>
+      </div>
+    </UContainer>
+    ```
+
+- Use Lucide icons for buttons and UI elements:
+    - Format: `i-lucide-{icon-name}`
+    - Common icons:
+        - Navigation: arrow-left, arrow-right, home, menu
+        - Actions: plus, edit, trash, save, settings
+        - Content: file, folder, image, link
+        - UI: search, close, check, x
+        - Social: github, twitter, mail
+
+- Use UGrid for responsive layouts:
+
+    ```vue
+    <UGrid :cols="[1, 2, 3]" gap="4">
+      <div>Column 1</div>
+      <div>Column 2</div>
+      <div>Column 3</div>
+    </UGrid>
+    ```
+
+- Use consistent spacing with Nuxt UI utilities:
+    - Section spacing: class="space-y-8"
+    - Card padding: default UCard padding
+    - Grid gaps: gap="4" or gap="6"
+    - Form spacing: class="space-y-4"
+
+- Use Nuxt UI form components:
+
+    ```vue
+    <UForm>
+      <UFormGroup label="Name">
+        <UInput v-model="name" />
+      </UFormGroup>
+    </UForm>
+    ```
 
 ### Content Examination
 
