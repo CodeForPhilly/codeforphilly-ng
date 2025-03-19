@@ -1,26 +1,31 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  modules: [
-    '@nuxtjs/supabase',
-    '@nuxtjs/tailwindcss'
-  ],
+  devtools: { enabled: true },
+
+  modules: ['@nuxt/ui', '@nuxt/eslint', '@nuxtjs/supabase'],
+
+  css: ['~/assets/css/main.css'],
 
   ssr: true,
 
-  supabase: {
-    redirect: false
+  future: {
+    compatibilityVersion: 4
   },
+
+  compatibilityDate: '2024-11-27',
 
   tailwindcss: {
     exposeConfig: true,
     viewer: true,
   },
 
-  compatibilityDate: '2025-03-11',
+  supabase: {
+    redirect: false
+  },
 
   vue: {
       transformAssetUrls: {
         track: ['src']
       }
-  }
+  },
 })
