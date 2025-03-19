@@ -10,16 +10,19 @@
         <p class="text-xl text-red-600 mb-6">
           No coding experience required.
         </p>
-        <button class="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700">
-          Volunteer!
-        </button>
+        <UButton
+          icon="i-lucide-handshake"
+          label="Volunteer!"
+          color="error"
+          size="lg"
+        />
       </div>
 
       <!-- Video -->
       <div class="relative aspect-video overflow-hidden rounded-lg shadow-xl">
         <video class="w-full h-full object-cover" autoplay muted loop poster="~/assets/videos/video.jpg">
           <source src="~/assets/videos/video.mp4" type="video/mp4">
-          <track label="English" kind="subtitles" srclang="en" src="~/assets/videos/video.en.vtt" default="">
+          <track label="English" kind="subtitles" srclang="en" src="~/assets/videos/video.en.vtt" :default="true">
         </video>
       </div>
     </div>

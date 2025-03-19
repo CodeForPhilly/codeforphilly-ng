@@ -228,10 +228,45 @@ When creating new pages, use Nuxt UI components and follow these conventions:
 - Use UButton for interactive elements:
 
     ```vue
-    <UButton color="primary">
-      Click me
-    </UButton>
+    <!-- Primary action button -->
+    <UButton
+      icon="i-lucide-plus"
+      label="Create New"
+      color="primary"
+    />
+
+    <!-- Secondary action button -->
+    <UButton
+      icon="i-lucide-settings"
+      label="Settings"
+      color="secondary"
+    />
+
+    <!-- Link button -->
+    <UButton
+      to="/projects"
+      icon="i-lucide-folder"
+      label="View Projects"
+      color="primary"
+    />
+
+    <!-- Block button (full width) -->
+    <UButton
+      icon="i-lucide-save"
+      label="Save Changes"
+      color="primary"
+      block
+    />
     ```
+
+- Use Lucide icons for buttons and UI elements:
+    - Format: `i-lucide-{icon-name}`
+    - Common icons:
+        - Navigation: arrow-left, arrow-right, home, menu
+        - Actions: plus, edit, trash, save, settings
+        - Content: file, folder, image, link
+        - UI: search, close, check, x
+        - Social: github, twitter, mail
 
 - Use UGrid for responsive layouts:
 

@@ -3,10 +3,11 @@
     <div v-if="project" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="flex justify-between items-center mb-8">
         <h1 class="text-3xl font-bold text-gray-900">{{ project.title }}</h1>
-        <button class="inline-flex items-center px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
-          <i class="bi bi-pencil-square mr-2"></i>
-          Edit Project
-        </button>
+        <UButton
+          icon="i-lucide-edit"
+          label="Edit Project"
+          color="primary"
+        />
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -14,10 +15,11 @@
         <div class="lg:col-span-2 space-y-8">
           <section>
             <h2 class="text-xl font-semibold text-gray-900 mb-4">Stage</h2>
-            <div class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg">
-              <i class="bi bi-flag-fill mr-2"></i>
-              {{ project.stage }}
-            </div>
+            <UButton
+              :icon="'i-lucide-flag'"
+              :label="project.stage"
+              color="primary"
+            />
           </section>
 
           <section>
@@ -42,10 +44,10 @@
                       'bg-purple-100 text-purple-800': tag.class === 'event'
                     }">
                 <i :class="{
-                  'bi-code-slash': tag.class === 'tech',
-                  'bi-bookmark-fill': tag.class === 'topic',
-                  'bi-calendar-event': tag.class === 'event'
-                }" class="bi mr-1.5"></i>
+                  'i-lucide-code': tag.class === 'tech',
+                  'i-lucide-bookmark': tag.class === 'topic',
+                  'i-lucide-calendar': tag.class === 'event'
+                }" class="mr-1.5"></i>
                 {{ tag.title }}
               </span>
             </div>
@@ -59,32 +61,41 @@
               <h2 class="text-lg font-medium text-gray-900">Project Info</h2>
             </div>
             <div class="p-4 space-y-3">
-              <a v-if="project.users_url"
-                 :href="project.users_url"
-                 class="inline-flex w-full items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                 target="_blank">
-                <i class="bi bi-people-fill mr-2"></i>
-                Users' Site
-              </a>
+              <UButton
+                v-if="project.users_url"
+                :to="project.users_url"
+                target="_blank"
+                icon="i-lucide-users"
+                label="Users' Site"
+                color="primary"
+                block
+              />
 
-              <a v-if="project.developers_url"
-                 :href="project.developers_url"
-                 class="inline-flex w-full items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                 target="_blank">
-                <i class="bi bi-code-square mr-2"></i>
-                Developers' Site
-              </a>
+              <UButton
+                v-if="project.developers_url"
+                :to="project.developers_url"
+                target="_blank"
+                icon="i-lucide-code-2"
+                label="Developers' Site"
+                color="secondary"
+                block
+              />
 
-              <a v-if="project.chat_channel"
-                 :href="'https://chat.codeforphilly.org/channel/' + project.chat_channel"
-                 class="inline-flex w-full items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                 target="_blank">
-                <div>
-                  <i class="bi bi-chat-dots-fill mr-2"></i>
-                  Chat Channel
-                  <div class="text-sm opacity-75 mt-1">#{{ project.chat_channel }}</div>
-                </div>
-              </a>
+              <UButton
+                v-if="project.chat_channel"
+                :to="'https://chat.codeforphilly.org/channel/' + project.chat_channel"
+                target="_blank"
+                icon="i-lucide-message-circle"
+                color="secondary"
+                block
+              >
+                <template #default>
+                  <div>
+                    Chat Channel
+                    <div class="text-sm opacity-75 mt-1">#{{ project.chat_channel }}</div>
+                  </div>
+                </template>
+              </UButton>
             </div>
           </div>
 
@@ -94,10 +105,12 @@
             </div>
             <div class="p-4">
               <!-- TODO: Add members list once we have the data structure -->
-              <button class="inline-flex w-full items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-                <i class="bi bi-plus-circle mr-2"></i>
-                Add
-              </button>
+              <UButton
+                icon="i-lucide-plus-circle"
+                label="Add"
+                color="secondary"
+                block
+              />
             </div>
           </div>
         </div>
@@ -105,10 +118,11 @@
     </div>
 
     <div v-else-if="error" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-        <i class="bi bi-exclamation-triangle-fill mr-2"></i>
-        {{ error }}
-      </div>
+      <UAlert
+        icon="i-lucide-alert-triangle"
+        color="error"
+        :title="error?.message || 'An error occurred'"
+      />
     </div>
 
     <div v-else class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -121,19 +135,22 @@
 
 <script setup lang="ts">
 import { marked } from 'marked'
-import type { ProjectWithTags, Tag, TagClass } from '~/types/supabase'
+import type { Database, ProjectWithTags, Tag, TagClass } from '~/types/supabase'
 
 const route = useRoute()
 const handle = route.params.handle as string
 
 // Get Supabase client
-const client = useSupabaseClient()
+const client = useSupabaseClient<Database>()
 
-// Fetch project data with tags
-const { data: project, error } = await useLazyAsyncData<ProjectWithTags>(
-  `project-${handle}`,
-  async () => {
-    const { data, error } = await client
+// Define project ref with proper type
+const project = ref<ProjectWithTags | null>(null)
+const error = ref<Error | null>(null)
+
+// Fetch project data
+onMounted(async () => {
+  try {
+    const { data, error: supabaseError } = await client
       .from('projects')
       .select(`
         *,
@@ -148,14 +165,15 @@ const { data: project, error } = await useLazyAsyncData<ProjectWithTags>(
       .eq('handle', handle)
       .maybeSingle()
 
-    if (error) throw error
+    if (supabaseError) throw supabaseError
     if (!data) throw new Error('Project not found')
 
     // Transform the nested tags data
-    const tags = data.project_tags?.map(pt => pt.tags).filter(Boolean) || []
+    const tags = data.project_tags?.map((pt: { tags: Tag }) => pt.tags).filter(Boolean) || []
     const projectData = { ...data }
     delete projectData.project_tags
-    return {
+
+    project.value = {
       ...projectData,
       tags: tags.sort((a: Tag, b: Tag) => {
         // Sort by tag class: tech first, then topic, then event
@@ -163,16 +181,15 @@ const { data: project, error } = await useLazyAsyncData<ProjectWithTags>(
         return classOrder[a.class] - classOrder[b.class]
       })
     }
-  },
-  {
-    default: () => null
+  } catch (e) {
+    error.value = e instanceof Error ? e : new Error('An error occurred')
   }
-)
+})
 
 // Compute rendered README HTML
 const renderedReadme = computed(() => {
   if (!project.value?.readme) return ''
-  return marked(project.value.readme)
+  return marked(project.value.readme, { breaks: true })
 })
 </script>
 
