@@ -1,6 +1,6 @@
 # Nuxt + Supabase Project
 
-A web application built with Nuxt 3 and Supabase.
+A web application built with Nuxt 3, Nuxt UI, and Supabase.
 
 ## Prerequisites
 
@@ -87,6 +87,8 @@ The application will be available at `http://localhost:3000`
 - `npm run generate` - Generate static files
 - `npm run preview` - Preview the build
 - `npm run postinstall` - Run Nuxt preparation steps
+- `npm run lint` - Run ESLint checks
+- `npm run lint:fix` - Fix ESLint issues
 
 ## Development Resources
 
@@ -96,6 +98,11 @@ The application will be available at `http://localhost:3000`
 
 ## Project Structure
 
+- `/app` - Main application directory
+    - `/assets` - Project assets (images, videos, CSS)
+    - `/components` - Vue components
+    - `/pages` - Application routes
+    - `/types` - TypeScript type definitions
 - `/server` - Server-side TypeScript configuration
 - `/supabase` - Supabase configuration and Docker setup
 - `/public` - Static assets

@@ -6,18 +6,20 @@ This is a Nuxt 3 + Supabase project using TypeScript
 
 ## Key Directories
 
-- /assets: Project assets (images, videos, CSS)
-    - /img: Image assets including logo
-    - /videos: Video assets with subtitles
-    - /css: Global styles
-- /components: Vue components organized by feature
+- /app: Main application directory
+    - /assets: Project assets (images, videos, CSS)
+        - /img: Image assets including logo
+        - /videos: Video assets with subtitles
+        - /css: Global styles
+    - /components: Vue components organized by feature
+    - /pages: Application routes
+    - /types: TypeScript type definitions
+        - /types/supabase.ts: Database schema types
+        - /types/index.ts: Central type exports
 - /server: Server-side TypeScript configuration
 - /supabase: Local Supabase instance configuration
     - /supabase/volumes/db/init/*.sql: Initial database schema definitions
 - /public: Static assets
-- /types: TypeScript type definitions
-    - /types/supabase.ts: Database schema types
-    - /types/index.ts: Central type exports
 
 ## Component Organization
 
@@ -30,7 +32,9 @@ This is a Nuxt 3 + Supabase project using TypeScript
 
 ## Critical Files
 
-- app.vue: Main application entry point
+- app/app.config.ts: UI theme configuration
+- app/app.vue: Main application entry point
+- app/assets/css/main.css: Global styles
 - nuxt.config.ts: Nuxt configuration
 - supabase/.env: Local Supabase configuration (copy from .env.example)
 - tsconfig.json: TypeScript configuration
@@ -193,53 +197,67 @@ For example, seed.sql contains:
     - Exception: Keep direct links for implemented pages (e.g., `/projects`)
     - This helps users understand which features are available vs. in development
 
+### UI Theme Configuration
+
+The project uses Nuxt UI with a custom theme defined in `app/app.config.ts`:
+
+- Colors:
+    - Primary: red
+    - Neutral: slate
+
 ### Page Styling Guidelines
 
-When creating new pages, follow these styling conventions:
+When creating new pages, use Nuxt UI components and follow these conventions:
 
-- Use consistent max-width containers:
+- Use UContainer for consistent max-width containers:
 
-    ```html
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    ```vue
+    <UContainer>
+      <!-- Page content -->
+    </UContainer>
     ```
 
-- Follow proper heading hierarchy:
+- Use UCard for content sections:
 
-    ```html
-    <h1 class="text-3xl font-bold text-gray-900 mb-4">Page Title</h1>
-    <h2 class="text-xl font-semibold text-gray-900 mb-3">Section Title</h2>
+    ```vue
+    <UCard>
+      <!-- Card content -->
+    </UCard>
     ```
 
-- Use card-based layouts for content sections:
+- Use UButton for interactive elements:
 
-    ```html
-    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
-      <div class="p-6">
-        <!-- Content here -->
-      </div>
-    </div>
+    ```vue
+    <UButton color="primary">
+      Click me
+    </UButton>
     ```
 
-- Implement responsive grids:
+- Use UGrid for responsive layouts:
 
-    ```html
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      <div class="lg:col-span-2">Main Content</div>
-      <div>Sidebar</div>
-    </div>
+    ```vue
+    <UGrid :cols="[1, 2, 3]" gap="4">
+      <div>Column 1</div>
+      <div>Column 2</div>
+      <div>Column 3</div>
+    </UGrid>
     ```
 
-- Add hover states for interactive elements:
+- Use consistent spacing with Nuxt UI utilities:
+    - Section spacing: class="space-y-8"
+    - Card padding: default UCard padding
+    - Grid gaps: gap="4" or gap="6"
+    - Form spacing: class="space-y-4"
 
-    ```html
-    <button class="bg-blue-500 hover:bg-blue-600 transition-colors">
+- Use Nuxt UI form components:
+
+    ```vue
+    <UForm>
+      <UFormGroup label="Name">
+        <UInput v-model="name" />
+      </UFormGroup>
+    </UForm>
     ```
-
-- Use consistent spacing:
-    - Vertical spacing between sections: mb-8
-    - Padding inside cards: p-6
-    - Grid gaps: gap-8
-    - Form field spacing: space-y-4
 
 ### Content Examination
 
