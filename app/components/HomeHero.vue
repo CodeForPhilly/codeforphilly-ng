@@ -1,15 +1,29 @@
 <template>
-  <div class="max-w-6xl mx-auto px-4 py-12">
-    <div class="grid md:grid-cols-2 gap-8 items-center">
+  <UContainer class="py-12">
+    <div class="grid grid-cols-12 gap-8 items-center">
+      <!-- Video -->
+      <div class="col-span-12 lg:col-span-7 relative aspect-video overflow-hidden rounded-lg shadow-xl order-2 lg:order-1">
+        <video class="w-full h-full object-cover" autoplay muted loop poster="~/assets/videos/video.jpg">
+          <source src="~/assets/videos/video.mp4" type="video/mp4">
+          <track label="English" kind="subtitles" srclang="en" src="~/assets/videos/video.en.vtt" :default="true">
+        </video>
+      </div>
+
       <!-- Content -->
-      <div class="text-center md:text-left">
-        <img src="~/assets/img/logo-square.svg" alt="Code for Philly" class="h-32 mx-auto md:mx-0 mb-8">
-        <h1 class="text-2xl font-bold text-blue-700 mb-2">
-          Contribute towards technology-related projects that benefit the City of Philadelphia.
-        </h1>
-        <p class="text-xl text-red-600 mb-6">
-          No coding experience required.
-        </p>
+      <div class="col-span-12 lg:col-span-4 text-center lg:text-left order-1 lg:order-2">
+        <UImage
+          src="~/assets/img/logo-square.svg"
+          alt="Code for Philly"
+          class="h-32 mx-auto lg:mx-0 mb-8"
+        />
+        <div class="space-y-4 mb-6">
+          <h2 class="text-2xl font-bold text-primary">
+            Contribute towards technology-related projects that benefit the City of Philadelphia.
+          </h2>
+          <p class="text-xl text-error">
+            No coding experience required.
+          </p>
+        </div>
         <UButton
           icon="i-lucide-handshake"
           label="Volunteer!"
@@ -17,14 +31,6 @@
           size="lg"
         />
       </div>
-
-      <!-- Video -->
-      <div class="relative aspect-video overflow-hidden rounded-lg shadow-xl">
-        <video class="w-full h-full object-cover" autoplay muted loop poster="~/assets/videos/video.jpg">
-          <source src="~/assets/videos/video.mp4" type="video/mp4">
-          <track label="English" kind="subtitles" srclang="en" src="~/assets/videos/video.en.vtt" :default="true">
-        </video>
-      </div>
     </div>
-  </div>
+  </UContainer>
 </template>

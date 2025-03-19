@@ -1,52 +1,83 @@
 <template>
-  <div class="max-w-6xl mx-auto px-4 py-12">
-    <h2 class="text-3xl font-bold text-center mb-12">JOIN A PROJECT</h2>
+  <UContainer class="py-12">
+    <h2 class="text-3xl font-bold text-center mb-12 text-primary">
+      JOIN A PROJECT
+    </h2>
 
     <!-- Loading and Error States -->
     <div v-if="pending" class="text-center py-12">
-      <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-blue-600"></div>
+      <ULoader class="mx-auto" />
       <p class="mt-2 text-gray-600">Loading projects...</p>
     </div>
 
-    <div v-else-if="error" class="bg-red-50 border border-red-200 rounded-lg p-4">
-      <p class="text-red-700">Error loading projects: {{ error.message }}</p>
-    </div>
+    <UAlert
+      v-else-if="error"
+      color="error"
+      :title="error?.message || 'An error occurred'"
+      icon="i-lucide-alert-triangle"
+    />
 
     <!-- Projects Grid -->
     <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
       <NuxtLink v-for="project in projects" :key="project.id"
                 :to="`/projects/${project.handle}`"
-                class="bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group">
-        <!-- Project Logo/Image -->
-        <div class="h-48 bg-gray-100 flex items-center justify-center p-4">
-          <img v-if="project.logo_url" :src="project.logo_url" :alt="project.title" class="max-h-full">
-          <div v-else class="text-gray-400 text-xl">{{ project.title }}</div>
-        </div>
+                class="group">
+        <UCard class="h-full hover:shadow-md transition-all duration-200">
+          <!-- Project Title Banner -->
+          <div class="h-48 bg-gray-100 flex items-center justify-center p-4">
+            <UText
+              class="text-xl"
+              color="gray"
+            >
+              {{ project.title }}
+            </UText>
+          </div>
 
-        <!-- Project Info -->
-        <div class="p-4">
-          <h3 class="font-bold text-lg mb-2 group-hover:text-blue-600 transition-colors">{{ project.title }}</h3>
-          <p class="text-gray-600 text-sm mb-4 line-clamp-2">{{ project.readme }}</p>
-        </div>
+          <!-- Project Info -->
+          <div class="p-4">
+            <UText
+              class="font-bold text-lg mb-2 group-hover:text-primary transition-colors"
+            >
+              {{ project.title }}
+            </UText>
+            <UText
+              class="text-sm mb-4 line-clamp-2"
+              color="gray"
+            >
+              {{ project.readme }}
+            </UText>
+          </div>
+        </UCard>
       </NuxtLink>
     </div>
-  </div>
+  </UContainer>
 </template>
 
 <script setup lang="ts">
 import type { Project, Database } from '~/types/supabase'
 
-const { data: projects, pending, error } = await useLazyAsyncData<Project[]>('projects', async () => {
-  const client = useSupabaseClient<Database>()
-  const { data, error } = await client
-    .from('projects')
-    .select('*')
-    .order('created_at', { ascending: false })
+// Initialize refs
+const projects = ref<Project[]>([])
+const pending = ref(true)
+const error = ref<Error | null>(null)
 
-  if (error) {
-    throw error
+// Fetch data
+onMounted(async () => {
+  try {
+    const client = useSupabaseClient<Database>()
+    const { data, error: supabaseError } = await client
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (supabaseError) throw supabaseError
+    if (!data) throw new Error('No data returned')
+
+    projects.value = data
+  } catch (e) {
+    error.value = e instanceof Error ? e : new Error('An error occurred')
+  } finally {
+    pending.value = false
   }
-
-  return data
 })
 </script>
