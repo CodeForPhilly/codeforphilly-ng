@@ -1,6 +1,6 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
-    <div v-if="project" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div>
+    <UContainer v-if="project">
       <div class="flex justify-between items-center mb-8">
         <h1 class="text-3xl font-bold text-gray-900">{{ project.title }}</h1>
         <UButton
@@ -10,57 +10,52 @@
         />
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Main content -->
-        <div class="lg:col-span-2 space-y-8">
-          <section>
-            <h2 class="text-xl font-semibold text-gray-900 mb-4">Stage</h2>
+        <div class="lg:col-span-2 space-y-6">
+          <UCard>
+            <template #header>
+              <h2 class="text-xl font-semibold">Stage</h2>
+            </template>
             <UButton
               :icon="'i-lucide-flag'"
               :label="project.stage"
               color="primary"
             />
-          </section>
+          </UCard>
 
-          <section>
-            <h2 class="text-xl font-semibold text-gray-900 mb-4">README</h2>
-            <div class="bg-white rounded-lg shadow-sm overflow-hidden">
-              <div class="p-6">
-                <h3 class="text-lg font-medium text-gray-900 mb-4">Overview</h3>
-                <div v-if="project.readme" class="readme-content prose max-w-none" v-html="renderedReadme"></div>
-                <div v-else class="text-gray-500 italic">No README content available.</div>
-              </div>
-            </div>
-          </section>
+          <UCard>
+            <template #header>
+              <h2 class="text-xl font-semibold">README</h2>
+            </template>
+            <div v-if="project.readme" class="readme-content prose max-w-none" v-html="renderedReadme"></div>
+            <div v-else class="text-gray-500 italic">No README content available.</div>
+          </UCard>
 
-          <section v-if="project.tags?.length">
-            <h2 class="text-xl font-semibold text-gray-900 mb-4">Tags</h2>
+          <UCard v-if="project.tags?.length">
+            <template #header>
+              <h2 class="text-xl font-semibold">Tags</h2>
+            </template>
             <div class="flex flex-wrap gap-2">
-              <span v-for="tag in project.tags" :key="tag.id"
-                    class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium"
-                    :class="{
-                      'bg-blue-100 text-blue-800': tag.class === 'tech',
-                      'bg-green-100 text-green-800': tag.class === 'topic',
-                      'bg-purple-100 text-purple-800': tag.class === 'event'
-                    }">
-                <i :class="{
-                  'i-lucide-code': tag.class === 'tech',
-                  'i-lucide-bookmark': tag.class === 'topic',
-                  'i-lucide-calendar': tag.class === 'event'
-                }" class="mr-1.5"></i>
-                {{ tag.title }}
-              </span>
+              <UBadge
+                v-for="tag in project.tags"
+                :key="tag.id"
+                :label="tag.title"
+                :color="tagColors[tag.class] || 'neutral'"
+                :icon="tagIcons[tag.class]"
+                variant="subtle"
+              />
             </div>
-          </section>
+          </UCard>
         </div>
 
         <!-- Sidebar -->
         <div class="space-y-6">
-          <div class="bg-white rounded-lg shadow-sm overflow-hidden">
-            <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
-              <h2 class="text-lg font-medium text-gray-900">Project Info</h2>
-            </div>
-            <div class="p-4 space-y-3">
+          <UCard>
+            <template #header>
+              <h2 class="text-lg font-medium">Project Info</h2>
+            </template>
+            <div class="space-y-3">
               <UButton
                 v-if="project.users_url"
                 :to="project.users_url"
@@ -97,39 +92,37 @@
                 </template>
               </UButton>
             </div>
-          </div>
+          </UCard>
 
-          <div class="bg-white rounded-lg shadow-sm overflow-hidden">
-            <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
-              <h2 class="text-lg font-medium text-gray-900">Members</h2>
-            </div>
-            <div class="p-4">
-              <!-- TODO: Add members list once we have the data structure -->
-              <UButton
-                icon="i-lucide-plus-circle"
-                label="Add"
-                color="secondary"
-                block
-              />
-            </div>
-          </div>
+          <UCard>
+            <template #header>
+              <h2 class="text-lg font-medium">Members</h2>
+            </template>
+            <!-- TODO: Add members list once we have the data structure -->
+            <UButton
+              icon="i-lucide-plus-circle"
+              label="Add"
+              color="secondary"
+              block
+            />
+          </UCard>
         </div>
       </div>
-    </div>
+    </UContainer>
 
-    <div v-else-if="error" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <UContainer v-else-if="error">
       <UAlert
         icon="i-lucide-alert-triangle"
         color="error"
         :title="error?.message || 'An error occurred'"
       />
-    </div>
+    </UContainer>
 
-    <div v-else class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="flex justify-center">
-        <div class="animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-blue-600"></div>
+    <UContainer v-else>
+      <div class="flex justify-center py-12">
+        <ULoader />
       </div>
-    </div>
+    </UContainer>
   </div>
 </template>
 
@@ -185,6 +178,19 @@ onMounted(async () => {
     error.value = e instanceof Error ? e : new Error('An error occurred')
   }
 })
+
+// Tag mappings
+const tagColors = {
+  'tech': 'primary',
+  'topic': 'success',
+  'event': 'warning'
+} as const
+
+const tagIcons = {
+  'tech': 'i-lucide-code',
+  'topic': 'i-lucide-bookmark',
+  'event': 'i-lucide-calendar'
+} as const
 
 // Compute rendered README HTML
 const renderedReadme = computed(() => {
