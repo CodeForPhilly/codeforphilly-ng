@@ -224,6 +224,11 @@ When applying colors, use the appropriate syntax:
 
     <!-- Alerts -->
     <UAlert color="error" />     <!-- Only for actual errors -->
+
+    <!-- Button variants -->
+    <UButton variant="solid" />  <!-- Default, filled button -->
+    <UButton variant="outline" /> <!-- Outlined button -->
+    <UButton variant="link" />   <!-- Link-style button -->
     ```
 
 2. For text colors on HTML elements, use CSS variables:
@@ -239,16 +244,70 @@ When applying colors, use the appropriate syntax:
     <p class="text-(--ui-cta)">Call to action text</p>
     ```
 
-### Page Structure Guidelines
+3. For dark backgrounds, override color variables:
 
-When creating new pages, follow these conventions:
+    ```vue
+    <!-- Example: White text in dark header -->
+    <header class="bg-gray-900 [--ui-primary:theme(colors.white)]">
+      <UButton color="primary" variant="link">White Link</UButton>
+    </header>
+    ```
 
-1. Layout:
+### Layout Structure
+
+1. Main Layout:
+
+    ```vue
+    <!-- app.vue -->
+    <UApp>
+      <div class="min-h-screen bg-white flex flex-col">
+        <SiteHeader />
+        <main class="flex-grow py-12">
+          <NuxtPage />
+        </main>
+        <SiteFooter />
+      </div>
+    </UApp>
+    ```
+
+2. Page Layout:
 
     ```vue
     <UContainer class="py-12">
       <!-- Page content -->
     </UContainer>
+    ```
+
+3. Navigation:
+
+    ```vue
+    <!-- Header navigation -->
+    <UButton
+      variant="link"
+      color="primary"
+      label="NAVIGATION ITEM"
+    />
+
+    <!-- Footer navigation -->
+    <UButton
+      variant="link"
+      color="cta"
+      label="FOOTER LINK"
+      class="block"
+    />
+    ```
+
+4. Form Elements:
+
+    ```vue
+    <!-- Search input -->
+    <UInput
+      placeholder="Search"
+      icon="i-lucide-search"
+      size="sm"
+      color="primary"
+      variant="outline"
+    />
     ```
 
 2. Headings:
