@@ -1,50 +1,86 @@
 <template>
-  <footer class="bg-gray-900 text-white py-12">
-    <div class="max-w-6xl mx-auto px-4">
+  <footer class="bg-gray-900 py-12">
+    <UContainer>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
         <!-- Projects -->
         <div class="text-center">
-          <NuxtLink to="/projects" class="block text-red-500 hover:text-red-400">
-            Active Projects
-          </NuxtLink>
-          <NuxtLink to="/coming-soon/start" class="block mt-2 text-red-500 hover:text-red-400">
-            Start a Project
-          </NuxtLink>
-          <NuxtLink to="/coming-soon/hackathons" class="block mt-2 text-red-500 hover:text-red-400">
-            Hackathons
-          </NuxtLink>
+          <UButton
+            to="/projects"
+            variant="link"
+            label="Active Projects"
+            color="cta"
+            class="block"
+          />
+          <UButton
+            to="/coming-soon/start"
+            variant="link"
+            label="Start a Project"
+            color="cta"
+            class="block"
+          />
+          <UButton
+            to="/coming-soon/hackathons"
+            variant="link"
+            label="Hackathons"
+            color="cta"
+            class="block"
+          />
         </div>
 
         <!-- About -->
         <div class="text-center">
-          <NuxtLink to="/coming-soon/mission" class="block text-red-500 hover:text-red-400">
-            Mission
-          </NuxtLink>
-          <NuxtLink to="/coming-soon/code-of-conduct" class="block mt-2 text-red-500 hover:text-red-400">
-            Code of Conduct
-          </NuxtLink>
-          <NuxtLink to="/coming-soon/leadership" class="block mt-2 text-red-500 hover:text-red-400">
-            Leadership
-          </NuxtLink>
+          <UButton
+            to="/coming-soon/mission"
+            variant="link"
+            label="Mission"
+            color="cta"
+            class="block"
+          />
+          <UButton
+            to="/coming-soon/code-of-conduct"
+            variant="link"
+            label="Code of Conduct"
+            color="cta"
+            class="block"
+          />
+          <UButton
+            to="/coming-soon/leadership"
+            variant="link"
+            label="Leadership"
+            color="cta"
+            class="block"
+          />
         </div>
 
         <!-- Connect -->
         <div class="text-center">
-          <NuxtLink to="/coming-soon/slack" class="block text-red-500 hover:text-red-400">
-            Slack
-          </NuxtLink>
-          <NuxtLink to="/coming-soon/contact" class="block mt-2 text-red-500 hover:text-red-400">
-            Contact
-          </NuxtLink>
-          <NuxtLink to="/coming-soon/meetups" class="block mt-2 text-red-500 hover:text-red-400">
-            Weekly Meetups
-          </NuxtLink>
+          <UButton
+            to="/coming-soon/slack"
+            variant="link"
+            label="Slack"
+            color="cta"
+            class="block"
+          />
+          <UButton
+            to="/coming-soon/contact"
+            variant="link"
+            label="Contact"
+            color="cta"
+            class="block"
+          />
+          <UButton
+            to="/coming-soon/meetups"
+            variant="link"
+            label="Weekly Meetups"
+            color="cta"
+            class="block"
+          />
         </div>
       </div>
 
       <div class="mt-12 text-center text-gray-400">
         <p>Copyright © Code For Philly 2011 - {{ new Date().getFullYear() }}</p>
       </div>
-    </div>
+    </UContainer>
   </footer>
 </template>
