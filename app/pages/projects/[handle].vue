@@ -120,7 +120,7 @@
 
     <UContainer v-else>
       <div class="flex justify-center py-12">
-        <ULoader />
+        <UProgress class="mx-auto" indeterminate />
       </div>
     </UContainer>
   </div>

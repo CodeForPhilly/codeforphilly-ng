@@ -19,7 +19,7 @@
 
     <!-- Loading and Error States -->
     <div v-if="pending" class="text-center py-12">
-      <ULoader class="mx-auto" />
+      <UProgress class="mx-auto" indeterminate />
       <p class="mt-2 text-gray-600">Loading projects...</p>
     </div>
 

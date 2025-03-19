@@ -297,7 +297,17 @@ When applying colors, use the appropriate syntax:
     />
     ```
 
-4. Form Elements:
+4. Loading States:
+
+    ```vue
+    <!-- Loading state with progress indicator -->
+    <div class="text-center py-12">
+      <UProgress class="mx-auto" indeterminate />
+      <p class="mt-2 text-gray-600">Loading...</p>
+    </div>
+    ```
+
+5. Form Elements:
 
     ```vue
     <!-- Search input -->
