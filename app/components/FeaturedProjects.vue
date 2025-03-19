@@ -1,6 +1,6 @@
 <template>
   <UContainer class="py-12">
-    <h2 class="text-3xl font-bold text-center mb-12 text-primary">
+    <h2 class="text-3xl font-bold text-center mb-12">
       JOIN A PROJECT
     </h2>
 
@@ -25,27 +25,19 @@
         <UCard class="h-full hover:shadow-md transition-all duration-200">
           <!-- Project Title Banner -->
           <div class="h-48 bg-gray-100 flex items-center justify-center p-4">
-            <UText
-              class="text-xl"
-              color="gray"
-            >
+            <span class="text-xl text-gray-600">
               {{ project.title }}
-            </UText>
+            </span>
           </div>
 
           <!-- Project Info -->
           <div class="p-4">
-            <UText
-              class="font-bold text-lg mb-2 group-hover:text-primary transition-colors"
-            >
+            <h3 class="font-bold text-lg mb-2 group-hover:text-(--ui-primary) transition-colors">
               {{ project.title }}
-            </UText>
-            <UText
-              class="text-sm mb-4 line-clamp-2"
-              color="gray"
-            >
+            </h3>
+            <p class="text-sm mb-4 line-clamp-2 text-gray-600">
               {{ project.readme }}
-            </UText>
+            </p>
           </div>
         </UCard>
       </NuxtLink>

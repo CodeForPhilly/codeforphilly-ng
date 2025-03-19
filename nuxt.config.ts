@@ -14,9 +14,10 @@ export default defineNuxtConfig({
 
   compatibilityDate: '2024-11-27',
 
-  tailwindcss: {
-    exposeConfig: true,
-    viewer: true,
+  ui: {
+    theme: {
+      colors: ['primary', 'secondary', 'cta', 'info', 'success', 'warning', 'error']
+    }
   },
 
   supabase: {

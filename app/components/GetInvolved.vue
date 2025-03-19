@@ -1,7 +1,7 @@
 <template>
   <div class="bg-gray-50 py-16">
     <UContainer>
-      <h2 class="text-3xl font-bold text-center mb-4 text-primary">
+      <h2 class="text-3xl font-bold text-center mb-4">
         GET INVOLVED
       </h2>
       <p class="text-center mb-12 text-gray-600">
@@ -11,7 +11,7 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
         <!-- Sponsor -->
         <div>
-          <div class="text-error mb-4">
+          <div class="text-(--ui-cta) mb-4">
             <UIcon
               name="i-lucide-heart-handshake"
               class="h-16 w-16 mx-auto"
@@ -27,7 +27,7 @@
 
         <!-- Start a Project -->
         <div>
-          <div class="text-error mb-4">
+          <div class="text-(--ui-cta) mb-4">
             <UIcon
               name="i-lucide-rocket"
               class="h-16 w-16 mx-auto"
@@ -43,7 +43,7 @@
 
         <!-- Volunteer -->
         <div>
-          <div class="text-error mb-4">
+          <div class="text-(--ui-cta) mb-4">
             <UIcon
               name="i-lucide-users"
               class="h-16 w-16 mx-auto"

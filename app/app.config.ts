@@ -4,6 +4,7 @@ export default defineAppConfig({
     colors: {
       primary: 'blue',
       secondary: 'green',
+      cta: 'red',
       neutral: 'slate',
     },
     button: {

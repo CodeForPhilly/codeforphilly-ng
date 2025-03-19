@@ -11,23 +11,23 @@
 
       <!-- Content -->
       <div class="col-span-12 lg:col-span-4 text-center lg:text-left order-1 lg:order-2">
-        <UImage
+        <img
           src="~/assets/img/logo-square.svg"
           alt="Code for Philly"
           class="h-32 mx-auto lg:mx-0 mb-8"
         />
         <div class="space-y-4 mb-6">
-          <h2 class="text-2xl font-bold text-primary">
+          <h2 class="text-2xl font-bold text-(--ui-primary)">
             Contribute towards technology-related projects that benefit the City of Philadelphia.
           </h2>
-          <p class="text-xl text-error">
+          <p class="text-xl text-(--ui-cta)">
             No coding experience required.
           </p>
         </div>
         <UButton
           icon="i-lucide-handshake"
           label="Volunteer!"
-          color="error"
+          color="cta"
           size="lg"
         />
       </div>
