@@ -5,6 +5,13 @@ export default defineNuxtConfig({
     '@nuxtjs/tailwindcss'
   ],
 
+  runtimeConfig: {
+    public: {
+      githubClientId: process.env.NUXT_GITHUB_CLIENT_ID,
+      githubClientSecret: process.env.NUXT_GITHUB_CLIENT_SECRET,
+    }
+  },
+
   ssr: true,
 
   supabase: {
