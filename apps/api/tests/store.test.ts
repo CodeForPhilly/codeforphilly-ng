@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { openRepo, openStore } from 'gitsheets';
+import { openStore } from 'gitsheets';
 
 import { PersonSchema, ProjectSchema } from '@cfp/shared/schemas';
 import { FilesystemPrivateStore } from '../src/store/private/filesystem.js';
@@ -23,22 +23,17 @@ const uuid = (n: number) => `01951a3c-0000-7000-8000-${String(n).padStart(12, '0
 // Helpers
 // -------------------------------------------------------------------------
 
-async function makePrivateStore(): Promise<{ store: FilesystemPrivateStore; cleanup: () => Promise<void> }> {
+async function makePrivateStore(): Promise<{ store: FilesystemPrivateStore; dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), 'cfp-private-'));
   await mkdir(dir, { recursive: true });
   const store = new FilesystemPrivateStore({ CFP_PRIVATE_STORAGE_PATH: dir });
   await store.load();
   return {
     store,
+    dir,
     cleanup: async () => rm(dir, { recursive: true, force: true }),
   };
 }
-
-/** Sheet configs for the test repo — minimal single-level path templates. */
-const SHEET_CONFIGS: Record<string, { root: string; path: string }> = {
-  people: { root: 'people', path: '${{ slug }}' },
-  projects: { root: 'projects', path: '${{ slug }}' },
-};
 
 // -------------------------------------------------------------------------
 // Tests: public store basics
@@ -215,13 +210,10 @@ describe('Store (dual-store coordination)', () => {
 
     try {
       const publicStore = await openStore(repo, { validators: { projects: ProjectSchema } });
-      const dualStore = new Store(publicStore, privateStore);
 
       const personId = uuid(50);
 
-      // Remove the private storage directory so the flush fails with ENOENT
-      // (mkdir in writeRaw would recreate it, so we need to revoke write access)
-      // Simplest approach: point to an impossible path
+      // Use an impossible path so the private flush fails with ENOENT
       const badPrivateStore = new FilesystemPrivateStore({
         CFP_PRIVATE_STORAGE_PATH: '/dev/null/impossible-path',
       });
@@ -252,9 +244,75 @@ describe('Store (dual-store coordination)', () => {
         ),
       ).rejects.toThrow();
 
+      // Verify the public commit DID land — this is the load-bearing claim
+      // of the reconciliation strategy: public is committed, private is
+      // orphaned, manual recovery needed (not automatic git revert).
+      const freshSheet = await repo.openSheet('projects', { validator: ProjectSchema });
+      const project = await freshSheet.queryFirst({ slug: 'dual-write-test' });
+      expect(project).toBeDefined();
+      expect(project?.title).toBe('Dual Write Test');
+
       // In-memory state of badPrivateStore should be rolled back
       const profile = await badPrivateStore.getProfile(personId);
       expect(profile).toBeNull();
+    } finally {
+      await repoCleanup();
+    }
+  });
+
+  it('writeOrder: private-first — private flush fails → public also not committed (unlike public-first)', async () => {
+    // The key property of private-first mode: private is flushed INSIDE the
+    // public.transact callback, before gitsheets commits. If private flush
+    // throws, the callback exits with an error and gitsheets does NOT commit
+    // the public tree. Neither side is committed — both are protected.
+    //
+    // This is the opposite of public-first, where public commits first and a
+    // private failure leaves an orphan public record needing reconciliation.
+    const { repo, cleanup: repoCleanup } = await createTestRepo(['people']);
+    const personId = uuid(60);
+
+    try {
+      const publicStore = await openStore(repo, { validators: { people: PersonSchema } });
+      const badPrivateStore = new FilesystemPrivateStore({
+        CFP_PRIVATE_STORAGE_PATH: '/dev/null/impossible-path',
+      });
+      await badPrivateStore.load();
+      const dualStore = new Store(publicStore, badPrivateStore);
+
+      await expect(
+        dualStore.transact(
+          {
+            message: 'test: private-first flush failure',
+            author: { name: 'test', email: 'test@cfp.test' },
+            writeOrder: 'private-first',
+          },
+          async (tx) => {
+            tx.private.putProfile({
+              personId,
+              email: 'private-first@example.com',
+              emailRefreshedAt: now,
+              updatedAt: now,
+            });
+            await tx.public['people'].upsert({
+              id: personId,
+              slug: 'private-first-person',
+              fullName: 'Private First Person',
+              accountLevel: 'user',
+              createdAt: now,
+              updatedAt: now,
+            });
+            // Handler succeeds — but flushPrivate() will be called inside the
+            // callback (private-first) and will fail with ENOENT on the bad path.
+          },
+        ),
+      ).rejects.toThrow();
+
+      // Public did NOT land — because private flush failed inside the callback,
+      // gitsheets never committed the public tree. This is the defining
+      // property of private-first: "if private fails, no public artifact exists."
+      const freshPeople = await repo.openSheet('people', { validator: PersonSchema });
+      const person = await freshPeople.queryFirst({ slug: 'private-first-person' });
+      expect(person).toBeUndefined();
     } finally {
       await repoCleanup();
     }
@@ -267,7 +325,7 @@ describe('Store (dual-store coordination)', () => {
 
 describe('FilesystemPrivateStore', () => {
   it('persists and retrieves a profile across store instances', async () => {
-    const { store, cleanup } = await makePrivateStore();
+    const { store, dir, cleanup } = await makePrivateStore();
     try {
       const personId = uuid(30);
       await store.putProfile({
@@ -277,15 +335,11 @@ describe('FilesystemPrivateStore', () => {
         updatedAt: now,
       });
 
-      // Create a fresh store instance from the same directory to test persistence
-      const store2 = new FilesystemPrivateStore({ CFP_PRIVATE_STORAGE_PATH: (store as unknown as { _dir?: string })['_dir'] ?? join(tmpdir(), 'never') });
-
-      // Use the original store's path
-      const storeWithPath = store as unknown as { _FilesystemPrivateStore_dir?: string };
-      void storeWithPath;
-
-      // Just verify the same instance returns the profile (persistence to disk)
-      const profile = await store.getProfile(personId);
+      // Create a fresh store instance from the same directory and load it —
+      // this actually exercises cross-instance persistence via disk.
+      const freshStore = new FilesystemPrivateStore({ CFP_PRIVATE_STORAGE_PATH: dir });
+      await freshStore.load();
+      const profile = await freshStore.getProfile(personId);
       expect(profile).not.toBeNull();
       expect(profile?.email).toBe('test@example.com');
     } finally {
