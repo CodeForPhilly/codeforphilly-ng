@@ -16,5 +16,8 @@
     "build": "npm run build --workspaces --if-present",
     "type-check": "npm run type-check --workspaces --if-present",
     "lint": "eslint ."
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
