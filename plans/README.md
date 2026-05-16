@@ -71,7 +71,7 @@ cutover-prep
 
 | Status | Plan | Implements | Depends on |
 | :-: | --- | --- | --- |
-| 📋 | [workspace](workspace.md) | architecture.md repo layout | — |
+| ✅ | [workspace](workspace.md) ([PR #9](https://github.com/CodeForPhilly/codeforphilly-ng/pull/9)) | architecture.md repo layout | — |
 | 📋 | [test-harness](test-harness.md) | — (foundational) | workspace |
 | 📋 | [storage-foundation](storage-foundation.md) | data-model, storage, private-storage, markdown-rendering (+ upstream gitsheets: path-templates, transactions, validation, normalization) | test-harness |
 | 📋 | [api-skeleton](api-skeleton.md) | api/conventions (+ upstream gitsheets: error taxonomy) | storage-foundation |
