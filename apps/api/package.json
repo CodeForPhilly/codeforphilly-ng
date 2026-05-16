@@ -5,12 +5,13 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file=../../.env src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "script:scrub-data": "tsx scripts/scrub-data.ts"
+    "script:scrub-data": "tsx scripts/scrub-data.ts",
+    "script:setup-dev-data": "tsx scripts/setup-dev-data.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1048.0",
