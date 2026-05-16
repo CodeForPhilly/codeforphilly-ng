@@ -45,17 +45,21 @@ export class ApiValidationError extends Error {
 
 /** Thrown when the caller is not authenticated (401). */
 export class UnauthenticatedError extends Error {
-  constructor(message = 'Authentication required') {
+  readonly code: string;
+  constructor(message = 'Authentication required', code = 'unauthenticated') {
     super(message);
     this.name = 'UnauthenticatedError';
+    this.code = code;
   }
 }
 
 /** Thrown when the caller is authenticated but not authorized (403). */
 export class ForbiddenError extends Error {
-  constructor(message = 'Forbidden') {
+  readonly code: string;
+  constructor(message = 'Forbidden', code = 'forbidden') {
     super(message);
     this.name = 'ForbiddenError';
+    this.code = code;
   }
 }
 
@@ -69,9 +73,11 @@ export class ApiNotFoundError extends Error {
 
 /** Thrown on unique-constraint / slug conflicts (409). */
 export class ConflictError extends Error {
-  constructor(message: string) {
+  readonly code: string;
+  constructor(message: string, code = 'conflict') {
     super(message);
     this.name = 'ConflictError';
+    this.code = code;
   }
 }
 
@@ -112,12 +118,12 @@ export function mapError(
   }
 
   if (err instanceof UnauthenticatedError) {
-    void reply.code(401).send(errorResponse('unauthenticated', err.message, traceId));
+    void reply.code(401).send(errorResponse(err.code, err.message, traceId));
     return;
   }
 
   if (err instanceof ForbiddenError) {
-    void reply.code(403).send(errorResponse('forbidden', err.message, traceId));
+    void reply.code(403).send(errorResponse(err.code, err.message, traceId));
     return;
   }
 
@@ -127,7 +133,7 @@ export function mapError(
   }
 
   if (err instanceof ConflictError) {
-    void reply.code(409).send(errorResponse('conflict', err.message, traceId));
+    void reply.code(409).send(errorResponse(err.code, err.message, traceId));
     return;
   }
 

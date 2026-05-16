@@ -53,4 +53,17 @@ export interface PrivateStore {
    * is not updated.
    */
   transact<T>(handler: (tx: PrivateStoreTx) => Promise<T>): Promise<T>;
+
+  /**
+   * Read an arbitrary blob from the private store by key.
+   * Returns null if the blob does not exist.
+   * For session metadata and other non-record private data.
+   */
+  readBlob(key: string): Promise<string | null>;
+
+  /**
+   * Write an arbitrary blob to the private store by key.
+   * For session metadata and other non-record private data.
+   */
+  writeBlob(key: string, content: string): Promise<void>;
 }
