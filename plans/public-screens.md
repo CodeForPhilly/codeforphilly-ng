@@ -95,7 +95,7 @@ Components stay dumb. Data + URL state lives in the screen-level components.
 
 ### Search typeahead
 
-The header search box (wired in [`web-shell`](web-shell.md) without data) hits three endpoints in parallel and renders grouped results. Submitting (Enter) currently routes to `/projects?q=…` for projects-only search (per [behaviors/app-shell.md](../specs/behaviors/app-shell.md) — full search is deferred).
+The header search box (wired in [`web-shell`](web-shell.md) without data) hits three endpoints in parallel and renders grouped results. Replace the `mockSearch` stub in `apps/web/src/hooks/useSearch.ts` with real calls to `GET /api/projects?q=…&perPage=4`, `GET /api/people?q=…&perPage=4`, and `GET /api/tags?q=…&perPage=4`. Wire `useNetworkError().showError()` on 5xx responses. Submitting (Enter) currently routes to `/projects?q=…` for projects-only search (per [behaviors/app-shell.md](../specs/behaviors/app-shell.md) — full search is deferred).
 
 ### Permission-aware UI
 
@@ -110,7 +110,8 @@ Markdown comes back from the API as pre-rendered, sanitized HTML (`overviewHtml`
 - [ ] `npm run dev` end-to-end: home, all index screens, detail screens, all link correctly
 - [ ] Filter chips on projects-index update URL + re-fetch; back/forward preserves state
 - [ ] Sort + pagination work; deep-linking to `?page=3&sort=-stage` lands correctly
-- [ ] Search typeahead returns grouped results; Enter goes to `/projects?q=…`
+- [ ] Search typeahead returns grouped results; Enter goes to `/projects?q=…` (replaces `mockSearch` stub from web-shell with real API calls)
+- [ ] `<NetworkErrorBanner>` appears on 5xx API responses (call sites in data-fetching hooks; context + component wired in web-shell)
 - [ ] Project detail shows overview + open help-wanted section + activity feed; tags / member avatars / action buttons render
 - [ ] Help-wanted index filters by tech / topic / commitment-max; "Express Interest" button reads as anonymous-disabled or "Sign in" link
 - [ ] Tags overview + namespace + detail screens all render and link correctly
@@ -127,3 +128,6 @@ Markdown comes back from the API as pre-rendered, sanitized HTML (`overviewHtml`
 - **Search typeahead UX.** The combo of multi-group results + keyboard nav + mobile compatibility is fiddly. Use shadcn `<Command>` as the substrate; it handles most of it.
 
 ## Notes
+
+- Absorbed from web-shell: search typeahead real API wiring and NetworkErrorBanner call sites are explicitly in scope here (stubs shipped in web-shell, wired here).
+- Absorbed from web-shell: manual QA of mobile sheet (< md hamburger → sheet) should be included in this plan's QA pass — see [Issue #16](https://github.com/CodeForPhilly/codeforphilly-ng/issues/16).
