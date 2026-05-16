@@ -20,6 +20,7 @@ Per-plan frontmatter is the source of truth for both **status** (`status:`) and 
 - To find what's in flight: `grep -l '^status: in-progress' plans/*.md`
 - To find what's done: same, with `done`
 - To trace dependencies: `grep '^depends:' plans/*.md` or read the plan whose name you care about
+- External blockers (`awaits:` field) are surfaced by `plans-next` in their own "Awaiting external" section — see [the plans protocol's External blockers section](https://github.com/JarvusInnovations/agent-skills/blob/main/skills/specops/references/plans-protocol.md#external-blockers)
 
 ## What plans are NOT
 

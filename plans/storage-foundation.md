@@ -13,6 +13,8 @@ upstream-specs:
   - gitsheets:specs/behaviors/transactions.md
   - gitsheets:specs/behaviors/validation.md
   - gitsheets:specs/behaviors/normalization.md
+awaits:
+  - "JarvusInnovations/gitsheets@v1.0 — consumed via Repository / Sheet / openStore TypeScript API (https://github.com/JarvusInnovations/gitsheets/milestone/1)"
 issues: []
 ---
 
