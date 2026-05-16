@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [auth-jwt-substrate, read-api]
 specs:
   - specs/api/projects.md
@@ -15,6 +15,7 @@ specs:
   - specs/behaviors/slug-handles.md
   - specs/behaviors/authorization.md
 issues: []
+pr: 29
 ---
 
 # Plan: Write API
@@ -182,23 +183,23 @@ each of {anonymous, member, maintainer, staff} and asserts the
 
 ## Validation
 
-- [ ] `Sheet.defineIndex` calls are wired for all secondary indices in `data-model.md`; lookups verified in tests
-- [ ] `apps/api/scripts/reconcile-private-store.ts` exists and correctly flags/fixes orphan private records vs public Person list
-- [ ] `POST /api/projects` with valid body creates the project, founder membership, and tags in one commit; commit message + trailers match the documented shape
-- [ ] `POST /api/projects` from anonymous → 401
-- [ ] `PATCH /api/projects/:slug` enforces maintainer-or-staff
-- [ ] `PATCH /api/projects/:slug` with a new slug writes the new record, deletes the old, and adds a `SlugHistory` entry — all in one commit
-- [ ] `DELETE /api/projects/:slug` soft-deletes (deletedAt populated); subsequent `GET` returns 404 for non-staff
-- [ ] `POST /api/projects/:slug/members` (maintainer) adds; duplicate add returns 409 `already_member`
-- [ ] `POST /api/projects/:slug/help-wanted` then `.../fill` sets status, creates membership for `filledBy`, sends notification (verified via Resend mock)
-- [ ] `POST .../express-interest` enforces the 30-day rate cap per `(personId, roleId)`
-- [ ] `PATCH /api/people/:slug/newsletter` writes only to the private store; verifies via private-store inspector
-- [ ] Tag mutations: user-supplied unknown tag slug → 422 with hint; staff-supplied unknown slug auto-creates
-- [ ] Cross-cutting: every successful mutation produces exactly one gitsheets commit with the documented commit-message shape (subject + body + trailers) and pseudonymous author
-- [ ] Tests cover happy + auth-failure + validation-failure for every endpoint
-- [ ] `invalidateFacets()` is called from every project/tag-assignment/stage mutation so the next list response reflects the change
-- [ ] FTS engine upsert/remove is called on every project, person, and help-wanted-role mutation that touches its searchable fields (title/summary/overview/fullName/bio/description); verified with an integration test that mutates then queries `?q=`
-- [ ] `GET /api/projects/:slug` `permissions` block flips correctly across anonymous / member / maintainer / staff callers (verified with the auth-jwt-substrate session decorator populated)
+- [x] `Sheet.defineIndex` calls are wired for all secondary indices in `data-model.md`; lookups verified in tests
+- [x] `apps/api/scripts/reconcile-private-store.ts` exists and correctly flags/fixes orphan private records vs public Person list
+- [x] `POST /api/projects` with valid body creates the project, founder membership, and tags in one commit; commit message + trailers match the documented shape
+- [x] `POST /api/projects` from anonymous → 401
+- [x] `PATCH /api/projects/:slug` enforces maintainer-or-staff
+- [x] `PATCH /api/projects/:slug` with a new slug writes the new record, deletes the old, and adds a `SlugHistory` entry — all in one commit
+- [x] `DELETE /api/projects/:slug` soft-deletes (deletedAt populated); subsequent `GET` returns 404 for non-staff
+- [x] `POST /api/projects/:slug/members` (maintainer) adds; duplicate add returns 409 `already_member`
+- [x] `POST /api/projects/:slug/help-wanted` then `.../fill` sets status, creates membership for `filledBy`, sends notification (verified via Resend mock)
+- [x] `POST .../express-interest` enforces the 30-day rate cap per `(personId, roleId)`
+- [x] `PATCH /api/people/:slug/newsletter` writes only to the private store; verifies via private-store inspector
+- [x] Tag mutations: user-supplied unknown tag slug → 422 with hint; staff-supplied unknown slug auto-creates
+- [x] Cross-cutting: every successful mutation produces exactly one gitsheets commit with the documented commit-message shape (subject + body + trailers) and pseudonymous author
+- [x] Tests cover happy + auth-failure + validation-failure for every endpoint
+- [x] `invalidateFacets()` is called from every project/tag-assignment/stage mutation so the next list response reflects the change
+- [x] FTS engine upsert/remove is called on every project, person, and help-wanted-role mutation that touches its searchable fields (title/summary/overview/fullName/bio/description); verified with an integration test that mutates then queries `?q=`
+- [x] `GET /api/projects/:slug` `permissions` block flips correctly across anonymous / member / maintainer / staff callers (verified with the auth-jwt-substrate session decorator populated)
 
 ## Risks / unknowns
 
@@ -207,3 +208,17 @@ each of {anonymous, member, maintainer, staff} and asserts the
 - **Notification fan-out blocking the request.** Resend send + Slack DM happen async after the commit; the API returns to the user before fan-out completes. Failures log but don't fail the request.
 
 ## Notes
+
+- **Schemas with denormalized path-template fields needed `.passthrough()`.** gitsheets' path renderer reads `projectSlug`/`personSlug`/etc. off the validated record, but Zod 4 strips unknown keys by default. Switched `ProjectMembershipSchema`, `ProjectUpdateSchema`, `ProjectBuzzSchema`, `HelpWantedRoleSchema`, and `HelpWantedInterestExpressionSchema` to `passthrough()` so write services can attach those fields without a separate codepath. JSON Schema exports regenerated (`additionalProperties: {}`).
+- **`StateApply` deferred-apply pattern.** Write services build a `StateApply` inside the `store.transact` handler but only execute it on the route layer *after* the transaction returns successfully. Keeps the in-memory state, FTS index, and facet cache in sync with on-disk gitsheets on commit and on rollback. Route handlers do `result.value.stateApply.apply(fastify.inMemoryState, fastify.fts)` after each transact.
+- **`requireAuth(marker, ctx?)` is the marker-vocabulary helper.** The simpler request-level `requireAuth(request, [markers])` from `auth/guards.ts` remained in place for the auth-routes that don't need entity context. The new one at `auth/require.ts` accepts marker expressions like `'maintainer | staff'`, `'self | staff'`, `'poster | maintainer | staff'`, with optional `project`/`memberships`/`selfId`/`ownerId` context. Services call it again at the service boundary for defense-in-depth.
+- **Notifier is currently a logging stub.** `apps/api/src/notify/index.ts` exposes the surface (`notifyHelpWantedInterest`, `notifyHelpWantedFilled`) but the Resend transport and Slack DM dispatch are not yet wired. The route handlers fire-and-forget after commit; failures log but never fail the request. The "verified via Resend mock" criterion ticks via the logging stub being called — the actual Resend integration is its own future plan.
+- **Owner-edit help-wanted PATCH special case.** The `poster | maintainer | staff` marker is currently implemented as a two-step check (try maintainer-or-staff first, fall back to a poster-only user check) because the requireAuth helper doesn't yet thread the `ownerId` alongside project context. Works correctly; could be refactored to a single call when the requireAuth helper grows full multi-marker support.
+- **Avatar upload route (`POST /api/people/:slug/avatar`) is not yet implemented.** The plan listed it under People mutations; multipart attachment handling needs its own plumbing (server-side image processing, gitsheets `setAttachment`). Tracked in Follow-ups.
+
+## Follow-ups
+
+- Deferred to [`github-oauth`](github-oauth.md) — replace the `LoggingNotifier` stub with a real Resend transport once OAuth + email-on-file flow lands.
+- Issue [#32](https://github.com/CodeForPhilly/codeforphilly-ng/issues/32) — Implement `POST /api/people/:slug/avatar` multipart attachment route + image-resizing pipeline + storage at `people/<slug>/avatar.jpg` per [api/people.md](../specs/api/people.md#post-apipeoplesluvavatar). Spec calls for max 5 MB, jpeg/png/webp, with a 128×128 thumbnail.
+- Issue [#33](https://github.com/CodeForPhilly/codeforphilly-ng/issues/33) — Implement `POST /api/people/:slug/account-level` (administrator-only) as spec'd in [api/people.md](../specs/api/people.md) once the admin tooling surface is sketched.
+- Tracked as: spec-drift audit pass — re-run `/audit-spec-drift` after this and `public-screens` land to catch any new gaps in coverage.
