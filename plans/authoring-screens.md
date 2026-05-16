@@ -34,6 +34,10 @@ Out of scope: GitHub OAuth itself ([`github-oauth`](github-oauth.md) follows); a
 
 ## Approach
 
+### Replacing the "Sign in to …" stubs
+
+[`public-screens`](public-screens.md) wired every authoring entry-point as either a permission-gated button (visible but disabled when `response.permissions.canFoo === false`) or a "Sign in to …" link for anonymous callers. This plan replaces those stubs with their actual flows — for each `permissions.canFoo` flag listed in `specs/screens/project-detail.md` and `specs/screens/help-wanted-index.md`, swap the disabled button or sign-in link for the modal / form / endpoint defined below. The button visibility logic stays untouched; only the click-handler changes.
+
 ### Markdown editor
 
 A shared `<MarkdownEditor>` component used by project-edit (overview), profile-edit (bio), post-update modal (body), post-help-wanted modal (description), log-buzz form (summary):
@@ -113,6 +117,7 @@ On `/tags/:namespace/:slug` for staff: small inline "Edit" / "Merge into…" / "
 - [ ] Tag-management modals (staff): edit / merge / delete all flow correctly; non-staff doesn't see the buttons
 - [ ] Server-side markdown preview: typing in the editor shows live rendered HTML; **no client-side markdown library in the build** (verify by `npm run build` + bundle grep for `'remark'`, `'unified'`, `'markdown-it'`)
 - [ ] Tests cover each modal's happy + error path; smoke test for the project-edit form
+- [ ] All "Sign in to …" stubs and `disabled` permission-gated buttons from public-screens have been replaced with their actual click-handler / modal (verify: grep `apps/web/src/screens/` for `Sign in to` returns only the genuinely-anonymous-only CTAs, e.g., volunteer hero)
 
 ## Risks / unknowns
 
