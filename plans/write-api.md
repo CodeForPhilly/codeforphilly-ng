@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [auth-jwt-substrate, read-api]
 specs:
   - specs/api/projects.md
