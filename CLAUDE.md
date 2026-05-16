@@ -29,18 +29,24 @@ Run `/audit-spec-drift` to launch a comprehensive audit comparing `specs/` again
 ## Stack
 
 - **Backend** — Fastify 5.x + TypeScript. Single replica, in-process write mutex.
-- **Storage** — [gitsheets](https://github.com/JarvusInnovations/gitsheets) (TOML records in a git repo). No persistent OLTP. See [specs/behaviors/storage.md](specs/behaviors/storage.md).
-- **Schemas** — Zod in `packages/shared`, consumed by both web and api.
+- **Public storage** — [gitsheets](https://github.com/JarvusInnovations/gitsheets) (TOML records in a git repo). Public-by-design — civic transparency. No persistent OLTP. See [specs/behaviors/storage.md](specs/behaviors/storage.md).
+- **Private storage** — S3-compatible bucket holding two `.jsonl` files (private profiles + legacy password hashes). Boot-load + in-memory; PUT on mutation. See [specs/behaviors/private-storage.md](specs/behaviors/private-storage.md).
+- **Schemas** — Zod in `packages/shared`, consumed by both web and api, validating records in both stores.
 - **Full-text search** — in-memory SQLite FTS5 (or MiniSearch fallback), rebuilt at boot from gitsheets state.
+- **Auth** — GitHub OAuth as the sole primary identity provider; stateless JWT sessions. We are also the SAML IdP for codeforphilly.slack.com. See [specs/api/auth.md](specs/api/auth.md), [specs/api/saml.md](specs/api/saml.md).
 - **Frontend** — Vite + React 19 + shadcn/ui + Tailwind v4 + React Router v7.
 
 See [specs/architecture.md](specs/architecture.md) for the full stack rationale.
 
 Per the user's global rules: `npm` workspaces (not bun), `asdf` manages the Node version, commit lockfiles.
 
-### Two repos
+### Three persistence surfaces
 
-The code lives here. The data lives in a separate git repo (`codeforphilly-data`, private) referenced via `CFP_DATA_REPO_PATH`. Contributors clone a scrubbed snapshot (`codeforphilly-data-snapshot`, public) for local dev — no database to install.
+1. **Public gitsheets data repo** (`codeforphilly-data` — pushed publicly) — projects, members' public fields, tags, etc.
+2. **Private bucket** — emails, newsletter prefs, legacy password hashes during migration. Production-only; devs use a local filesystem backend with seeded fakes.
+3. **Public snapshot** (`codeforphilly-data-snapshot`) — anonymized, contributor-cloneable copy of the public data. PII-free by construction.
+
+**Real production private data never lands on a dev machine** — see [specs/behaviors/private-storage.md](specs/behaviors/private-storage.md).
 
 ## Tooling
 

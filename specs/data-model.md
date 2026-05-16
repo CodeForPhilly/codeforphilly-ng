@@ -15,6 +15,8 @@ Only `people` and `projects` have soft-delete (`deletedAt`).
 ## Entity overview
 
 ```text
+PUBLIC (gitsheets) ─────────────────────────────────────────────────────
+
 Person ──*── ProjectMembership ──*── Project
    │            │ role                 │
    │            │ joinedAt             │
@@ -29,16 +31,23 @@ Person ──*── ProjectMembership ──*── Project
 Tag ──── TagAssignment ──── (Project | Person | HelpWantedRole)
                               polymorphic via taggableType + taggableId
 
-Person ── has ── LegacyPasswordCredential (0:1; only populated by laddr migration, consumed by the account-claim flow)
-       ── has ── Revocation               (0:many; revoked JWT IDs)
+Person ── has ── Revocation               (0:many; revoked JWT IDs)
 SlugHistory ── points at any renamed entity by (entityType, oldSlug)
 
-The audit log is the commit log itself — see [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log).
+PRIVATE (S3-compatible bucket) ─────────────────────────────────────────
+
+Person.id ──── PrivateProfile             (1:1; email, newsletter prefs)
+          └── LegacyPasswordCredential   (0:1; from laddr import, drains to zero)
+
+The audit log for public data is the commit log itself — see
+[behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log).
+Private mutations are tracked via bucket versioning — see
+[behaviors/private-storage.md](behaviors/private-storage.md).
 ```
 
-## Person
+## Person _(public)_
 
-The user/member of the brigade. Replaces laddr's `Emergence\People\Person`.
+The user/member of the brigade. Replaces laddr's `Emergence\People\Person`. Stored in the **public** gitsheets repo — anyone cloning the data repo can see these fields. Email, password hashes, and other sensitive fields live in the private store (see [PrivateProfile](#privateprofile-private) below).
 
 **Sheet:** `people`
 **Path template:** `people/${slug}.toml`
@@ -48,57 +57,109 @@ The user/member of the brigade. Replaces laddr's `Emergence\People\Person`.
 | id | uuid | |
 | legacyId | int | laddr `people.ID` |
 | slug | string | unique. Was `Username`. URL: `/members/<slug>`. |
-| email | string | unique, case-insensitive, lowercased on save. Used for auth. |
 | fullName | string | display name |
 | firstName | string nullable | parsed/edited separately for sort + greeting |
 | lastName | string nullable | |
 | bio | string nullable | markdown |
-| avatarKey | string nullable | gitsheets attachment key (e.g., `people/<slug>/avatar.jpg`). If absent, fall back to gravatar(email). |
+| avatarKey | string nullable | gitsheets attachment key (e.g., `people/<slug>/avatar.jpg`). If absent, fall back to a generic-avatar placeholder (no email-based gravatar — emails aren't in the public record). |
 | slackHandle | string nullable | Slack username (without `@`) for contact + help-wanted Slack DM delivery. Self-edited; not verified. |
 | accountLevel | enum | `user` \| `staff` \| `administrator`. Default `user`. See [behaviors/authorization.md](behaviors/authorization.md). |
-| emailVerifiedAt | iso8601 nullable | |
+| githubUserId | int nullable | GitHub's numeric user ID (stable across renames). Set when the Person links a GitHub identity — see [behaviors/account-migration.md](behaviors/account-migration.md). |
+| githubLogin | string nullable | GitHub username (mutable on GitHub's side; updated on every login). |
+| githubLinkedAt | iso8601 nullable | When GitHub identity was first attached. |
+| slackSamlNameId | string nullable | Immutable per-person identifier used as SAML `NameID.Value` for Slack SSO (see [api/saml.md](api/saml.md)). Populated from `slug` at Person creation; never changes after, even if the slug is renamed. |
 | deletedAt | iso8601 nullable | soft delete |
 | createdAt | iso8601 | |
 | updatedAt | iso8601 | |
 
+**Public-record cleanliness rule:** no field in this sheet may carry email addresses, password material, IP addresses, or other PII. The public gitsheets repo is pushed to a publicly cloneable remote.
+
 **Validators:**
 
 - `slug` matches `^[a-z0-9][a-z0-9-]{1,49}$`
-- `email` is RFC 5322 valid
 - `bio` ≤ 10,000 chars
 - `slackHandle` matches `^[a-z0-9][a-z0-9._-]{0,80}$` (no leading `@`)
 - `fullName` is required, 1–120 chars
+- `githubUserId` ≥ 1 when present
+- `githubLogin` matches GitHub's username regex `^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$` when present
+- `slackSamlNameId` matches `^[a-z0-9][a-z0-9-]{1,49}$` (slug shape); immutable after first set
 
 **Secondary in-memory indices:**
 
 - `bySlug.person: Map<slug, id>` — already implicit in the path template
-- `byEmail: Map<lowerEmail, id>` — used by login + the laddr-migration matcher
 - `byLegacyId.person: Map<legacyId, id>`
+- `byGithubUserId: Map<githubUserId, id>` — used by GitHub OAuth callback for "is this GitHub user already linked?"
+- `bySlackSamlNameId: Map<slackSamlNameId, id>` — used by SAML IdP
 
 **Uniqueness:**
 
 - `slug` (case-insensitive)
-- `email` (case-insensitive)
 - `legacyId` (when present)
+- `githubUserId` (when present)
+- `slackSamlNameId` (when present)
 
 The single-writer mutex makes these enforceable in-process: validate-then-write under the lock.
 
-## LegacyPasswordCredential
+## PrivateProfile _(private)_
 
-Carries a laddr user's old password hash forward through the migration so they can claim their legacy account by typing their old username + password in the account-claim flow (separate spec, not yet written). **The rewrite never creates new records in this sheet** — only the laddr import does. **The rewrite never signs in against these credentials at runtime** — only the claim endpoint validates against them, and only as a one-time identity proof during the claim.
+The sensitive complement to a Person. Stored in the **private store** (S3-compatible bucket), keyed by `personId`. See [behaviors/private-storage.md](behaviors/private-storage.md).
 
-When a legacy account is successfully claimed (by any path — email-match, password-match, or staff approval), its `LegacyPasswordCredential` record is deleted. Once all migration claims are completed (or expire), this sheet drains to zero records and the entity can be removed from the spec.
-
-**Sheet:** `legacy-password-credentials`
-**Path template:** `legacy-password-credentials/${personId}.toml`
+**Storage:** `profiles.jsonl` in the private bucket — one record per line, single overwrite per mutation.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| personId | uuid | references people.id, 1:1. Used as the filename. |
-| passwordHash | string | the laddr password hash, *as-is*. We do not re-hash; we use whatever algorithm laddr used (laddr-era PHP, likely bcrypt or sha512crypt — confirm at migration time). |
-| importedAt | iso8601 | when the laddr migration created this record |
+| personId | uuid | references `Person.id` |
+| email | string | the user's most-recent GitHub-verified primary email. Refreshed on every OAuth login. Lowercased for canonical form. |
+| emailRefreshedAt | iso8601 | when `email` was last refreshed from GitHub |
+| newsletter | object nullable | newsletter subscription state (see below) |
+| updatedAt | iso8601 | |
 
-No `id`, `createdAt`, `updatedAt` — this is import-immutable. No `accountLevel`, no email — those live on the linked Person.
+The `newsletter` sub-object:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| optedIn | bool | |
+| optedInAt | iso8601 nullable | |
+| optedOutAt | iso8601 nullable | |
+| unsubscribeToken | string nullable | 32 bytes CSPRNG base64url; used for one-click unsubscribe links in newsletter emails |
+
+**Validators:**
+
+- `email` is RFC 5322 valid, lowercased
+- `unsubscribeToken` matches `^[A-Za-z0-9_-]{43}$` (base64url of 32 bytes)
+
+**Secondary in-memory indices:**
+
+- `byEmail: Map<lowerEmail, personId>` — for laddr-migration claim flow and "find candidate when GitHub gives us a verified email"
+- `byUnsubscribeToken: Map<token, personId>` — for newsletter unsubscribe handler
+
+**Uniqueness:**
+
+- `personId` (one profile per Person)
+- `email` (case-insensitive) — enforced; if a GitHub OAuth login surfaces an email that matches an _unlinked_ legacy Person, the account-claim flow kicks in instead of letting the email collide.
+- `unsubscribeToken`
+
+## Newsletter sends _(deferred from v1)_
+
+Sending newsletters is out of scope for v1 (see [deferred.md](deferred.md)). v1 only persists subscription state in `PrivateProfile.newsletter` so staff can CSV-export to whatever sending tool they currently use.
+
+## LegacyPasswordCredential _(private)_
+
+Carries a laddr user's old password hash forward through the migration so they can claim their legacy account by typing their old username + password in the [account-claim flow](behaviors/account-migration.md). **The rewrite never creates new records here** — only the laddr import does. **The rewrite never signs in against these credentials at runtime** — only the claim endpoint validates against them, and only as a one-time identity proof during the claim.
+
+When a legacy account is successfully claimed (by any path — email-match, password-match, or staff approval), its `LegacyPasswordCredential` record is deleted. Once all migration claims are completed (or expire), this file drains to zero records and the entity can be removed from the spec entirely.
+
+Password material is sensitive and **must not** appear in the public gitsheets repo — it lives in the private store. See [behaviors/private-storage.md](behaviors/private-storage.md).
+
+**Storage:** `legacy-passwords.jsonl` in the private bucket — one record per line, single overwrite per mutation.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| personId | uuid | references `Person.id`, 1:1 |
+| passwordHash | string | the laddr password hash, _as-is_. We do not re-hash; we use whatever algorithm laddr used (laddr-era PHP, likely bcrypt or sha512crypt — confirm at migration time). |
+| importedAt | iso8601 | when the laddr migration wrote this record |
+
+No `id`, `createdAt`, `updatedAt` — this is import-immutable.
 
 **Secondary in-memory index:**
 
@@ -136,7 +197,7 @@ A periodic background task (in-process) sweeps `revocations` for records whose `
 | slug | string | unique. Was `Handle`. URL: `/projects/<slug>`. See [behaviors/slug-handles.md](behaviors/slug-handles.md). |
 | title | string | required, 1–200 chars |
 | summary | string nullable | short tagline shown on cards; ≤ 280 chars. NEW — laddr derived this from the README first line. We split it out. |
-| overview | string nullable | long-form project description in markdown. Renamed from laddr's `README` because it is *not* the same thing as the project's GitHub README — see [deferred.md](deferred.md#cached-github-readme-on-project-pages) for the planned cached-github-readme alongside. |
+| overview | string nullable | long-form project description in markdown. Renamed from laddr's `README` because it is _not_ the same thing as the project's GitHub README — see [deferred.md](deferred.md#cached-github-readme-on-project-pages) for the planned cached-github-readme alongside. |
 | stage | enum | `commenting` \| `bootstrapping` \| `prototyping` \| `testing` \| `maintaining` \| `drifting` \| `hibernating`. Default `commenting`. See [behaviors/project-stages.md](behaviors/project-stages.md). |
 | maintainerId | uuid nullable | references people.id |
 | usersUrl | string nullable | public-facing site for the project |
@@ -297,7 +358,7 @@ This composite path makes "things with tag X" a single directory traversal in th
 
 **Uniqueness:** `(tagId, taggableType, taggableId)`.
 
-## HelpWantedRole *(new — not in laddr)*
+## HelpWantedRole _(new — not in laddr)_
 
 A specific volunteer "ask" a maintainer posts on their project. See [behaviors/help-wanted-roles.md](behaviors/help-wanted-roles.md) for the rule set.
 
@@ -343,7 +404,7 @@ Tracks who has expressed interest in which role.
 
 Used for the 30-day per-person-per-role rate cap on `POST /express-interest` (see [api/projects-help-wanted.md](api/projects-help-wanted.md)). The composite path makes the rate-cap check a path-exists test.
 
-**Uniqueness:** `(roleId, personId)` *within the trailing 30 days* — enforced by the API (read the existing record if any, check `createdAt`, accept-or-reject).
+**Uniqueness:** `(roleId, personId)` _within the trailing 30 days_ — enforced by the API (read the existing record if any, check `createdAt`, accept-or-reject).
 
 ## SlugHistory
 
@@ -406,11 +467,14 @@ Cascading deletes are not enforced by gitsheets; the API's mutation services del
 | `project_buzz.Headline` / `URL` / `Published` / `Summary` / `ImageID` | `ProjectBuzz.headline` / `url` / `publishedAt` / `summary` / `imageKey` |
 | `tags.Handle` (e.g., `topic.transit`) | `tags.namespace = 'topic'`, `tags.slug = 'transit'` |
 | `tag_items.ContextClass` / `ContextID` | `tag-assignments.taggableType` / `taggableId` |
-| `Emergence\People\Person.Username` | `people.slug` |
-| `Emergence\People\Person.AccountLevel` | `people.accountLevel` |
-| `Emergence\People\Person.AccountLevel` value `User` | `accountLevel = 'user'` (anonymous is *no record*, not a stored level) |
+| `Emergence\People\Person.Username` | `Person.slug` (public) — also seeds the immutable `slackSamlNameId` for Slack SSO stability |
+| `Emergence\People\Person.Email` | **`PrivateProfile.email`** in the private store (not in the public gitsheets repo) |
+| `Emergence\People\Person.AccountLevel` | `Person.accountLevel` (public) |
+| `Emergence\People\Person.AccountLevel` value `User` | `accountLevel = 'user'` (anonymous is _no record_, not a stored level) |
+| `Emergence\People\Person.Password` (any laddr-era hashed password column) | **`LegacyPasswordCredential.passwordHash`** in the private store. Read-only at runtime; consumed only by the account-claim flow; deleted on successful claim. |
+| `tbl_user_subscriptions` / MailChimp opt-in state | **`PrivateProfile.newsletter`** in the private store |
 | Database tables | gitsheets sheets |
 | `INDEX`, `UNIQUE INDEX` | enforced in-process by the API under the write mutex; backed by in-memory indices built at boot |
 | `FOREIGN KEY ... ON DELETE CASCADE` | atomic multi-record gitsheets commit (see Storage spec) |
-| `member_checkins` | *dropped — see [deferred.md](deferred.md)* |
-| `Emergence\CMS\BlogPost` | *dropped — see [deferred.md](deferred.md)* |
+| `member_checkins` | _dropped — see [deferred.md](deferred.md)_ |
+| `Emergence\CMS\BlogPost` | _dropped — see [deferred.md](deferred.md)_ |

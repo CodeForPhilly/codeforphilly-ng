@@ -97,10 +97,11 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 - **What:** The site-wide search box hits projects, people, content. v1 ships a *projects-only* search (it's the most common query).
 - **Why deferred:** Multi-entity search needs a proper indexer (Postgres FTS or Meilisearch). Projects search is doable with `tsvector` columns; broader search comes later.
 
-### Newsletter "send-newsletter" admin tool
+### Newsletter sending pipeline
 
-- **What:** `send-newsletter.php`, an admin UI for composing and sending email newsletters via MailChimp.
-- **Why deferred:** Tied to MailChimp drop. If newsletters return through the site, they get a fresh spec.
+- **What:** A flow that takes a composed newsletter (subject, markdown body) and sends it to all opted-in subscribers via Resend (or whatever transactional-email provider we end up on).
+- **Why deferred:** v1 stores subscription state in `PrivateProfile.newsletter` (see [data-model.md](data-model.md#privateprofile-private) and [behaviors/private-storage.md](behaviors/private-storage.md)) so staff can CSV-export the active subscriber list to whatever sending tool they currently use (MailChimp web UI, etc.). The send-from-the-site pipeline is a follow-up spec when there's an active newsletter author committed to using it.
+- **When promoted:** Spec a `/api/newsletter/send` endpoint with admin auth, a Resend-backed worker, unsubscribe-link generation off the existing `PrivateProfile.newsletter.unsubscribeToken`, delivery + bounce tracking.
 
 ### `connectors/` ingestion
 

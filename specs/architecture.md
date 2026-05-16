@@ -16,22 +16,23 @@ Out of scope for v1: see [deferred.md](deferred.md).
 | Frontend framework | **Vite + React 19 + TypeScript** | Per `frontend-shadcn` skill. SPA for the dynamic surface; SSR not required for v1 (search engines find existing project pages via sitemap). |
 | Routing (web) | **React Router v7** | Per skill. Use `react-router` (not `react-router-dom`). |
 | UI components | **shadcn/ui (New York) + Tailwind v4** | Per skill. Replaces Bootstrap 4 + jQuery widgets from laddr. |
-| Storage | **gitsheets** (git-backed TOML record store) | No persistent OLTP. Records committed atomically to a git repo; pushed to GitHub for backup. Single-replica API loads all data into typed in-memory state on boot. See [behaviors/storage.md](behaviors/storage.md). |
-| Schema validation | **Zod** | Shared schemas in `packages/shared` validate records on read and write, plus all API request/response shapes. The single source of types — no ORM in the stack. |
+| Public storage | **gitsheets** (git-backed TOML record store) | No persistent OLTP. Records committed atomically to a git repo; pushed to GitHub for backup. Single-replica API loads all data into typed in-memory state on boot. Public-by-design — drives the civic-transparency win and free contributor onboarding via scrubbed snapshot. See [behaviors/storage.md](behaviors/storage.md). |
+| Private storage | **S3-compatible bucket** (or filesystem in dev) | A small bucket holds private/sensitive data — email addresses, legacy password hashes during migration, newsletter subscription state. Two `.jsonl` files total. Boot-load + in-memory; PUT on mutation. Dev mode uses a local filesystem backend so contributors never touch production private data. See [behaviors/private-storage.md](behaviors/private-storage.md). |
+| Schema validation | **Zod** | Shared schemas in `packages/shared` validate records on read and write (both stores), plus all API request/response shapes. The single source of types — no ORM in the stack. |
 | Full-text search | **SQLite FTS5 (in-memory)** | Throwaway index built at boot from gitsheets state. Rebuilt incrementally on mutation. Possible v1 fallback to MiniSearch if SQLite native-dep cost is unwanted. |
 | Markdown | **`unified` + `remark` + `rehype-sanitize`** | Replaces laddr's Markdown_AutoLink. Renders on the server to a sanitized HTML string; the client just displays it. |
-| Auth | **`@fastify/jwt` + `@fastify/cookie`** | Stateless JWTs (no per-request DB writes). Primary identity provider: GitHub OAuth (sign-in flow + account-claim flow not yet specified). |
-| File uploads (avatars, buzz images) | **gitsheets attachments** | Binary blobs stored alongside their record via gitsheets' `setAttachment` API; served via streaming `GET /api/attachments/<key>`. Object storage was the original plan; gitsheets attachments collapse the moving pieces. |
+| Auth | **GitHub OAuth + `@fastify/jwt` + `@fastify/cookie`** | GitHub is the sole primary identity provider (no email/password). Sessions are stateless JWTs. See [api/auth.md](api/auth.md) + [behaviors/authorization.md](behaviors/authorization.md). |
+| File uploads (avatars, buzz images) | **gitsheets attachments** | Binary blobs stored alongside their record via gitsheets' `setAttachment` API; served via streaming `GET /api/attachments/<key>`. |
 | Background jobs | **In-process timers + an in-memory queue** | At single-replica civic scale we don't need Redis/BullMQ for fan-out. Image thumbnailing, scheduled rollups, and async git pushes run in the same process. |
 | Logging | **pino** (Fastify default) | Pretty in dev, JSON in prod. |
-| Email | **Resend** (transactional) | For notifications like "help wanted interest expressed." Service account, not per-user OAuth. |
+| Email | **Resend** (transactional) | For notifications like "help wanted interest expressed" and newsletter delivery (when that ships). Service account, not per-user OAuth. |
 
 ### What we deliberately *don't* use
 
 - **PostgreSQL / any persistent OLTP** — see [deferred.md](deferred.md). Civic scale lets us hold the whole corpus in memory and rebuild search at boot. Avoiding a separate database collapses ops surface to "one container plus a git remote."
 - **An ORM / migration tool (Drizzle, Prisma)** — gitsheets records are TOML; Zod schemas are the validation layer. Schema migrations are one-shot scripts committed to the data repo, reviewable like any other change.
 - **Redis / BullMQ** — at single-replica scale, in-process timers and async tasks are enough. If we ever scale to multiple writers, that decision triggers a re-architecture, not just adding Redis.
-- **Object storage (S3)** — gitsheets attachments live next to their owning record, committed atomically. The cost is repo size; the benefit is one less service to operate.
+- **Object storage for attachments** — gitsheets attachments live next to their owning record, committed atomically. The cost is repo size; the benefit is one less service to operate. (Private structured data does use an S3-compatible bucket — see [behaviors/private-storage.md](behaviors/private-storage.md). Two narrow `.jsonl` files; not a general-purpose blob store.)
 - **Next.js / SSR** — SPA is enough for v1; SSR can be added later if SEO becomes a measurable problem
 - **GraphQL** — REST + zod-typed JSON is sufficient for the surface area
 - **A separate admin app** — admin actions are gated routes within the same app
@@ -140,7 +141,7 @@ npm install
 npm run dev              # api + web concurrently with watch
 ```
 
-The web dev server proxies `/api/*` to the api on `localhost:3001`. Both rebuild on file changes (`tsx watch` for api, Vite HMR for web). The API reads from `../codeforphilly-data` by default; override with `CFP_DATA_REPO_PATH`.
+The web dev server proxies `/api/*` to the api on `localhost:3001`. Both rebuild on file changes (`tsx watch` for api, Vite HMR for web). The API reads public data from `../codeforphilly-data` by default; override with `CFP_DATA_REPO_PATH`.
 
 Mutations made through the running site land as commits in the local data repo. Contributors can:
 
@@ -150,6 +151,8 @@ Mutations made through the running site land as commits in the local data repo. 
 - Open the data repo in any git client to inspect history
 
 See [behaviors/storage.md](behaviors/storage.md) for the developer-experience details.
+
+**Private data in dev:** the API uses `STORAGE_BACKEND=filesystem` against a local `./private-storage/` directory. Contributors either start empty (sign up via GitHub OAuth during dev) or load a fixture-seeded directory shipped at `fixtures/private-storage-seeded/`. **Real production private data never lands on a dev machine** — see [behaviors/private-storage.md](behaviors/private-storage.md).
 
 ### Build
 
@@ -162,9 +165,24 @@ npm run type-check       # tsc --noEmit across workspaces
 
 A single Docker image bundles the built API and serves the static `apps/web/dist` from the same Fastify instance via `@fastify/static`. One container, one ingress.
 
-The container needs a mounted volume for the data repo working tree (`CFP_DATA_REPO_PATH`). On pod start the entrypoint runs `git clone` (or `git fetch && git reset --hard origin/main`) against the configured `CFP_DATA_REMOTE` — so the volume's only job is "have a working tree"; the remote is the source of truth.
+Runtime configuration (sealed-secrets in our cluster):
 
-On every commit the API pushes asynchronously to `CFP_DATA_REMOTE`. The push credential is a deploy-key SSH or GitHub App token; in our cluster it's a sealed-secret.
+| Env var | Purpose |
+| ------- | ------- |
+| `CFP_DATA_REPO_PATH` | Local working-tree path for the public gitsheets data repo |
+| `CFP_DATA_REMOTE` | git URL to push public data commits to (private GitHub remote intentionally — see [behaviors/storage.md](behaviors/storage.md)). NOTE: this is the *production* data repo; the *public* snapshot is published separately. |
+| `STORAGE_BACKEND` | `s3` in production; `filesystem` in dev |
+| `S3_ENDPOINT` / `S3_BUCKET` / `S3_REGION` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Private-storage bucket config — see [behaviors/private-storage.md](behaviors/private-storage.md) |
+| `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth app credentials — see [api/auth.md](api/auth.md) |
+| `CFP_JWT_SIGNING_KEY` | HS256 key for session JWTs |
+| `SAML_PRIVATE_KEY` / `SAML_CERTIFICATE` | Slack SAML IdP cert chain — see [api/saml.md](api/saml.md) |
+
+On pod start the entrypoint:
+
+1. Runs `git clone` / `git fetch && git reset --hard origin/main` against `CFP_DATA_REMOTE` to populate the data-repo working tree
+2. Boots the API, which loads the gitsheets state and the private-storage `.jsonl` files into memory
+
+On every public-side commit the API pushes asynchronously to `CFP_DATA_REMOTE`. On every private-side mutation the API PUTs the relevant `.jsonl` to the bucket synchronously. See the dual-write coordination notes in [behaviors/private-storage.md](behaviors/private-storage.md).
 
 The k8s manifests live in `deploy/` and follow the same Helm conventions as the legacy site; cluster targeting and secret management are unchanged from the legacy stack (see `docs/operations/migrate-to-k8s.md` in the laddr repo for context).
 

@@ -1,13 +1,18 @@
-# Behavior: Storage
+# Behavior: Storage (public)
 
 ## Rule
 
-Persistent data lives in a **gitsheets-backed git repository** — TOML records in templated paths, committed atomically. There is no relational database. At runtime the API loads all records into typed in-memory structures and serves reads from there; mutations write to the gitsheets repo and update the in-memory state synchronously.
+**Public** persistent data lives in a **gitsheets-backed git repository** — TOML records in templated paths, committed atomically, pushed to a publicly cloneable GitHub remote. There is no relational database. At runtime the API loads all records into typed in-memory structures and serves reads from there; mutations write to the gitsheets repo and update the in-memory state synchronously.
+
+**Private** data — emails, password hashes during migration, newsletter subscription state — lives in a separate S3-compatible bucket. See [behaviors/private-storage.md](private-storage.md). This spec covers only the public side.
+
+The two stores are siblings, not nested. Most mutations touch only one side; the rare dual-write moment (e.g., account creation) is documented in [private-storage.md](private-storage.md#atomicity-with-the-public-commit).
 
 ## Applies To
 
-- Everything in [data-model.md](../data-model.md) — every entity is a gitsheets record
+- Public records in [data-model.md](../data-model.md) — Person (public fields), Project, ProjectMembership, ProjectUpdate, ProjectBuzz, Tag, TagAssignment, HelpWantedRole, HelpWantedInterestExpression, Revocation, SlugHistory
 - [architecture.md](../architecture.md) — process model, deploy, dev experience
+- [behaviors/private-storage.md](private-storage.md) — the private sibling
 - [behaviors/legacy-id-mapping.md](legacy-id-mapping.md) — `legacyId` lookups happen against the in-memory state
 - [behaviors/activity-feed.md](activity-feed.md) — feed composition is an in-memory merge
 - [api/conventions.md](../api/conventions.md) — pagination/sort/filter are JS operations over in-memory state
@@ -199,7 +204,7 @@ A mutation thus either fully succeeds (gitsheets commit + in-memory update + sch
 ```text
 <actor-slug>: <method> <path>
 
-<optional human-readable summary or rendered request/response snippet>
+<optional human-readable summary>
 
 Action: <namespaced action, e.g. project.soft-delete>
 Subject-Type: <project | person | tag | ...>
@@ -210,8 +215,6 @@ Actor-Account-Level: <user | staff | administrator>
 Reason: <optional free-form>
 Host: <request host>
 Content-Type: <request content-type>
-User-Agent: <client UA>
-User-Ip: <client IP>
 Response-Code: <http status>
 Response-Message: <http status text>
 ```
@@ -219,20 +222,24 @@ Response-Message: <http status text>
 Rules:
 
 - The **subject line** is `<actor-slug>: <method> <path>`. For anonymous requests, the actor segment is `anon`.
-- The **author and committer** are the acting Person's `fullName` + `email` (so `git log --author` and `git blame` work without trailer parsing). For anonymous requests, author is `Anonymous <anonymous@codeforphilly.org>`.
-- The **trailers** follow git's standard trailer format (parseable by `git interpret-trailers --parse`). Key convention is HTTP-header style: first letter capitalized, multi-word keys hyphenated, rest lowercase. Examples: `Subject-Type`, `User-Agent`, `Response-Code`. Single-word keys: `Action`, `Reason`, `Host`.
+- The **author and committer identity is pseudonymous** in the public repo: `<Person.fullName> <<slug>@users.noreply.codeforphilly.org>`. **Real email addresses are never written as commit authors** — git stores author identity forever and the data repo is public. The pseudonymous form keeps `git log --author=<slug>` and `git blame` working naturally for audit purposes without leaking PII.
+  - For anonymous requests, author is `Anonymous <anon@users.noreply.codeforphilly.org>`.
+  - For system/automated commits (migration import, reconciliation), author is `Code for Philly API <api@users.noreply.codeforphilly.org>`.
+- **`User-Ip` and `User-Agent` trailers are NOT included.** The public commit history is forever-public; client IPs and user agents are PII that doesn't belong there. If a security incident needs request forensics, that's what the optional access-log sidecar (private store) is for — not the public git log.
+- The **trailers** follow git's standard trailer format (parseable by `git interpret-trailers --parse`). Key convention is HTTP-header style: first letter capitalized, multi-word keys hyphenated, rest lowercase. Examples: `Subject-Type`, `Response-Code`. Single-word keys: `Action`, `Reason`, `Host`.
 - `Action` is namespaced with a dot (`project.soft-delete`, `tag.merge`, `account-level.change`) so trailer filters like `git log --grep='^Action: project\.'` work cleanly.
 - Trailers describe the request and the semantic action together. There's no separate "regular commit" vs "audit commit" format — every mutation is audit-loggable.
 
 ### PII-aware redaction
 
-The data repo is private, but redaction is defense-in-depth:
+The public data repo is, well, public — redaction is essential, not defense-in-depth:
 
-- `Authorization` and `Cookie` request headers are never logged.
-- Any request body field matching `/password|token|secret/i` is replaced with `[REDACTED]` before embedding in the commit message.
+- **No real emails as commit authors.** Author = `<slug>@users.noreply.codeforphilly.org`, never the user's actual email.
+- **No `User-Ip` or `User-Agent` trailers in public commits** (rule above).
+- `Authorization` and `Cookie` request headers are never embedded anywhere.
+- Any request body field matching `/email|password|token|secret/i` is replaced with `[REDACTED]` before embedding in the commit message body.
 - `Set-Cookie` response headers and JWT bodies are not embedded.
-
-The scrubbed public snapshot (see [Dev-environment data](#dev-environment-data)) ships as a single squashed commit without history, so even unredacted history never reaches public.
+- Trailers for actions on the private store (`PrivateProfile`, `LegacyPasswordCredential`) appear in the public log as semantic action only — `Action: private-profile.update`, with no field-level diff. The actual change details live in the private bucket's object-version history (see [private-storage.md](private-storage.md)).
 
 ## Full-text search
 
