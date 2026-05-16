@@ -9,9 +9,10 @@ If `specs/` is the architecture document, `plans/` is the project plan.
 Documented in [`.claude/CLAUDE.md`](../.claude/CLAUDE.md#plans). Briefly:
 
 1. Add a plan to start new work. `status: planned` and `depends:` set.
-2. Move to `in-progress` when starting.
-3. Move to `done` when all validation criteria pass. Link the merged PR.
-4. A plan implements specs that already exist. If specs need to change mid-plan, the spec change is its own PR before the plan continues.
+2. Move to `in-progress` when starting, as the first commit on the branch (`chore(plans): mark <slug> in-progress`). Skippable for tiny plans.
+3. **Move to `done` as the last commit on the branch, before merge.** That one commit (message: `chore(plans): mark <slug> done (PR #<n>)`) flips frontmatter to `status: done` + `pr: <n>`, ticks each verified validation checkbox, fills in the Notes section, and updates this README's status table (📋 → ✅, name links to the PR). Unverifiable criteria stay `[ ]` with a Notes entry explaining where they'll close out — never rewrite a criterion to match what you ended up doing.
+4. After merge: frozen. Historical record, no further edits.
+5. A plan implements specs that already exist. If specs need to change mid-plan, the spec change is its own PR before the plan continues.
 
 ## Status legend
 

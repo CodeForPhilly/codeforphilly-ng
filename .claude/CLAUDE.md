@@ -33,8 +33,13 @@ Run `/audit-spec-drift` to launch a comprehensive audit comparing `specs/` again
 Plans index: [plans/README.md](../plans/README.md). Workflow:
 
 1. **Add a plan** when starting a new chunk of work. `status: planned` + `depends:` set.
-2. **Move to `in-progress`** when you start. Multiple plans can be in-progress in parallel across people, but one plan per contributor at a time is the norm.
-3. **Move to `done`** when validation criteria all pass. Link the merged PR in frontmatter (`pr: 42`).
+2. **Move to `in-progress`** when you start, as the first commit on the branch (`chore(plans): mark <slug> in-progress`). Skippable for tiny plans — going straight to `done` at the end is fine. Multiple plans can be in-progress in parallel across people, but one plan per contributor at a time is the norm.
+3. **Move to `done` as the last commit on the branch, before merge.** That commit does five things, all in one shot, with message `chore(plans): mark <slug> done (PR #<n>)`:
+   - Frontmatter: `status` → `done`, add `pr: <PR number>` (knowable once `gh pr create` returns)
+   - **Validation checklist: flip each `- [ ]` to `- [x]` for criteria you verified.** If a criterion can't be verified at merge time (depends on a downstream plan, needs production deploy, etc.), leave it unchecked and add a one-line note in the Notes section explaining why and where it'll close out. Never silently rewrite a validation criterion to match what you ended up doing — that's a plan amendment in its own earlier commit.
+   - Notes section: decisions, surprises, gotchas worth carrying forward
+   - `plans/README.md` status table: flip 📋 → ✅, name links to the merged PR
+   - The plan is frozen after merge — historical record, no further edits
 4. **Update `depends:`** as the DAG sharpens — a plan can discover it needs a new prereq mid-stream.
 5. **Specs come first.** A plan implements specs that already exist. If you realize specs need to change mid-plan, the spec change is its own PR before the plan continues.
 6. **Splitting a plan**: rename and add the new one with `depends:` updated.
