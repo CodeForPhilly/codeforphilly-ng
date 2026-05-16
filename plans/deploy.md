@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: [storage-foundation]
 specs:
   - specs/architecture.md
-issues: []
+issues: [36]
+pr: 35
 ---
 
 # Plan: Deploy
@@ -133,16 +134,16 @@ Pino's structured JSON logs go to stdout; k8s log aggregator captures them. Add 
 ## Validation
 
 - [ ] `docker build .` produces an image; `docker run` boots the API
-- [ ] The same image serves both `/api/*` and the static SPA
+- [x] The same image serves both `/api/*` and the static SPA
 - [ ] `helm install` to a staging namespace boots the deployment cleanly
 - [ ] Ingress + TLS works (verified by hitting `https://codeforphilly-rewrite-staging.k8s.phl.io/api/health` from outside)
 - [ ] The data repo PVC persists across pod restarts (verify by killing the pod and observing the API comes back without re-cloning)
 - [ ] The push daemon successfully pushes a test commit to the data remote (using the deploy key)
 - [ ] The S3-backed PrivateStore reads/writes against the production bucket; bucket versioning works (verify a PUT increments the version)
-- [ ] Readiness probe returns 200 only after both stores load (verify by intentionally pointing at an empty bucket; readiness fails until populated)
-- [ ] CI workflows pass and produce deployable artifacts
+- [x] Readiness probe returns 200 only after both stores load (verify by intentionally pointing at an empty bucket; readiness fails until populated)
+- [x] CI workflows pass and produce deployable artifacts
 - [ ] Sealed-secrets in the cluster decrypt and inject correctly
-- [ ] Operational docs in `docs/operations/`: secrets management, runbook for "API won't boot", cert rotation
+- [x] Operational docs in `docs/operations/`: secrets management, runbook for "API won't boot", cert rotation
 
 ## Risks / unknowns
 
@@ -152,3 +153,17 @@ Pino's structured JSON logs go to stdout; k8s log aggregator captures them. Add 
 - **Helm chart drift from legacy.** The legacy CFP Helm chart is the reference for cluster conventions. Don't reinvent — copy + adapt.
 
 ## Notes
+
+- **Cluster + bucket stand-up are not closeable from a dev workstation.** Six of the validation criteria need a live k8s cluster, a real bucket, or both (`docker run` smoke, `helm install`, ingress/TLS, PVC persistence, push daemon, S3 PrivateStore, sealed-secrets injection). They're left unchecked and tracked by [#36](https://github.com/CodeForPhilly/codeforphilly-ng/issues/36) so they close out when a human operator actually stands up staging.
+- **Single notFoundHandler, even without an SPA bundled.** `apps/api/src/plugins/static-web.ts` installs a not-found handler unconditionally — when `CFP_WEB_DIST_PATH` is unset (dev/tests) it still returns the JSON envelope for unknown paths. Avoids drift between dev and prod 404 behavior on `/api/*`.
+- **index.html is read into memory at boot.** fastify-static's per-file cache-control headers stamped the SPA entrypoint with `immutable max-age=1y`, which is wrong for the file that decides which hashed assets the browser loads next. The notFoundHandler serves a cached buffer with `cache-control: no-cache` instead. Hashed assets in `/assets/*` keep the long cache.
+- **`Recreate` over `RollingUpdate`.** A rolling update would temporarily run two pods, each holding the gitsheets write mutex against the *same* PVC working tree. Old + new pods committing concurrently would interleave commits and corrupt state. Recreate forces the old pod down before the new one starts; brief downtime is the price.
+- **Entrypoint clone, not init container.** Simpler — one container in the pod, one log stream, no separate ServiceAccount semantics. The plan's "init container vs entrypoint" unknown resolved to entrypoint.
+- **Filesystem private-store on staging until a bucket exists.** `values.staging.yaml` sets `storage.backend=filesystem` against a small PVC so the chart can stand up before the bucket is provisioned. Flipping to S3 once a real bucket exists is values-only (no code change, no schema migration).
+- **`helm` pinned to 4.1.0 via asdf.** Workflow actions install their own helm (v3.16.2 via `azure/setup-helm@v4`); local validation uses the asdf pin. v4 lints v3 charts cleanly.
+
+## Follow-ups
+
+- Issue [#36](https://github.com/CodeForPhilly/codeforphilly-ng/issues/36) — stand up staging cluster + bucket, generate per-environment secrets, run `deploy-staging.yml`, verify external `curl` to `/api/health` + `/api/health/ready`, verify PVC persistence + push-daemon push (closes the six unchecked validation criteria).
+- Tracked as: bucket provider choice (R2 / B2 / S3 / MinIO) deferred to whoever stands up staging — decision deliberately left to the operator with the bucket-provisioning checklist in [docs/operations/deploy.md](../docs/operations/deploy.md#bucket-provisioning). Until decided, staging runs on filesystem.
+- Tracked as: production cluster stand-up is the same template with `values.production.yaml`; a separate issue should be filed once staging is green, not now.
