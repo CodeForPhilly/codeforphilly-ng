@@ -26,6 +26,37 @@ Start at [specs/README.md](specs/README.md). The index of what's where:
 
 Run `/audit-spec-drift` to launch a comprehensive audit comparing `specs/` against the implementation. Use it before starting major work, after large refactors, and as part of the release checklist.
 
+## Plans
+
+`plans/` is the micro-DAG of work that bridges `specs/` to the running code. If specs describe **state** (what should be true forever), plans describe **motion** (how we get there). Start a feature with a plan; the plan declares its scope, the specs it implements, its dependencies, and concrete validation criteria.
+
+Plans index: [plans/README.md](plans/README.md). Workflow:
+
+1. **Add a plan** when starting a new chunk of work. `status: planned` + `depends:` set.
+2. **Move to `in-progress`** when you start. Multiple plans can be in-progress in parallel across people, but one plan per contributor at a time is the norm.
+3. **Move to `done`** when validation criteria all pass. Link the merged PR in frontmatter (`pr: 42`).
+4. **Update `depends:`** as the DAG sharpens — a plan can discover it needs a new prereq mid-stream.
+5. **Specs come first.** A plan implements specs that already exist. If you realize specs need to change mid-plan, the spec change is its own PR before the plan continues.
+6. **Splitting a plan**: rename and add the new one with `depends:` updated.
+
+A plan's frontmatter:
+
+```yaml
+---
+status: planned          # planned | in-progress | done | blocked | cancelled
+depends: [other-plan-slug]
+specs:                   # spec files this plan implements
+  - specs/architecture.md
+  - specs/behaviors/storage.md
+issues: [128, 129]       # related GitHub issues (optional)
+pr: 42                   # merged PR once done (optional)
+---
+```
+
+A plan's body follows the template in [plans/README.md](plans/README.md): Scope, Implements, Approach, Validation, Risks/unknowns, Notes. The Validation section is the load-bearing part — it converts "in-progress" to "done."
+
+**Plans are not specs.** They're project-management artifacts. Plans rot fast — once a plan is `done`, it's a historical record; don't keep editing it. The `spec-drift-auditor` reads `specs/`, not `plans/`.
+
 ## Stack
 
 - **Backend** — Fastify 5.x + TypeScript. Single replica, in-process write mutex.
