@@ -1,8 +1,13 @@
-import { Link, useParams } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { ProjectCard } from '@/components/ProjectCard';
 import { PersonCard } from '@/components/PersonCard';
 import { HelpWantedCard } from '@/components/HelpWantedCard';
+import { TagEditModal } from '@/components/modals/TagEditModal';
+import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
 
 const VALID_NAMESPACES = new Set(['topic', 'tech', 'event']);
@@ -12,6 +17,13 @@ export function TagDetail() {
   const namespace = params['namespace']!;
   const slug = params['slug']!;
   const handle = `${namespace}.${slug}`;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { person } = useAuth();
+  const isStaff =
+    person?.accountLevel === 'staff' || person?.accountLevel === 'administrator';
+  const [editOpen, setEditOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   const valid = VALID_NAMESPACES.has(namespace);
 
@@ -71,14 +83,68 @@ export function TagDetail() {
 
   const tag = tagQ.data!.data;
 
+  const handleDelete = async () => {
+    if (
+      !window.confirm(
+        `Delete ${tag.handle}? This removes the tag from every project, person, and role.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.tags.delete(tag.handle);
+      await queryClient.invalidateQueries({ queryKey: ['tags'] });
+      toast.success(`Deleted ${tag.handle}`);
+      void navigate(`/tags/${namespace}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Delete failed');
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-8 space-y-10">
-      <header>
-        <h1 className="text-3xl font-bold">{tag.title}</h1>
-        <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs mt-2 capitalize">
-          {tag.namespace}
-        </span>
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold">{tag.title}</h1>
+          <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs mt-2 capitalize">
+            {tag.namespace}
+          </span>
+        </div>
+        {isStaff && (
+          <div className="flex gap-2 shrink-0">
+            <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setMergeOpen(true)}>
+              Merge into…
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={handleDelete}
+            >
+              Delete
+            </Button>
+          </div>
+        )}
       </header>
+      {isStaff && (
+        <>
+          <TagEditModal
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            tag={tag}
+            mode="edit"
+          />
+          <TagEditModal
+            open={mergeOpen}
+            onOpenChange={setMergeOpen}
+            tag={tag}
+            mode="merge"
+          />
+        </>
+      )}
 
       {/* Projects */}
       <section>

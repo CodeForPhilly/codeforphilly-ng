@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { TagChip } from '@/components/TagChip';
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { MarkdownView } from '@/components/MarkdownView';
+import { ExpressInterestModal } from '@/components/modals/ExpressInterestModal';
 import { useAuth } from '@/hooks/useAuth';
 import { formatRelativeTime } from '@/lib/time';
 import type { HelpWantedRoleResponse } from '@/lib/api';
@@ -20,6 +22,7 @@ function commitmentLabel(hours: number | null): string {
 export function HelpWantedCard({ role, showProjectLink = true }: HelpWantedCardProps) {
   const { person } = useAuth();
   const isSignedIn = person !== null;
+  const [modalOpen, setModalOpen] = useState(false);
 
   return (
     <article className="rounded-lg border border-border bg-card p-4">
@@ -70,7 +73,11 @@ export function HelpWantedCard({ role, showProjectLink = true }: HelpWantedCardP
               Interest Sent ✓
             </Button>
           ) : (
-            <Button size="sm" disabled={!role.permissions.canExpressInterest}>
+            <Button
+              size="sm"
+              disabled={!role.permissions.canExpressInterest}
+              onClick={() => setModalOpen(true)}
+            >
               Express Interest
             </Button>
           )
@@ -82,6 +89,13 @@ export function HelpWantedCard({ role, showProjectLink = true }: HelpWantedCardP
           </Button>
         )}
       </div>
+      <ExpressInterestModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        projectSlug={role.project.slug}
+        roleId={role.id}
+        roleTitle={role.title}
+      />
     </article>
   );
 }

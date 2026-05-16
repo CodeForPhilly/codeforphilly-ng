@@ -1,10 +1,13 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
 import { HelpWantedCard } from '@/components/HelpWantedCard';
 import { FacetSidebar } from '@/components/FacetSidebar';
 import { Pagination } from '@/components/Pagination';
 import { TagChip } from '@/components/TagChip';
+import { PostRolePickerModal } from '@/components/modals/PostRolePickerModal';
+import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 
@@ -17,6 +20,8 @@ const COMMITMENT_OPTIONS = [
 
 export function HelpWantedIndex() {
   const [params, setParams] = useSearchParams();
+  const { person } = useAuth();
+  const [pickerOpen, setPickerOpen] = useState(false);
   const page = Math.max(1, parseInt(params.get('page') ?? '1', 10) || 1);
   const tags = params.getAll('tag');
   const commitmentMax = params.get('commitmentMax') ?? '';
@@ -83,17 +88,23 @@ export function HelpWantedIndex() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold flex items-center gap-3">
-          Help Wanted
-          <span className="inline-flex items-center rounded-full bg-muted text-muted-foreground px-2.5 py-0.5 text-sm">
-            {totalItems}
-          </span>
-        </h1>
-        <p className="text-muted-foreground mt-2 max-w-3xl">
-          Concrete, time-boxed ways to contribute to Code for Philly projects.
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-3">
+            Help Wanted
+            <span className="inline-flex items-center rounded-full bg-muted text-muted-foreground px-2.5 py-0.5 text-sm">
+              {totalItems}
+            </span>
+          </h1>
+          <p className="text-muted-foreground mt-2 max-w-3xl">
+            Concrete, time-boxed ways to contribute to Code for Philly projects.
+          </p>
+        </div>
+        {person && (
+          <Button onClick={() => setPickerOpen(true)}>Post a role</Button>
+        )}
       </header>
+      <PostRolePickerModal open={pickerOpen} onOpenChange={setPickerOpen} />
 
       <div className="grid grid-cols-1 md:grid-cols-[16rem_1fr] gap-6">
         <aside>
