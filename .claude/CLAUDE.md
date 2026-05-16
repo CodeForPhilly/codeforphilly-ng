@@ -60,12 +60,16 @@ specs:                   # spec files in THIS repo that this plan implements
 upstream-specs:          # (optional) specs in OTHER repos this plan consumes
   - gitsheets:specs/behaviors/transactions.md
   - gitsheets:specs/api/errors.md
+awaits:                  # (optional) external blockers — releases, decisions, deliveries
+  - "JarvusInnovations/gitsheets@v1.0 — Repository / Sheet / openStore API"
 issues: [128, 129]       # related GitHub issues (optional)
 pr: 42                   # merged PR once done (optional)
 ---
 ```
 
 `specs:` is for specs we own — the spec-drift-auditor matches them against implementation. `upstream-specs:` is for specs owned by dependencies (e.g., gitsheets) that this plan consumes; they're informational only and the spec-drift-auditor doesn't check them. Use the `<repo>:<path>` form so it's obvious where to look.
+
+`awaits:` captures external blockers that aren't represented by an in-repo plan or an upstream spec — upstream library releases, vendor deliveries, partner decisions. Each entry is a one-line free-form pointer (URL, `repo@tag`, "vendor X delivery", etc.). `awaits:` is structural ("we're waiting on this"); `status:` is lifecycle ("can the plan move?"). They're independent: a `planned` plan can carry `awaits:` from day one, a `blocked` plan should always have `awaits:` populated to say why. Resolution is just deleting the entry when the awaited thing happens. `plans-next` never lists a plan with non-empty `awaits:` under "Ready" — it surfaces in an "Awaiting external" section. Full convention: [`agent-skills/skills/specops/references/plans-protocol.md`](https://github.com/JarvusInnovations/agent-skills/blob/main/skills/specops/references/plans-protocol.md#external-blockers).
 
 A plan's body follows the template in [plans/README.md](../plans/README.md): Scope, Implements, Approach, Validation, Risks/unknowns, Notes, Follow-ups. The Validation section is the load-bearing part — it converts "in-progress" to "done."
 
