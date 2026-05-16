@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [storage-foundation]
 specs:
   - specs/behaviors/legacy-id-mapping.md
