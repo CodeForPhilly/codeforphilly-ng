@@ -1,0 +1,47 @@
+# Production environment overrides.
+# Apply with:
+#   helm upgrade --install codeforphilly deploy/charts/codeforphilly \
+#     --namespace codeforphilly --create-namespace \
+#     -f deploy/charts/codeforphilly/values.production.yaml \
+#     --set image.tag=<git-tag>
+
+ingress:
+  hosts:
+    - host: codeforphilly.org
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: www.codeforphilly.org
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: codeforphilly-tls
+      hosts:
+        - codeforphilly.org
+        - www.codeforphilly.org
+
+# Production uses the S3-compatible bucket per specs/behaviors/private-storage.md.
+storage:
+  backend: s3
+
+# Concrete S3 endpoint + bucket are filled in once the production bucket is
+# provisioned. Until then this file is the contract.
+publicEnv:
+  CFP_DATA_REMOTE: git@github.com:CodeForPhilly/codeforphilly-data.git
+  # S3_ENDPOINT / S3_BUCKET / S3_REGION populated at provisioning time.
+
+deployKey:
+  secretName: codeforphilly-data-deploy-key
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 1Gi
+
+# Tune heap for the production resource budget.
+env:
+  NODE_OPTIONS: "--max-old-space-size=768"

@@ -44,6 +44,80 @@ export async function healthRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  // Readiness probe: 200 only after both stores have loaded and services are
+  // wired. Used by k8s readinessProbe; never routes traffic to a pod whose
+  // in-memory state is still warming.
+  fastify.get(
+    '/api/health/ready',
+    {
+      schema: {
+        tags: ['health'],
+        summary: 'Readiness check',
+        description: 'Returns 200 only when both stores have loaded and services are wired.',
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              data: {
+                type: 'object',
+                properties: {
+                  status: { type: 'string' },
+                  publicStore: { type: 'boolean' },
+                  privateStore: { type: 'boolean' },
+                  fts: { type: 'boolean' },
+                },
+              },
+              metadata: {
+                type: 'object',
+                properties: {
+                  timestamp: { type: 'string' },
+                },
+              },
+            },
+          },
+          503: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: {
+                type: 'object',
+                properties: {
+                  code: { type: 'string' },
+                  message: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    (_req, reply) => {
+      const publicStoreReady = Boolean(fastify.store?.public);
+      const privateStoreReady = Boolean(fastify.store?.private);
+      const ftsReady = Boolean(fastify.fts);
+
+      if (!publicStoreReady || !privateStoreReady || !ftsReady) {
+        return reply.code(503).send({
+          success: false,
+          error: {
+            code: 'not_ready',
+            message: 'Stores still warming',
+          },
+        });
+      }
+
+      return reply.send(
+        ok({
+          status: 'ready',
+          publicStore: publicStoreReady,
+          privateStore: privateStoreReady,
+          fts: ftsReady,
+        }),
+      );
+    },
+  );
+
   // Stub route for testing validation errors
   fastify.post(
     '/api/_test/validation-error',

@@ -1,0 +1,144 @@
+# Default values for the codeforphilly chart.
+# Per specs/architecture.md: single replica, Recreate strategy.
+# Per-environment overrides live in values.staging.yaml + values.production.yaml.
+
+image:
+  repository: ghcr.io/codeforphilly/codeforphilly-rewrite
+  # tag is set by CI via --set image.tag=<sha>. Leave blank in checked-in values.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Single replica is a hard architectural constraint (write mutex serializes
+# gitsheets commits in-process). Recreate strategy guarantees no concurrent
+# old/new pods can both hold the lock.
+replicaCount: 1
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext:
+  fsGroup: 1000
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: false   # gitsheets writes the working tree
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3001
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: codeforphilly-rewrite.example.invalid
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: codeforphilly-tls
+      hosts:
+        - codeforphilly-rewrite.example.invalid
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 384Mi
+  limits:
+    cpu: 1000m
+    memory: 768Mi
+
+# PVC holding the data repo working tree. Mounted at CFP_DATA_REPO_PATH.
+dataRepo:
+  pvc:
+    enabled: true
+    name: ""                    # defaults to "<release>-data"
+    accessMode: ReadWriteOnce
+    size: 5Gi
+    storageClass: ""            # leave empty for cluster default
+  # Branch to track on CFP_DATA_REMOTE.
+  branch: main
+
+# Filesystem private-store PVC (only used when storage.backend=filesystem).
+# In staging we start on filesystem; production should flip to s3 once a
+# bucket exists. See specs/behaviors/private-storage.md.
+privateStorage:
+  pvc:
+    enabled: false
+    name: ""                    # defaults to "<release>-private"
+    accessMode: ReadWriteOnce
+    size: 1Gi
+    storageClass: ""
+
+# Storage backend selection. One of: s3 | filesystem.
+storage:
+  backend: s3
+
+# Non-secret config; secrets are injected via secretEnvFrom below.
+env:
+  NODE_ENV: production
+  PORT: "3001"
+  CFP_DATA_REPO_PATH: /app/data
+  CFP_WEB_DIST_PATH: /app/apps/web/dist
+  CFP_PRIVATE_STORAGE_PATH: /app/private-storage
+  # Push daemon identity used for any commits the API makes.
+  GIT_AUTHOR_NAME: CodeForPhilly API
+  GIT_AUTHOR_EMAIL: api@codeforphilly.org
+
+# Optional non-secret env that depends on per-env wiring.
+publicEnv:
+  CFP_DATA_REMOTE: ""           # set in values.staging.yaml / values.production.yaml
+  S3_ENDPOINT: ""
+  S3_BUCKET: ""
+  S3_REGION: ""
+  GITHUB_OAUTH_CLIENT_ID: ""
+
+# Names of existing k8s Secrets (one per environment) to mount as envFrom.
+# Each Secret should populate the variables enumerated in
+# docs/operations/secrets.md.
+secretEnvFrom:
+  - name: codeforphilly-secrets
+
+# SSH deploy key for pushing to CFP_DATA_REMOTE. The Secret must be created
+# out-of-band (sealed-secrets) and contain a single key named "id_ed25519".
+# Set deployKey.secretName="" to disable mounting (e.g. when CFP_DATA_REMOTE
+# is https:// with a token in the URL).
+deployKey:
+  secretName: codeforphilly-data-deploy-key
+  mountPath: /etc/cfp-data-deploy-key
+  knownHostsConfigMap: ""       # optional ConfigMap holding known_hosts
+
+probes:
+  liveness:
+    path: /api/health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /api/health/ready
+    # Boot loads gitsheets + private store before binding; first probe should
+    # already be 200, but give 90s headroom for cold cache.
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 18
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
