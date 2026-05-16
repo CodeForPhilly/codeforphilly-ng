@@ -9,6 +9,7 @@
  * this service in v1.
  */
 import { randomBytes } from 'node:crypto';
+import { uuidv7 } from 'uuidv7';
 import {
   PersonSchema,
   PrivateProfileSchema,
@@ -24,10 +25,8 @@ import {
   ConflictError,
 } from '../lib/errors.js';
 import {
-  ensureUniqueSlug,
   isReservedSlug,
   isValidPersonSlug,
-  slugify,
 } from '../lib/slug.js';
 import { requireAuth } from '../auth/require.js';
 import type { SessionContext } from '../auth/middleware.js';
@@ -116,7 +115,7 @@ export class PersonWriteService {
     if (newSlug !== existing.slug) {
       await tx.public.people.delete(existing);
       const history = {
-        id: crypto.randomUUID(),
+        id: uuidv7(),
         entityType: 'person' as const,
         oldSlug: existing.slug,
         newSlug,
@@ -250,7 +249,3 @@ export class PersonWriteService {
   }
 }
 
-// Silence the slugify import we no longer need (kept since it is part of the
-// general slug-helpers surface used by sibling writers).
-void slugify;
-void ensureUniqueSlug;
