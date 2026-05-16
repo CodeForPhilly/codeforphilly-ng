@@ -32,6 +32,7 @@ import servicesPlugin from './plugins/services.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import idempotencyPlugin from './plugins/idempotency.js';
 import sessionMiddlewarePlugin from './auth/middleware.js';
+import staticWebPlugin from './plugins/static-web.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { projectRoutes } from './routes/projects.js';
@@ -152,6 +153,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   fastify.get('/api/_openapi.json', { schema: { hide: true } }, (_req, reply) => {
     return reply.send(fastify.swagger());
   });
+
+  // ----- 12. Static SPA (last — installs the catch-all notFoundHandler) -----
+  await fastify.register(staticWebPlugin);
 
   return fastify;
 }
