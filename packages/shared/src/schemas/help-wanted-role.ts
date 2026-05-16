@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+// `passthrough()` so denormalized path-template fields (projectSlug) supplied
+// by write services survive validation and reach gitsheets' path template
+// renderer per specs/behaviors/storage.md#sheet-layout.
 export const HelpWantedRoleSchema = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
@@ -13,6 +16,6 @@ export const HelpWantedRoleSchema = z.object({
   closedAt: z.string().datetime({ offset: true }).nullable().optional(),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
-});
+}).passthrough();
 
 export type HelpWantedRole = z.infer<typeof HelpWantedRoleSchema>;

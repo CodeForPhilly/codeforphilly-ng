@@ -88,6 +88,6 @@
     "createdAt",
     "updatedAt"
   ],
-  "additionalProperties": false,
+  "additionalProperties": {},
   "title": "ProjectBuzz"
 }

@@ -1,12 +1,19 @@
 /**
  * Project routes:
- *   GET /api/projects
- *   GET /api/projects/:slug
+ *   GET    /api/projects
+ *   GET    /api/projects/:slug
+ *   POST   /api/projects
+ *   PATCH  /api/projects/:slug
+ *   DELETE /api/projects/:slug
+ *   POST   /api/projects/:slug/restore
+ *   POST   /api/projects/:slug/change-maintainer
  */
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
+import { buildTransactionOptions } from '../store/commit-meta.js';
+import type { CreateProjectInput, UpdateProjectInput } from '../services/project.write.js';
 
 export async function projectRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/projects
@@ -122,4 +129,135 @@ export async function projectRoutes(fastify: FastifyInstance): Promise<void> {
       return ok(project);
     },
   );
+
+  // POST /api/projects
+  fastify.post('/api/projects', {
+    schema: {
+      tags: ['projects'],
+      summary: 'Create a project',
+      body: { type: 'object' },
+    },
+  }, async (request, reply) => {
+    const input = (request.body ?? {}) as CreateProjectInput;
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'project.create',
+        subjectType: 'project',
+        responseCode: 201,
+      }),
+      async (tx) => fastify.services.projectsWrite.create(tx, input, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    reply.code(201);
+    return ok(fastify.services.projects.get(result.value.project.slug, getCallerSession(request)));
+  });
+
+  // PATCH /api/projects/:slug
+  fastify.patch('/api/projects/:slug', {
+    schema: {
+      tags: ['projects'],
+      summary: 'Update a project',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      body: { type: 'object' },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const input = (request.body ?? {}) as UpdateProjectInput;
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'project.update',
+        subjectType: 'project',
+        subjectSlug: slug,
+        responseCode: 200,
+      }),
+      async (tx) => fastify.services.projectsWrite.update(tx, slug, input, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    return ok(fastify.services.projects.get(result.value.project.slug, getCallerSession(request)));
+  });
+
+  // DELETE /api/projects/:slug
+  fastify.delete('/api/projects/:slug', {
+    schema: {
+      tags: ['projects'],
+      summary: 'Soft-delete a project',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+    },
+  }, async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'project.soft-delete',
+        subjectType: 'project',
+        subjectSlug: slug,
+        responseCode: 204,
+      }),
+      async (tx) => fastify.services.projectsWrite.softDelete(tx, slug, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    return reply.code(204).send();
+  });
+
+  // POST /api/projects/:slug/restore
+  fastify.post('/api/projects/:slug/restore', {
+    schema: {
+      tags: ['projects'],
+      summary: 'Restore a soft-deleted project',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'project.restore',
+        subjectType: 'project',
+        subjectSlug: slug,
+        responseCode: 200,
+      }),
+      async (tx) => fastify.services.projectsWrite.restore(tx, slug, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    return ok(fastify.services.projects.get(result.value.project.slug, getCallerSession(request)));
+  });
+
+  // POST /api/projects/:slug/change-maintainer
+  fastify.post('/api/projects/:slug/change-maintainer', {
+    schema: {
+      tags: ['projects'],
+      summary: 'Transfer maintainer to another member',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      body: {
+        type: 'object',
+        properties: { personSlug: { type: 'string' } },
+        required: ['personSlug'],
+      },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const { personSlug } = request.body as { personSlug: string };
+    if (!personSlug) {
+      throw new ApiValidationError('personSlug required', { personSlug: 'required' });
+    }
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'project.change-maintainer',
+        subjectType: 'project',
+        subjectSlug: slug,
+        responseCode: 200,
+        extraTrailers: { 'New-Maintainer-Slug': personSlug },
+      }),
+      async (tx) =>
+        fastify.services.projectsWrite.changeMaintainer(tx, slug, personSlug, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    return ok(fastify.services.projects.get(result.value.project.slug, getCallerSession(request)));
+  });
 }
+
+// Helper kept exported for parallel test code; not currently used elsewhere.
+export type { FastifyRequest as _RouteReq };

@@ -1,12 +1,12 @@
-import type { StandardSchemaV1, StoreTx, TransactionOptions, TransactionResult } from 'gitsheets';
+import type { TransactionOptions, TransactionResult } from 'gitsheets';
 import type { PrivateProfile } from '@cfp/shared/schemas';
 import type { PrivateStore, PrivateStoreTx } from './private/index.js';
-import type { PublicStore } from './public.js';
+import type { PublicStore, PublicStoreTx } from './public.js';
 
 /** The combined context passed to store.transact handlers. */
 export interface DualStoreTx {
   /** Access to the typed gitsheets sheets within the public transaction. */
-  readonly public: StoreTx<Record<string, StandardSchemaV1<unknown, Record<string, unknown>>>>;
+  readonly public: PublicStoreTx;
   /** Access to private store mutations staged within this transaction. */
   readonly private: PrivateStoreTx;
 }
@@ -69,10 +69,7 @@ export class Store {
    */
   async transact<T>(
     opts: StoreTransactOptions,
-    handler: (tx: {
-      public: StoreTx<Record<string, StandardSchemaV1<unknown, Record<string, unknown>>>>;
-      private: PrivateStoreTx;
-    }) => Promise<T>,
+    handler: (tx: DualStoreTx) => Promise<T>,
   ): Promise<TransactionResult<T>> {
     const writeOrder = opts.writeOrder ?? 'public-first';
 

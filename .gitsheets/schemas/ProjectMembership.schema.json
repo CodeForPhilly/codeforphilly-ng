@@ -55,6 +55,6 @@
     "createdAt",
     "updatedAt"
   ],
-  "additionalProperties": false,
+  "additionalProperties": {},
   "title": "ProjectMembership"
 }
