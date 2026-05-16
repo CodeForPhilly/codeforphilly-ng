@@ -63,4 +63,7 @@ Out of scope: any actual storage, API endpoints, or UI screens. Those land in de
 - **`exactOptionalPropertyTypes` is not part of `strict`** — it's an independent opt-in. Setting it to `false` explicitly was a no-op that implied intent without explanation; removed during PR review.
 - **Latest deps as of cutover commit (May 2026):** Fastify 5.8, Vite 8.0, React 19.2, typescript-eslint 6.x, asdf-vm/actions@v4, actions/checkout@v6. Pin in `package.json` carets; rolling-major tags for GitHub Actions.
 - **CLAUDE.md lives at `.claude/CLAUDE.md`** after the relocation in this PR — both `<project>/CLAUDE.md` and `<project>/.claude/CLAUDE.md` are valid project-scoped locations for Claude Code; the latter keeps all Claude-specific config under one directory.
-- **No `.env.example` yet** — the `!.env.example` carve-out in `.gitignore` is harmless until `api-skeleton` introduces `EnvSchema` and the matching `.env.example` file.
+
+## Follow-ups
+
+- Deferred to [`api-skeleton`](api-skeleton.md) — `.env.example` lands when `EnvSchema` is introduced; the `!.env.example` carve-out in `.gitignore` is harmless until then.
