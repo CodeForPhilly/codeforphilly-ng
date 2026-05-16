@@ -98,7 +98,7 @@ requireAuth('maintainer | staff', { session: req.session, project });
 requireAuth('self | staff', { session: req.session, slug });
 ```
 
-Throws typed errors per [api/errors.md](../specs/api/errors.md). Routes call it before doing work; services call it again at the service boundary for defense-in-depth.
+Throws typed errors mapped to the envelope per [api/conventions.md](../specs/api/conventions.md#error-envelope). Routes call it before doing work; services call it again at the service boundary for defense-in-depth.
 
 ### Slug renames
 

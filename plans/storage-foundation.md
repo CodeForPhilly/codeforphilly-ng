@@ -5,11 +5,14 @@ specs:
   - specs/data-model.md
   - specs/behaviors/storage.md
   - specs/behaviors/private-storage.md
-  - specs/behaviors/path-templates.md
-  - specs/behaviors/transactions.md
-  - specs/behaviors/validation.md
-  - specs/behaviors/normalization.md
   - specs/behaviors/markdown-rendering.md
+upstream-specs:
+  # Upstream concerns owned by gitsheets — see https://github.com/JarvusInnovations/gitsheets
+  # (these live in the gitsheets repo's specs/, NOT this repo's specs/)
+  - gitsheets:specs/behaviors/path-templates.md
+  - gitsheets:specs/behaviors/transactions.md
+  - gitsheets:specs/behaviors/validation.md
+  - gitsheets:specs/behaviors/normalization.md
 issues: []
 ---
 
@@ -23,14 +26,19 @@ Out of scope: HTTP surface (next plan), authorization rules (referenced but enfo
 
 ## Implements
 
+Own specs (this repo):
+
 - [data-model.md](../specs/data-model.md) — every entity gets a Zod schema and Sheet declaration. The public/private split is realized via the two stores.
-- [behaviors/storage.md](../specs/behaviors/storage.md) — gitsheets repo, single-replica process model, in-memory state + secondary indices, sync-to-GitHub via gitsheets push daemon, the commit-message format including pseudonymous author and trailer policy.
+- [behaviors/storage.md](../specs/behaviors/storage.md) — gitsheets repo wiring, single-replica process model, in-memory state + secondary indices, sync-to-GitHub via gitsheets push daemon, the commit-message format including pseudonymous author and trailer policy.
 - [behaviors/private-storage.md](../specs/behaviors/private-storage.md) — `PrivateStore` interface; S3 and filesystem backends; boot-load; PUT-on-mutation; dual-write coordination helper.
-- [behaviors/path-templates.md](../specs/behaviors/path-templates.md) — handled by gitsheets v1.0 itself; this plan just declares the `path` config in each `.gitsheets/<sheet>.toml`.
-- [behaviors/transactions.md](../specs/behaviors/transactions.md) — public mutations flow through `repo.transact`; the private-side companion is `PrivateStore.transact` (own minimal mutex). Cross-store coordination happens at a higher level (`Store.transact`).
-- [behaviors/validation.md](../specs/behaviors/validation.md) — Zod schemas in `packages/shared` attached as Standard Schema validators via `openStore({ validators })`. `.gitsheets/<sheet>.toml` carries the JSON Schema persisted contract.
-- [behaviors/normalization.md](../specs/behaviors/normalization.md) — gitsheets v1.0 handles array `sort` config + key sorting natively; we declare what we need.
 - [behaviors/markdown-rendering.md](../specs/behaviors/markdown-rendering.md) — `renderMarkdown(source): { html, excerpt }` utility in `packages/shared` (server-side rendering via unified/remark/rehype-sanitize).
+
+Upstream specs (gitsheets) consumed by this plan — see the gitsheets repo for canonical text:
+
+- Path templates — declared in `.gitsheets/<sheet>.toml`; gitsheets v1.0 handles rendering + query-pruning. We don't redefine the syntax.
+- Transactions — public mutations flow through gitsheets's `repo.transact`; the private-side companion is `PrivateStore.transact` (own minimal mutex). Cross-store coordination is documented locally in [behaviors/private-storage.md](../specs/behaviors/private-storage.md#atomicity-with-the-public-commit).
+- Validation — gitsheets calls our consumer-supplied Zod schemas (attached via `openStore({ validators })`) on top of the JSON Schema validation it does itself.
+- Canonical normalization — gitsheets v1.0 handles array `sort` config + deep key sorting natively. We declare per-sheet sort rules in the sheet config when relevant.
 
 ## Approach
 

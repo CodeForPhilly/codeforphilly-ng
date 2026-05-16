@@ -45,13 +45,18 @@ A plan's frontmatter:
 ---
 status: planned          # planned | in-progress | done | blocked | cancelled
 depends: [other-plan-slug]
-specs:                   # spec files this plan implements
+specs:                   # spec files in THIS repo that this plan implements
   - specs/architecture.md
   - specs/behaviors/storage.md
+upstream-specs:          # (optional) specs in OTHER repos this plan consumes
+  - gitsheets:specs/behaviors/transactions.md
+  - gitsheets:specs/api/errors.md
 issues: [128, 129]       # related GitHub issues (optional)
 pr: 42                   # merged PR once done (optional)
 ---
 ```
+
+`specs:` is for specs we own — the spec-drift-auditor matches them against implementation. `upstream-specs:` is for specs owned by dependencies (e.g., gitsheets) that this plan consumes; they're informational only and the spec-drift-auditor doesn't check them. Use the `<repo>:<path>` form so it's obvious where to look.
 
 A plan's body follows the template in [plans/README.md](plans/README.md): Scope, Implements, Approach, Validation, Risks/unknowns, Notes. The Validation section is the load-bearing part — it converts "in-progress" to "done."
 

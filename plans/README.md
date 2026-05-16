@@ -72,8 +72,8 @@ cutover-prep
 | :-: | --- | --- | --- |
 | 📋 | [workspace](workspace.md) | architecture.md repo layout | — |
 | 📋 | [test-harness](test-harness.md) | — (foundational) | workspace |
-| 📋 | [storage-foundation](storage-foundation.md) | data-model, storage, private-storage, path-templates, transactions, validation, normalization | test-harness |
-| 📋 | [api-skeleton](api-skeleton.md) | api/conventions, api/errors | storage-foundation |
+| 📋 | [storage-foundation](storage-foundation.md) | data-model, storage, private-storage, markdown-rendering (+ upstream gitsheets: path-templates, transactions, validation, normalization) | test-harness |
+| 📋 | [api-skeleton](api-skeleton.md) | api/conventions (+ upstream gitsheets: error taxonomy) | storage-foundation |
 | 📋 | [auth-jwt-substrate](auth-jwt-substrate.md) | api/auth (session mgmt only), authorization | api-skeleton |
 | 📋 | [read-api](read-api.md) | api/projects + api/people + api/tags + sub-resource GETs, activity-feed, markdown-rendering | api-skeleton |
 | 📋 | [write-api](write-api.md) | API mutations across all entities, project-stages, tags, help-wanted-roles, slug-handles | auth-jwt-substrate, read-api |
