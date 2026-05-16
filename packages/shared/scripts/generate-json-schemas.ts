@@ -58,7 +58,8 @@ for (const { name, schema } of schemas) {
   // rejects the "https://json-schema.org/draft/2020-12/schema" $schema URI.
   // The schemas themselves only use constructs compatible with both drafts
   // (anyOf, type, pattern, minLength, format, additionalProperties).
-  const { $schema: _stripped, ...rest } = jsonSchema as Record<string, unknown>;
+  const { $schema, ...rest } = jsonSchema as Record<string, unknown>;
+  void $schema; // intentionally stripped — not passed through to output
   const output = {
     ...rest,
     title: name,
