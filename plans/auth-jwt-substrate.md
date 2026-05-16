@@ -44,6 +44,15 @@ HS256 with `CFP_JWT_SIGNING_KEY`. Access JWT: 15 min, `{ sub: personId, jti, acc
 
 Helpers in `apps/api/src/auth/cookies.ts` to set/clear consistently.
 
+### Account-based rate-limit wiring
+
+The api-skeleton plan's rate-limit plugin stubs account-based caps to IP-based limits because `request.person` isn't available yet. Once session middleware decorates requests with `request.session.person`, the rate-limit plugin should be updated to:
+
+- Authenticated reads: key on `account:<personId>`, limit 300/min
+- Writes: key on `write-account:<personId>`, limit 30/min
+
+Update `apps/api/src/plugins/rate-limit.ts` to check `request.session?.person` and switch keys accordingly.
+
 ### Session middleware (`apps/api/src/auth/middleware.ts`)
 
 Decorates every request with `request.session: SessionContext`:
@@ -91,6 +100,7 @@ The HTTP-facing OAuth endpoints (`/api/auth/github/start`, `/callback`) exist bu
 - [ ] `GET /api/auth/sessions` lists non-revoked sessions with metadata; current session marked `current:true`
 - [ ] `POST /api/auth/sessions/:jti/revoke` with `:jti` == current's returns 409 `cannot_revoke_current_session`
 - [ ] Revocation sweeper deletes expired `revocations` records
+- [ ] Account-based rate limits wired: authenticated reads key on `account:<personId>` (300/min), writes key on `write-account:<personId>` (30/min) — update `apps/api/src/plugins/rate-limit.ts` to use `request.session.person` (deferred from api-skeleton)
 - [ ] OAuth endpoints return 501 `oauth_not_yet_wired` (placeholder)
 - [ ] Tests cover all of the above using `mintSessionFor` + `createTestRepo` + `createTestPrivateStore`
 

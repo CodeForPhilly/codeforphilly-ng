@@ -1,0 +1,91 @@
+/**
+ * Test helper: create a full gitsheets data repo.
+ *
+ * Creates a temporary git repo with all the .gitsheets/*.toml sheet configs
+ * required by openPublicStore(). Path templates match specs/behaviors/storage.md.
+ *
+ * Used by api-skeleton tests (and any future tests) that boot the full app
+ * via buildApp() and need a real gitsheets-backed data repo.
+ */
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+
+/** Sheet configs matching specs/behaviors/storage.md#sheet-layout. */
+const SHEET_CONFIGS: Record<string, string> = {
+  'people': `[gitsheet]\nroot = 'people'\npath = '\${{ slug }}'\n`,
+  'projects': `[gitsheet]\nroot = 'projects'\npath = '\${{ slug }}'\n`,
+  'project-memberships': `[gitsheet]\nroot = 'project-memberships'\npath = '\${{ projectSlug }}/\${{ personSlug }}'\n`,
+  'project-updates': `[gitsheet]\nroot = 'project-updates'\npath = '\${{ projectSlug }}/\${{ number }}'\n`,
+  'project-buzz': `[gitsheet]\nroot = 'project-buzz'\npath = '\${{ projectSlug }}/\${{ slug }}'\n`,
+  'help-wanted-roles': `[gitsheet]\nroot = 'help-wanted-roles'\npath = '\${{ projectSlug }}/\${{ id }}'\n`,
+  'help-wanted-interest': `[gitsheet]\nroot = 'help-wanted-interest'\npath = '\${{ roleId }}/\${{ personSlug }}'\n`,
+  'tags': `[gitsheet]\nroot = 'tags'\npath = '\${{ namespace }}/\${{ slug }}'\n`,
+  'tag-assignments': `[gitsheet]\nroot = 'tag-assignments'\npath = '\${{ tagId }}/\${{ taggableType }}/\${{ taggableId }}'\n`,
+  'slug-history': `[gitsheet]\nroot = 'slug-history'\npath = '\${{ entityType }}/\${{ oldSlug }}'\n`,
+  'revocations': `[gitsheet]\nroot = 'revocations'\npath = '\${{ jti }}'\n`,
+};
+
+export interface FullTestRepo {
+  readonly path: string;
+  readonly cleanup: () => Promise<void>;
+}
+
+/**
+ * Create a full gitsheets data repo in a temp directory, with all sheet
+ * configs required by openPublicStore().
+ *
+ * This is the data-repo analog of createTestRepo() from test-repo.ts — but
+ * for full-app tests where the store plugin boots the real openPublicStore().
+ */
+export async function createFullDataRepo(): Promise<FullTestRepo> {
+  const dir = await mkdtemp(join(tmpdir(), 'cfp-full-data-'));
+  const git = (...args: string[]) => execFileAsync('git', args, { cwd: dir });
+
+  await git('init', '-b', 'main');
+  await git('config', 'user.email', 'test@cfp.test');
+  await git('config', 'user.name', 'cfp test');
+  await git('config', 'commit.gpgsign', 'false');
+  await git('config', 'core.hooksPath', '/dev/null');
+  await git('commit', '--allow-empty', '-m', 'initial');
+
+  // Write all sheet configs
+  await mkdir(join(dir, '.gitsheets'), { recursive: true });
+  for (const [name, config] of Object.entries(SHEET_CONFIGS)) {
+    await writeFile(join(dir, '.gitsheets', `${name}.toml`), config);
+  }
+  await git('add', '.gitsheets');
+  await git('commit', '-m', 'chore: add all gitsheets sheet configs');
+
+  let cleaned = false;
+  return {
+    path: dir,
+    cleanup: async () => {
+      if (cleaned) return;
+      cleaned = true;
+      await rm(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+/**
+ * Create a temp directory for the filesystem private store.
+ */
+export async function createPrivateStorageDir(): Promise<{ path: string; cleanup: () => Promise<void> }> {
+  const dir = await mkdtemp(join(tmpdir(), 'cfp-private-'));
+  await mkdir(dir, { recursive: true });
+
+  let cleaned = false;
+  return {
+    path: dir,
+    cleanup: async () => {
+      if (cleaned) return;
+      cleaned = true;
+      await rm(dir, { recursive: true, force: true });
+    },
+  };
+}
