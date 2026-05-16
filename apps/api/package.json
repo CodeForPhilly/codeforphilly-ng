@@ -11,7 +11,8 @@
     "type-check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "script:scrub-data": "tsx scripts/scrub-data.ts",
-    "script:setup-dev-data": "tsx scripts/setup-dev-data.ts"
+    "script:setup-dev-data": "tsx scripts/setup-dev-data.ts",
+    "script:import-laddr": "tsx scripts/import-laddr.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1048.0",
