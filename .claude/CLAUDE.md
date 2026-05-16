@@ -34,11 +34,15 @@ Plans index: [plans/README.md](../plans/README.md). Workflow:
 
 1. **Add a plan** when starting a new chunk of work. `status: planned` + `depends:` set.
 2. **Move to `in-progress`** when you start, as the first commit on the branch (`chore(plans): mark <slug> in-progress`). Skippable for tiny plans — going straight to `done` at the end is fine. Multiple plans can be in-progress in parallel across people, but one plan per contributor at a time is the norm.
-3. **Move to `done` as the last commit on the branch, before merge.** That commit does five things, all in one shot, with message `chore(plans): mark <slug> done (PR #<n>)`:
+3. **Move to `done` as the last commit on the branch, before merge.** That commit does the following, all in one shot, with message `chore(plans): mark <slug> done (PR #<n>)`:
    - Frontmatter: `status` → `done`, add `pr: <PR number>` (knowable once `gh pr create` returns)
    - **Validation checklist: flip each `- [ ]` to `- [x]` for criteria you verified.** If a criterion can't be verified at merge time (depends on a downstream plan, needs production deploy, etc.), leave it unchecked and add a one-line note in the Notes section explaining why and where it'll close out. Never silently rewrite a validation criterion to match what you ended up doing — that's a plan amendment in its own earlier commit.
-   - Notes section: decisions, surprises, gotchas worth carrying forward
-   - `plans/README.md` status table: flip 📋 → ✅, name links to the merged PR
+   - **Notes** section: non-actionable carry-forwards — decisions, surprises, gotchas, learnings. Things future-you would want to know.
+   - **Follow-ups** section: actionable items that didn't ship with this plan. Each entry is one of:
+     - `Issue [#N](link) — short description` — when actionable and not owned by an existing planned-or-in-progress plan, file the issue first (`gh-axi issue create`) and link it
+     - `Deferred to [`<other-plan>`](<other-plan>.md) — short description` — when the work is owned by a downstream plan already
+     - `Tracked as: <free-form pointer>` — for anything else (waiting on community input, vendor response, etc.)
+     - `None.` — explicit when there's nothing, so a future reader can see the section was considered, not just absent
    - The plan is frozen after merge — historical record, no further edits
 4. **Update `depends:`** as the DAG sharpens — a plan can discover it needs a new prereq mid-stream.
 5. **Specs come first.** A plan implements specs that already exist. If you realize specs need to change mid-plan, the spec change is its own PR before the plan continues.
@@ -63,7 +67,7 @@ pr: 42                   # merged PR once done (optional)
 
 `specs:` is for specs we own — the spec-drift-auditor matches them against implementation. `upstream-specs:` is for specs owned by dependencies (e.g., gitsheets) that this plan consumes; they're informational only and the spec-drift-auditor doesn't check them. Use the `<repo>:<path>` form so it's obvious where to look.
 
-A plan's body follows the template in [plans/README.md](../plans/README.md): Scope, Implements, Approach, Validation, Risks/unknowns, Notes. The Validation section is the load-bearing part — it converts "in-progress" to "done."
+A plan's body follows the template in [plans/README.md](../plans/README.md): Scope, Implements, Approach, Validation, Risks/unknowns, Notes, Follow-ups. The Validation section is the load-bearing part — it converts "in-progress" to "done."
 
 **Plans are not specs.** They're project-management artifacts. Plans rot fast — once a plan is `done`, it's a historical record; don't keep editing it. The `spec-drift-auditor` reads `specs/`, not `plans/`.
 
