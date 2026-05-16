@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Local environment + secrets
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+
+# Dev private storage (filesystem backend; see specs/behaviors/private-storage.md)
+private-storage/
+fixtures/private-storage-seeded/
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
