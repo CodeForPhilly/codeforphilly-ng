@@ -1,0 +1,36 @@
+**/node_modules
+**/dist
+**/build
+**/.git
+**/.github
+**/.vscode
+**/.idea
+**/coverage
+**/.turbo
+**/.tsbuildinfo
+**/*.log
+**/.DS_Store
+
+# Local env + dev runtime state — must never enter the build context.
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+private-storage/
+codeforphilly-data/
+apps/codeforphilly-data/
+
+# Agent worktrees + plans/specs (built artifacts don't need them).
+.claude/worktrees/
+
+# Test artifacts
+**/tests
+**/*.test.ts
+**/vitest.config.ts
+
+# Docs / specs not needed at runtime.
+docs/
+plans/
+specs/
+README.md
