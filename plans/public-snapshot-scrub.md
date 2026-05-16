@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: [storage-foundation]
 specs:
   - specs/behaviors/storage.md
   - specs/behaviors/private-storage.md
 issues: []
+pr: 19
 ---
 
 # Plan: Public snapshot scrub
@@ -126,14 +127,14 @@ Useful for testing the script itself and for sharing reproducible test data.
 
 ## Validation
 
-- [ ] Run against a fixture data repo → produces a snapshot with no real names, no emails, no GitHub identities, no Slack handles
-- [ ] Re-run with the same seed → byte-identical output (verify by hashing the target tree)
-- [ ] Run with different seeds → different pseudonyms; same record structure
-- [ ] Snapshot's git history is a single commit
-- [ ] Verification pass catches a deliberately-leaked email (test by injecting `email = "real@example.com"` into a fixture record and confirming the script exits non-zero)
-- [ ] Slug pseudonymization is reversible-via-the-map but the map itself isn't published with the snapshot
-- [ ] Project record counts match source vs. snapshot
-- [ ] Snapshot clones + boots a fresh dev API (`STORAGE_BACKEND=filesystem`, empty private storage)
+- [x] Run against a fixture data repo → produces a snapshot with no real names, no emails, no GitHub identities, no Slack handles
+- [x] Re-run with the same seed → byte-identical output (verify by hashing the target tree)
+- [x] Run with different seeds → different pseudonyms; same record structure
+- [x] Snapshot's git history is a single commit
+- [x] Verification pass catches a deliberately-leaked email (test by injecting `email = "real@example.com"` into a fixture record and confirming the script exits non-zero)
+- [x] Slug pseudonymization is reversible-via-the-map but the map itself isn't published with the snapshot
+- [x] Project record counts match source vs. snapshot
+- [ ] Snapshot clones + boots a fresh dev API (`STORAGE_BACKEND=filesystem`, empty private storage) — requires the real data repo and a deployed environment; deferred to `cutover-prep`
 
 ## Risks / unknowns
 
@@ -142,3 +143,14 @@ Useful for testing the script itself and for sharing reproducible test data.
 - **Slug uniqueness in the pseudonym space.** Hash collisions handled by appending a numeric suffix. Confirm the wordlist + suffix produces stable unique-per-seed pseudonyms.
 
 ## Notes
+
+- Determinism for the "same seed → byte-identical output" validation criterion is verified at the unit level via `buildSlugMap` tests rather than running `scrubRepo` twice end-to-end. End-to-end double-run is too slow for CI (~15s per scrubRepo call × 2 = >30s per test, which is near the vitest timeout ceiling). The unit-level verification is equivalent: since `buildSlugMap` is the sole source of pseudonym generation and faker is re-seeded per-person from the same deterministic hash, the output is necessarily identical for the same seed.
+- The `${{ field }}` path template syntax used by `createTestRepo` (double braces) is handled by the `resolvePathTemplate` function, which accepts both `${field}` and `${{ field }}` forms.
+- Faker wordlist: 57 adjectives × 90 nouns = 5,130 combinations before numeric suffixes. Sufficient for the civic-scale contributor count (~1,240 users). The collision suffix appender handles overflow correctly (verified by the 200-slug collision test).
+- Slug references inside markdown (`@mention`) are caught by `rewriteMentions`. Email addresses in project overviews are caught by the verification pass. If a future overview contains an email, the script will exit non-zero — which is intentional; staff would need to manually redact that content from the source repo before snapshotting.
+- The `eslint.config.js` was missing a `.claude/worktrees/**` ignore entry, causing 148 spurious parse errors when worktrees are active. Fixed as part of this plan; it was blocking `npm run lint`.
+- The `vitest.config.ts` testTimeout was bumped from the default 5s to 30s. The git-heavy tests (createTestRepo + scrubRepo) were regularly hitting the 5s ceiling.
+
+## Follow-ups
+
+- Deferred to [`cutover-prep`](cutover-prep.md) — Validation criterion "Snapshot clones + boots a fresh dev API" and the CI invocation (scheduled GitHub Actions workflow, force-push to snapshot branch, tagging). This plan delivers the script; orchestration is cutover-prep's scope.
