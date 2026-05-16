@@ -1,20 +1,21 @@
-import Fastify from 'fastify';
+/**
+ * API entry point.
+ *
+ * Calls buildApp() to construct the Fastify instance with all plugins and
+ * routes registered, then starts listening. All configuration is handled
+ * inside buildApp() via @fastify/env — this file reads nothing from process.env
+ * directly.
+ */
+import { buildApp } from './app.js';
 
-const PORT = Number(process.env.PORT ?? 3001);
-const HOST = process.env.HOST ?? '0.0.0.0';
+const fastify = await buildApp();
 
-const app = Fastify({
-  logger:
-    process.env.NODE_ENV === 'production'
-      ? true
-      : { transport: { target: 'pino-pretty' } },
-});
-
-app.get('/api/health', () => ({ status: 'ok' }));
+const PORT = Number(process.env['PORT'] ?? 3001);
+const HOST = process.env['HOST'] ?? '0.0.0.0';
 
 try {
-  await app.listen({ port: PORT, host: HOST });
+  await fastify.listen({ port: PORT, host: HOST });
 } catch (err) {
-  app.log.error(err);
+  fastify.log.error(err);
   process.exit(1);
 }
