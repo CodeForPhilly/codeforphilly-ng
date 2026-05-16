@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { api, ApiError } from '@/lib/api';
+import { useNetworkError } from '@/components/NetworkErrorBanner';
 
 export interface SearchResult {
   type: 'project' | 'member' | 'tag';
@@ -17,17 +19,24 @@ export interface SearchState {
 
 const DEBOUNCE_MS = 200;
 
-// TODO(public-screens): replace with real API calls to /api/projects, /api/people, /api/tags
-function mockSearch(q: string): SearchResult[] {
-  if (!q.trim()) return [];
-  return [
-    {
-      type: 'project',
-      slug: 'example-project',
-      title: `Example project matching "${q}"`,
-      url: '/projects/example-project',
-    },
-  ];
+async function performSearch(q: string): Promise<SearchResult[]> {
+  const [projects, people, tags] = await Promise.all([
+    api.projects.list({ q, perPage: 4 }),
+    api.people.list({ q, perPage: 4 }),
+    api.tags.list({ q, perPage: 4 }),
+  ]);
+
+  const out: SearchResult[] = [];
+  for (const p of projects.data) {
+    out.push({ type: 'project', slug: p.slug, title: p.title, url: `/projects/${p.slug}` });
+  }
+  for (const m of people.data) {
+    out.push({ type: 'member', slug: m.slug, title: m.fullName, url: `/members/${m.slug}` });
+  }
+  for (const t of tags.data) {
+    out.push({ type: 'tag', slug: t.handle, title: t.title, url: `/tags/${t.namespace}/${t.slug}` });
+  }
+  return out;
 }
 
 export function useSearch(): SearchState {
@@ -35,28 +44,48 @@ export function useSearch(): SearchState {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reqIdRef = useRef(0);
+  const { showError } = useNetworkError();
 
-  const setQuery = useCallback((q: string) => {
-    setQueryState(q);
+  const setQuery = useCallback(
+    (q: string) => {
+      setQueryState(q);
 
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-    }
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
 
-    if (!q.trim()) {
-      setResults([]);
-      setLoading(false);
-      return;
-    }
+      if (!q.trim()) {
+        setResults([]);
+        setLoading(false);
+        return;
+      }
 
-    setLoading(true);
-    timerRef.current = setTimeout(() => {
-      // TODO(public-screens): replace with real fetch calls
-      const found = mockSearch(q);
-      setResults(found);
-      setLoading(false);
-    }, DEBOUNCE_MS);
-  }, []);
+      setLoading(true);
+      const reqId = ++reqIdRef.current;
+      timerRef.current = setTimeout(() => {
+        performSearch(q.trim())
+          .then((found) => {
+            if (reqIdRef.current === reqId) {
+              setResults(found);
+              setLoading(false);
+            }
+          })
+          .catch((err: unknown) => {
+            if (reqIdRef.current === reqId) {
+              setResults([]);
+              setLoading(false);
+            }
+            if (err instanceof ApiError && err.isServerError) {
+              showError();
+            } else if (!(err instanceof ApiError)) {
+              showError('Network error. Please check your connection and try again.');
+            }
+          });
+      }, DEBOUNCE_MS);
+    },
+    [showError],
+  );
 
   const clear = useCallback(() => {
     setQueryState('');
