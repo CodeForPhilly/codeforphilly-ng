@@ -156,6 +156,8 @@ Every request body and query string is validated by a zod schema declared alongs
 
 ## Rate limiting
 
+Single-replica means rate-limit state is in-memory. Counters reset on restart; acceptable at civic scale.
+
 - Unauthenticated reads: 60 requests / minute / IP
 - Authenticated reads: 300 requests / minute / account
 - Writes: 30 requests / minute / account
@@ -165,7 +167,7 @@ Exceeded → `429 rate_limited`, `Retry-After` header in seconds.
 
 ## Idempotency
 
-Mutating endpoints accept an optional `Idempotency-Key` header (any client-generated string). The API stores the response keyed by `(personId, idempotencyKey)` for 24 hours; repeat requests with the same key return the same response. This matters for cases like "post project update" where a double-tap shouldn't create two updates.
+Mutating endpoints accept an optional `Idempotency-Key` header (any client-generated string). The API caches the response in-memory keyed by `(personId, idempotencyKey)` for 24 hours; repeat requests with the same key return the same response. In-memory by design — single replica, restart-tolerant: a key that hasn't seen a duplicate within 24h won't see one after a restart either. This matters for cases like "post project update" where a double-tap shouldn't create two updates.
 
 ## Logging and trace IDs
 

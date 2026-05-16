@@ -44,6 +44,8 @@ When a feed is requested with both types, the implementation can either:
 
 v1 takes the **client-side merge** approach: home page calls `GET /api/project-updates?perPage=10` and `GET /api/project-buzz?perPage=10` in parallel, merges by `createdAt` (for updates) / `publishedAt` (for buzz), and truncates to 10 total. Project detail calls `GET /api/projects/:slug/updates` and `GET /api/projects/:slug/buzz`.
 
+Server-side, both endpoints serve from the in-memory store via the secondary indices documented in [data-model.md](../data-model.md) (`updatesByProject`, `buzzByProject`, plus their global-feed equivalents). No on-disk scan or query planner — just JS array slice + sort. See [behaviors/storage.md](storage.md).
+
 The merge key for sorting:
 
 - Update → `createdAt`

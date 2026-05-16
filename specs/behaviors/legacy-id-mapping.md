@@ -2,13 +2,14 @@
 
 ## Rule
 
-The rewrite migrates rows from the laddr MySQL database into Postgres while preserving every URL that resolves to a public resource. The bridge is a `legacyId` column on each migrated table that holds the laddr auto-increment primary key.
+The rewrite migrates rows from the laddr MySQL database into gitsheets while preserving every URL that resolves to a public resource. The bridge is a `legacyId` field on each migrated record that holds the laddr auto-increment primary key.
 
 ## Applies To
 
-- [data-model.md](../data-model.md) — `legacyId` column on `people`, `projects`, `projectUpdates`, `projectBuzz`, `tags`, `projectMemberships` (and any other migrated table)
+- [data-model.md](../data-model.md) — `legacyId` field on `people`, `projects`, `project-updates`, `project-buzz`, `tags`, `project-memberships` (and any other migrated sheet)
 - The one-shot importer (`apps/api/scripts/import-laddr.ts` — implementation, not spec)
 - The web layer's legacy-URL redirect handler (described below)
+- [behaviors/storage.md](storage.md) — the import is a single big commit on the data repo
 
 ## What `legacyId` is for
 
@@ -16,22 +17,17 @@ The rewrite migrates rows from the laddr MySQL database into Postgres while pres
 2. **Legacy URL redirects** — laddr URLs sometimes referenced numeric IDs (in `?MemberID=42` query strings, in RSS GUIDs). The rewrite resolves those to the modern slug-based URL by `legacyId` lookup.
 3. **Cutover validation** — staff can spot-check that row counts and individual records match between the two systems.
 
-## When `legacyId` is null
+## When `legacyId` is absent
 
-After cutover, all new rows created via the API have `legacyId = null`. This is normal. The `legacyId` indexes are partial — `where legacyId is not null` — so they only cost storage for migrated rows.
+After cutover, all new records created via the API have no `legacyId` field. This is normal.
 
-If we ever need to re-import (e.g., catching up on changes made after cutover), the importer matches existing rows by `legacyId` and updates them in place rather than duplicating.
+If we ever need to re-import (e.g., catching up on changes made after cutover), the importer matches existing records by `legacyId` (looked up via the in-memory `byLegacyId` index) and updates them in place rather than duplicating.
 
-## Indexes
+## Lookup
 
-```sql
-create unique index projects_legacy_id_idx     on projects(legacyId)     where legacyId is not null;
-create unique index people_legacy_id_idx       on people(legacyId)        where legacyId is not null;
-create unique index project_updates_legacy_id  on projectUpdates(legacyId) where legacyId is not null;
--- etc.
-```
+`legacyId` lookups go through the in-memory `byLegacyId.<entity>` indices documented in [data-model.md](../data-model.md). These indices are built at boot by iterating the sheet and skipping records where `legacyId` is absent.
 
-Partial unique — `null != null` in SQL so this works.
+Uniqueness of `legacyId` per sheet is enforced by the API's write mutex: a record's `legacyId` is checked against the index before commit, just like `slug` and `email`.
 
 ## Legacy URL forms we accept
 
@@ -61,4 +57,4 @@ After that, `legacyId` is read-only data.
 
 ## Spec coverage of migration mechanics
 
-This file specifies the *contract* — that `legacyId` exists and is unique-where-non-null, and what URL patterns we resolve through it. The mapping table from each laddr column to each Postgres column is in [data-model.md#naming-map](../data-model.md#naming-map-laddr--rewrite). The actual import script's behavior (error handling, ordering, batch size) is implementation detail and lives in code, not spec.
+This file specifies the *contract* — that `legacyId` exists and is unique-where-present, and what URL patterns we resolve through it. The mapping table from each laddr column to each gitsheets field is in [data-model.md#naming-map](../data-model.md#naming-map-laddr--rewrite). The actual import script's behavior (error handling, ordering, batch size, choice of one-big-commit vs. one-commit-per-record) is implementation detail and lives in code, not spec.

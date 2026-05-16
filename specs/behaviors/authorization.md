@@ -57,16 +57,63 @@ The hint is **not authoritative**. Every mutation endpoint re-evaluates the rule
 
 `alreadyExpressedInterest` and similar "state about the caller" fields appear alongside `canX` flags when relevant.
 
-## Session lifecycle
+## Session model — stateless JWTs
 
-- Sessions live in the `sessions` table; the cookie carries the opaque token whose sha256 is the lookup key.
-- `expiresAt` is sliding — extended on use when the remaining lifetime falls below 7 days.
-- `revokedAt` non-null → treated as invalid.
-- The session can also be invalidated by deleting/soft-deleting the owning person.
+Sessions are **stateless JWTs**, not database rows. There is no `sessions` sheet. Per-request session lookups don't touch gitsheets.
 
-When an authenticated request fails authorization, the response is:
+### Tokens
 
-- `401 unauthenticated` if no valid session (cookie missing or invalid) — frontend redirects to `/login?return=<current path>`
+- **Access JWT** — 15-minute lifetime. Sent on every API request in the `cfp_session` cookie. Payload: `{ sub: personId, jti: uuidv7, accountLevel, exp, iat }`.
+- **Refresh JWT** — 30-day lifetime. Sent only on refresh requests in a separate `cfp_refresh` cookie (path-scoped to `/api/auth/refresh`). Payload: `{ sub: personId, jti, exp, iat }`.
+
+Both cookies: `HttpOnly`, `Secure`, `SameSite=Lax`. `Secure` is dropped only when host is `localhost` in development.
+
+Signing: HS256 with `CFP_JWT_SIGNING_KEY` (server-managed secret, rotated on a cadence). Rotation triggers re-issue of all tokens on next refresh.
+
+### Lifecycle
+
+```text
+GitHub OAuth callback / login
+        │
+        ▼
+  Issue access JWT (15m) + refresh JWT (30d) ─▶ Set cookies
+        │
+        ▼
+  Subsequent requests carry access JWT
+        │
+        ├─ access JWT valid    → handler runs
+        ├─ access JWT expired  → 401 with `error.code = "access_token_expired"`
+        │                        Frontend hits POST /api/auth/refresh, gets a new pair, retries
+        └─ refresh JWT expired → 401 with `error.code = "session_expired"` → user re-authenticates
+```
+
+The access-token TTL is intentionally short so revocation has a small blast radius. The refresh-token TTL is "session length" — 30 days of inactivity logs you out.
+
+### Revocation
+
+Explicit sign-out (or staff revoke) writes the JWT's `jti` to the [Revocation](../data-model.md#revocation) sheet with the token's original `expiresAt`. On every authenticated request, the API checks the in-memory `revokedJtis: Set<jti>` set (built from the Revocation sheet at boot, updated synchronously on every revoke).
+
+A periodic in-process task sweeps the Revocation sheet for entries whose `expiresAt < now` and deletes them — revoked tokens that have naturally expired no longer need to be remembered.
+
+This gives us:
+
+- **Survives restart** — Revocation sheet is persisted, in-memory set is rebuilt at boot.
+- **Cheap reads** — revocation check is a `Set.has(jti)`.
+- **Cheap writes** — only on explicit sign-out, which is rare. No per-request writes anywhere.
+
+### Sign-out everywhere
+
+To sign out *all* devices for a person, write a `Revocation` entry per active `jti` we've issued for them — but since we don't store issued JWTs, we instead write a `Revocation` entry with a sentinel `jti = "*"` plus the `personId`, and the revocation check additionally rejects any JWT whose `iat` is before that sentinel revocation's `createdAt`. Functionally equivalent to "rotate this user's signing scope as of now."
+
+(That sentinel pattern is implementation guidance, not part of the on-disk schema. The Revocation record shape can accommodate it via `jti = "*"` + `personId`.)
+
+### Why not refresh-rotation tracking
+
+A common pattern is to store the latest refresh-token `jti` per person and reject older ones, detecting refresh-token reuse as a compromise signal. v1 skips this. If we observe refresh-token-reuse incidents in practice, we add it then; it's a localized addition to the refresh endpoint's logic, no schema changes needed.
+
+### When an authenticated request fails authorization
+
+- `401 unauthenticated` if no valid session (cookie missing, JWT invalid, JWT revoked, or refresh required) — frontend redirects to `/login?return=<current path>`
 - `403 forbidden` if the session is valid but the caller lacks the required marker — frontend shows an inline error or a 403 page; no redirect
 
 ## CSRF
@@ -78,7 +125,7 @@ When an authenticated request fails authorization, the response is:
 
 ## Audit log
 
-A `staff_actions` table records:
+The [`staff-actions`](../data-model.md#staffaction) sheet records:
 
 - Account-level changes (admin grants/revokes staff)
 - Project soft-deletes and restores
@@ -86,23 +133,9 @@ A `staff_actions` table records:
 - Help-wanted role transitions when performed by staff (not by the project's own maintainer)
 - Member removals when performed by staff
 
-Row shape:
+Records are time-partitioned at `staff-actions/${year}/${month}/${id}.toml`. See [data-model.md](../data-model.md#staffaction) for the record shape.
 
-```sql
-staff_actions(
-  id uuid,
-  actorId uuid,
-  action text,
-  subjectType text,        -- 'project' | 'person' | 'tag' | 'help_wanted_role' | etc.
-  subjectId uuid,
-  before jsonb null,
-  after  jsonb null,
-  reason text null,
-  createdAt timestamptz
-)
-```
-
-This is a write-only log. There's no UI for it in v1 — staff just have the rows available via direct DB query. A "Recent staff activity" screen is deferred.
+This is a write-only log. There's no UI for it in v1 — staff just have the records visible by browsing the data repo (or via `git log` on the relevant sheet). A "Recent staff activity" screen is deferred. The git history itself is also a partial audit log "for free" — every mutation is a commit with author and message.
 
 ## Anti-enumeration
 

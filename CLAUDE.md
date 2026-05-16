@@ -28,11 +28,19 @@ Run `/audit-spec-drift` to launch a comprehensive audit comparing `specs/` again
 
 ## Stack
 
-- **Backend** — Fastify 5.x + TypeScript + Drizzle + Postgres 16. See [specs/architecture.md](specs/architecture.md).
+- **Backend** — Fastify 5.x + TypeScript. Single replica, in-process write mutex.
+- **Storage** — [gitsheets](https://github.com/JarvusInnovations/gitsheets) (TOML records in a git repo). No persistent OLTP. See [specs/behaviors/storage.md](specs/behaviors/storage.md).
+- **Schemas** — Zod in `packages/shared`, consumed by both web and api.
+- **Full-text search** — in-memory SQLite FTS5 (or MiniSearch fallback), rebuilt at boot from gitsheets state.
 - **Frontend** — Vite + React 19 + shadcn/ui + Tailwind v4 + React Router v7.
-- **Shared** — zod schemas in `packages/shared` consumed by both sides.
+
+See [specs/architecture.md](specs/architecture.md) for the full stack rationale.
 
 Per the user's global rules: `npm` workspaces (not bun), `asdf` manages the Node version, commit lockfiles.
+
+### Two repos
+
+The code lives here. The data lives in a separate git repo (`codeforphilly-data`, private) referenced via `CFP_DATA_REPO_PATH`. Contributors clone a scrubbed snapshot (`codeforphilly-data-snapshot`, public) for local dev — no database to install.
 
 ## Tooling
 
@@ -62,23 +70,24 @@ npm run -w apps/web dev
 ## Authorship conventions
 
 - TypeScript everywhere. `strict: true`. No `.js` in `src/`.
-- Field names: `camelCase` in TS, `snake_case` in Postgres columns; Drizzle maps between them.
+- Field names: `camelCase` in TS and in TOML records. No casing translation.
 - IDs: UUIDv7. Slugs (not IDs) in user-facing URLs.
-- Timestamps: ISO 8601 UTC in requests/responses; `timestamptz` in Postgres.
+- Timestamps: ISO 8601 UTC strings (e.g., `"2026-05-15T18:42:00Z"`) — in requests, responses, and on disk.
 - Use the response envelope from [specs/api/conventions.md](specs/api/conventions.md) for every endpoint.
 - Markdown is rendered server-side. Clients never run a markdown library on user content. See [specs/behaviors/markdown-rendering.md](specs/behaviors/markdown-rendering.md).
+- Mutations go through the in-process write mutex documented in [specs/behaviors/storage.md](specs/behaviors/storage.md). Don't write to the data repo from anywhere else.
 
 ## Source control
 
 - **Conventional commits** — `type(scope): description` (e.g., `feat(api): add help-wanted endpoints`, `fix(web): correct stage badge color`, `docs(specs): clarify slug rules`).
 - **Logical sets per commit** — group related changes together; commit often as soon as each set is ready. When multiple uncommitted change-sets exist, commit them separately in a logical order rather than mashing together.
 - **Always `git status` before staging.** Stage specific files or directories — never `git add -A` or `git add .` (which can sweep in `.env`, credentials, large binaries, or unrelated work).
-- **Generated changes commit first.** When a command modifies files (`npm install`, `npx shadcn@latest add ...`, `drizzle-kit generate`), commit those generated changes in a dedicated commit with the exact command in the body. Then make manual edits in a separate follow-up commit.
+- **Generated changes commit first.** When a command modifies files (`npm install`, `npx shadcn@latest add ...`), commit those generated changes in a dedicated commit with the exact command in the body. Then make manual edits in a separate follow-up commit.
 - **Don't commit suspected secrets** — `.env`, anything in `*.local.*`, credentials, private keys. Warn explicitly if asked to commit one of these.
 
 ## Migration context
 
-We are migrating from a MySQL-backed PHP/Emergence app to Postgres-backed Node. Every user-facing URL stays the same. See:
+We are migrating from a MySQL-backed PHP/Emergence app to a gitsheets-backed Node app. Every user-facing URL stays the same. See:
 
 - [specs/behaviors/slug-handles.md](specs/behaviors/slug-handles.md) — slug format and uniqueness
 - [specs/behaviors/legacy-id-mapping.md](specs/behaviors/legacy-id-mapping.md) — `legacyId` column and URL redirects

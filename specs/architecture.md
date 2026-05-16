@@ -16,25 +16,45 @@ Out of scope for v1: see [deferred.md](deferred.md).
 | Frontend framework | **Vite + React 19 + TypeScript** | Per `frontend-shadcn` skill. SPA for the dynamic surface; SSR not required for v1 (search engines find existing project pages via sitemap). |
 | Routing (web) | **React Router v7** | Per skill. Use `react-router` (not `react-router-dom`). |
 | UI components | **shadcn/ui (New York) + Tailwind v4** | Per skill. Replaces Bootstrap 4 + jQuery widgets from laddr. |
-| Database | **PostgreSQL 16** | Replaces MySQL. Better JSON support, full-text search, range types. Migration path via fresh import of laddr SQL dump. |
-| ORM / migrations | **Drizzle ORM** | TypeScript-native, lightweight, supports both SQL-first and code-first migrations. |
+| Storage | **gitsheets** (git-backed TOML record store) | No persistent OLTP. Records committed atomically to a git repo; pushed to GitHub for backup. Single-replica API loads all data into typed in-memory state on boot. See [behaviors/storage.md](behaviors/storage.md). |
+| Schema validation | **Zod** | Shared schemas in `packages/shared` validate records on read and write, plus all API request/response shapes. Replaces Drizzle's role as the type source. |
+| Full-text search | **SQLite FTS5 (in-memory)** | Throwaway index built at boot from gitsheets state. Rebuilt incrementally on mutation. Possible v1 fallback to MiniSearch if SQLite native-dep cost is unwanted. |
 | Markdown | **`unified` + `remark` + `rehype-sanitize`** | Replaces laddr's Markdown_AutoLink. Renders on the server to a sanitized HTML string; the client just displays it. |
-| Auth | **`@fastify/jwt` + `@fastify/cookie`** | Email/password primary. Slack OAuth deferred (see [deferred.md](deferred.md)). |
-| File uploads (avatars, buzz images) | **Direct S3-compatible upload** | The deployment target (Kubernetes) makes filesystem state painful; defer to object storage from the start. |
-| Background jobs | **`bullmq` + Redis** | For: image thumbnail generation, GitHub README sync, scheduled tag rollups. |
+| Auth | **`@fastify/jwt` + `@fastify/cookie`** | Stateless JWTs (no per-request DB writes). GitHub OAuth (planned Phase 2 of the rewrite). |
+| File uploads (avatars, buzz images) | **gitsheets attachments** | Binary blobs stored alongside their record via gitsheets' `setAttachment` API; served via streaming `GET /api/attachments/<key>`. Object storage was the original plan; gitsheets attachments collapse the moving pieces. |
+| Background jobs | **In-process timers + an in-memory queue** | At single-replica civic scale we don't need Redis/BullMQ for fan-out. Image thumbnailing, scheduled rollups, and async git pushes run in the same process. |
 | Logging | **pino** (Fastify default) | Pretty in dev, JSON in prod. |
-| Email | **Resend** (transactional) | For password resets, "help wanted" notifications. Service account, not per-user OAuth. |
+| Email | **Resend** (transactional) | For notifications like "help wanted interest expressed." Service account, not per-user OAuth. |
 
 ### What we deliberately *don't* use
 
+- **PostgreSQL / any persistent OLTP** — see [deferred.md](deferred.md). Civic scale lets us hold the whole corpus in memory and rebuild search at boot. Avoiding a separate database collapses ops surface to "one container plus a git remote."
+- **An ORM / migration tool (Drizzle, Prisma)** — gitsheets records are TOML; Zod schemas are the validation layer. Schema migrations are one-shot scripts committed to the data repo, reviewable like any other change.
+- **Redis / BullMQ** — at single-replica scale, in-process timers and async tasks are enough. If we ever scale to multiple writers, that decision triggers a re-architecture, not just adding Redis.
+- **Object storage (S3)** — gitsheets attachments live next to their owning record, committed atomically. The cost is repo size; the benefit is one less service to operate.
 - **Next.js / SSR** — SPA is enough for v1; SSR can be added later if SEO becomes a measurable problem
 - **GraphQL** — REST + zod-typed JSON is sufficient for the surface area
 - **A separate admin app** — admin actions are gated routes within the same app
 - **Multi-tenancy / multi-brigade extensibility** — laddr's "extend" pattern (hologit overlays) is dropped; this is a single-tenant codeforphilly.org app. If another brigade wants the codebase later, they fork.
+- **Multiple API replicas** — gitsheets writes are serialized in-process. Horizontal scaling needs a writer-leader story we don't have. Single replica is *intentional* and adequate for civic scale.
 
 ## Repository layout
 
+Two git repositories side by side:
+
+```text
+~/Repositories/
+├── codeforphilly-rewrite/    # this repo — application code, public
+└── codeforphilly-data/        # gitsheets data, private
 ```
+
+The code repo references the data repo by env var (`CFP_DATA_REPO_PATH`). They are not submodules. See [behaviors/storage.md](behaviors/storage.md).
+
+For contributor onboarding, a public scrubbed snapshot is published at `codeforphilly-data-snapshot` — emails pseudonymized, IPs zeroed. Contributors clone that instead of the live data repo.
+
+### Code repo (this one)
+
+```text
 codeforphilly-rewrite/
 ├── apps/
 │   ├── web/                  # Vite + React + shadcn frontend
@@ -48,13 +68,17 @@ codeforphilly-rewrite/
 │   │   └── index.html
 │   └── api/                  # Fastify + TypeScript backend
 │       ├── src/
-│       │   ├── plugins/      # env, db, auth, cors
+│       │   ├── plugins/      # env, gitsheets, auth, cors
 │       │   ├── routes/       # One file per endpoint group; mirrors specs/api/
 │       │   ├── services/     # Business logic (ProjectService, TagService, etc.)
-│       │   ├── jobs/         # Background workers
+│       │   ├── store/        # In-memory store + secondary indices + FTS
+│       │   ├── jobs/         # In-process scheduled tasks (push, thumbnails)
 │       │   ├── app.ts
 │       │   └── index.ts
-│       └── drizzle/          # Schema + migrations
+│       └── scripts/
+│           ├── import-laddr.ts            # one-shot mysqldump → gitsheets
+│           ├── scrub-data.ts              # produce public anonymized snapshot
+│           └── migrations/<timestamp>-*.ts  # schema migration scripts
 ├── packages/
 │   └── shared/               # Zod schemas + TypeScript types shared web↔api
 │       └── src/
@@ -68,9 +92,24 @@ codeforphilly-rewrite/
 └── .tool-versions            # asdf-managed node version
 ```
 
-### Why monorepo
+### Data repo
 
-The web and api share zod schemas for every request/response shape. Putting them in `packages/shared` means the frontend gets compile-time type safety against the backend without a separate codegen step or OpenAPI roundtrip. Drizzle schema types can also be re-exported from `packages/shared` so the frontend uses the same field names as the database.
+```text
+codeforphilly-data/
+├── .gitsheets/               # per-sheet config TOML files
+│   ├── people.toml
+│   ├── projects.toml
+│   └── …
+├── people/<slug>.toml        # records, per the path templates in storage.md
+├── projects/<slug>.toml
+├── projects/<slug>/<attachment>
+├── project-memberships/<projectSlug>/<personSlug>.toml
+└── …
+```
+
+### Why monorepo (code side)
+
+The web and api share Zod schemas for every request/response shape and every record. Putting them in `packages/shared` means the frontend gets compile-time type safety against the backend without a separate codegen step or OpenAPI roundtrip. The same Zod schemas validate records on read from gitsheets.
 
 ### Workspace tool
 
@@ -79,24 +118,38 @@ The web and api share zod schemas for every request/response shape. Putting them
 ## Conventions
 
 - **TypeScript everywhere.** No `.js` files in `src/`. `strict: true` in `tsconfig.base.json`.
-- **Field naming** — camelCase in TypeScript; snake_case in Postgres columns. Drizzle maps between them.
-- **IDs** — UUIDv7 for all primary keys. Stable, sortable, k-sortable-by-creation, no leaked count. Migration from laddr's auto-increment IDs is via a `legacy_id` column on each table.
-- **Slugs** — every user-facing entity has a `slug` (replaces laddr's `Handle`). Slugs are URL-safe, lowercase, hyphen-separated, unique within their type. See [behaviors/slug-handles.md](behaviors/slug-handles.md).
-- **Timestamps** — `createdAt`, `updatedAt` on every table. UTC. Stored as `timestamptz`.
-- **Soft deletes** — only on `projects` and `people` (laddr precedent: project deletions also tombstone via VersionedRecord). Use `deletedAt timestamptz null`.
+- **Field naming** — camelCase in both TypeScript and the TOML records on disk. No SQL casing to map between.
+- **IDs** — UUIDv7 for all entities. Stable, sortable, k-sortable-by-creation, no leaked count. Migration from laddr's auto-increment IDs is via a `legacyId` field on each migrated record.
+- **Slugs** — every user-facing entity has a `slug` (replaces laddr's `Handle`). URL-safe, lowercase, hyphen-separated, unique within their type. See [behaviors/slug-handles.md](behaviors/slug-handles.md).
+- **Timestamps** — `createdAt`, `updatedAt` on every record. ISO 8601 UTC strings (`"2026-05-15T18:42:00Z"`) in TOML, the API, and TypeScript.
+- **Soft deletes** — only on `projects` and `people` (laddr precedent). The record stays in gitsheets with `deletedAt` set; the in-memory store filters them from non-staff reads.
 - **Error envelope** — see [api/conventions.md](api/conventions.md).
+- **No null in TOML** — TOML can't represent null. Treat absent fields as null on read; omit nulls on write.
 
 ## Build, dev, deploy
 
 ### Local development
 
+The "no moving pieces" promise: a contributor needs git, Node, and two clones. No Docker compose, no database to install, no migrations to run.
+
 ```bash
-# from repo root
+git clone https://github.com/CodeForPhilly/codeforphilly-rewrite.git
+git clone https://github.com/CodeForPhilly/codeforphilly-data-snapshot.git ../codeforphilly-data
+cd codeforphilly-rewrite
 npm install
-npm run dev              # runs api + web concurrently with watch
+npm run dev              # api + web concurrently with watch
 ```
 
-Web dev server proxies `/api/*` to the api on `localhost:3001`. Both rebuild on file changes (`tsx watch` for api, Vite HMR for web).
+The web dev server proxies `/api/*` to the api on `localhost:3001`. Both rebuild on file changes (`tsx watch` for api, Vite HMR for web). The API reads from `../codeforphilly-data` by default; override with `CFP_DATA_REPO_PATH`.
+
+Mutations made through the running site land as commits in the local data repo. Contributors can:
+
+- `git diff` to see what their feature changed
+- `git reset --hard` to clean slate
+- `git checkout -b experiment` to branch state alongside code branches
+- Open the data repo in any git client to inspect history
+
+See [behaviors/storage.md](behaviors/storage.md) for the developer-experience details.
 
 ### Build
 
@@ -107,15 +160,21 @@ npm run type-check       # tsc --noEmit across workspaces
 
 ### Deploy
 
-A single Docker image bundles the built API and serves the static `apps/web/dist` from the same Fastify instance via `@fastify/static`. This keeps deploy simple (one container, one ingress) and aligns with the existing Helm chart layout from `codeforphilly.org`'s `.holo/branches/helm-chart`.
+A single Docker image bundles the built API and serves the static `apps/web/dist` from the same Fastify instance via `@fastify/static`. One container, one ingress.
 
-The k8s manifests live in `deploy/` and follow the same Helm conventions; cluster targeting and secret management are unchanged from the legacy stack (see `docs/operations/migrate-to-k8s.md` in the laddr repo for context).
+The container needs a mounted volume for the data repo working tree (`CFP_DATA_REPO_PATH`). On pod start the entrypoint runs `git clone` (or `git fetch && git reset --hard origin/main`) against the configured `CFP_DATA_REMOTE` — so the volume's only job is "have a working tree"; the remote is the source of truth.
+
+On every commit the API pushes asynchronously to `CFP_DATA_REMOTE`. The push credential is a deploy-key SSH or GitHub App token; in our cluster it's a sealed-secret.
+
+The k8s manifests live in `deploy/` and follow the same Helm conventions as the legacy site; cluster targeting and secret management are unchanged from the legacy stack (see `docs/operations/migrate-to-k8s.md` in the laddr repo for context).
 
 ## Data migration
 
-A one-shot migration script (`apps/api/scripts/import-laddr.ts`) reads from a mysqldump of the production laddr database and writes to the new Postgres schema. Each row gets a `legacy_id` column populated with the laddr `ID`, so URLs like `/projects/squadquest` resolve in both systems against the same slug.
+A one-shot migration script (`apps/api/scripts/import-laddr.ts`) reads from a mysqldump of the production laddr database and writes records into a fresh gitsheets repo. Each record gets a `legacyId` field populated with the laddr auto-increment `ID`, so URLs like `/projects/squadquest` resolve in both systems against the same slug.
 
-The migration is not run in production until the spec for each migrated table is accepted. It's a tool for cutover, not a long-term integration.
+The migration is one big commit ("import from laddr `<mysqldump-date>`"). Reviewable, revertable, reusable for staging-cutover dry runs.
+
+The migration is not run in production until the spec for each migrated sheet is accepted. It's a tool for cutover, not a long-term integration.
 
 ## Authorization model
 
