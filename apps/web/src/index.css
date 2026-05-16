@@ -128,3 +128,14 @@
     @apply font-sans;
     }
 }
+
+@media print {
+  header,
+  footer,
+  nav[aria-label="Breadcrumb"],
+  [data-testid="offline-banner"],
+  [data-testid="network-error-banner"],
+  [id="search-results-dropdown"] {
+    display: none !important;
+  }
+}
