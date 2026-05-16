@@ -8,41 +8,31 @@
 
 ## Data Requirements
 
-- `GET /api/auth/me` — to detect existing session and skip the form
+- `GET /api/auth/me` — to detect existing session and skip the screen
 
 ## Display Rules
 
-- Centered card, ≤ 480px wide
-- Title: "Sign in to Code for Philly"
-- Form:
-  - Email input (`type="email"`, autocomplete "email", autofocus)
-  - Password input (`type="password"`, autocomplete "current-password")
-  - "Sign in" submit button (primary, full-width)
-- Below the form:
-  - "Forgot your password?" link to `/forgot-password`
-  - Divider
-  - "New here? Create an account →" link to `/register?return=<encoded return>`
-- Error display:
-  - Invalid credentials → inline error above the form: "Email or password incorrect."
-  - Account disabled → inline: "This account has been disabled. Contact a Code for Philly staff member."
-  - Rate-limited → inline: "Too many attempts. Try again in {n} minutes."
-  - Network error → toast
+The page is a single centered card, ≤ 480px wide.
 
-Loading state: submit button shows spinner and is disabled; inputs disabled.
+- Title: "Sign in to Code for Philly"
+- Body: "We use GitHub for sign-in. If you don't have a GitHub account yet, it's free and takes about a minute."
+- Primary CTA: **"Sign in with GitHub"** — full-width button with the GitHub mark
+- Below the button: a small text block explaining that GitHub is the only sign-in method, with a link "Why GitHub?" → opens a tooltip / inline help explaining the choice (community is on GitHub, spam reduction, recovery story)
+- Below that: "Returning member with an old codeforphilly.org account? You'll be prompted to claim it after you sign in."
+
+The GitHub OAuth flow itself, the OAuth callback handler, and the account-claim prompts are not yet specified. Until they are, the "Sign in with GitHub" button has no API endpoint to hit — this screen is documenting intent.
 
 ## Actions
 
-| Action | API call | On success |
-| ------ | -------- | ---------- |
-| Submit | `POST /api/auth/login` | Navigate to `?return` (validated) or `/` |
-| Forgot password | Navigation to `/forgot-password` | – |
-| Register | Navigation to `/register` | – |
+| Action | Effect |
+| ------ | ------ |
+| Sign in with GitHub | Navigate to `GET /api/auth/github/start?return=<encoded return>` (endpoint not yet specified) |
 
 ## Navigation
 
-**To here:** Header "Login" button on every page, "Sign in" links from action gates, after a session expires (with `?return=...` set to the page that 401'd).
+**To here:** Header "Login" button on every page, after a session expires (with `?return=...` set to the page that 401'd), from any feature that requires authentication.
 
-**From here:** `/`, `?return`, `/register`, `/forgot-password`.
+**From here:** `?return` or `/` (after successful sign-in).
 
 ## Authorization
 

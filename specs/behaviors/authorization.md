@@ -21,7 +21,7 @@ Four levels, in increasing power. Each row has the powers of all rows above it.
 | Staff | `staff` | Set by an administrator |
 | Administrator | `administrator` | Set by another administrator (or manually in seed data — there's always at least one) |
 
-The level is stored on `people.accountLevel`. It's mutable only by administrators, only via `POST /api/people/:slug/account-level` (a deferred endpoint not in v1's auth.md). Until that endpoint exists, account-level changes happen via direct database edit.
+The level is stored on `people.accountLevel`. It's mutable only by administrators, only via `POST /api/people/:slug/account-level` (a deferred endpoint not yet specified). Until that endpoint exists, account-level changes happen via a hand-authored commit to the data repo by an administrator.
 
 ## Per-context markers
 
@@ -32,7 +32,7 @@ Authorization rules in endpoint and screen specs use these markers. The vocabula
 | `public` | Always passes. |
 | `user` | Session is valid and not revoked. `accountLevel != anonymous`. |
 | `self` | The current user matches the resource owner (their own profile, their own session, their own membership). |
-| `member` | Current user has a `project_memberships` row for the target project. |
+| `member` | Current user has a `ProjectMembership` record for the target project. |
 | `maintainer` | Current user is the project's `maintainerId` (or equivalent `isMaintainer = true` on their membership). |
 | `poster` / `author` | Current user authored the resource (a buzz item, an update, a help-wanted role). |
 | `staff` | `accountLevel ∈ {staff, administrator}`. |
@@ -73,7 +73,7 @@ Signing: HS256 with `CFP_JWT_SIGNING_KEY` (server-managed secret, rotated on a c
 ### Lifecycle
 
 ```text
-GitHub OAuth callback / login
+[issuance — flow not yet specified; will be GitHub OAuth callback + account-claim]
         │
         ▼
   Issue access JWT (15m) + refresh JWT (30d) ─▶ Set cookies
@@ -125,7 +125,11 @@ A common pattern is to store the latest refresh-token `jti` per person and rejec
 
 ## Audit log
 
-The [`staff-actions`](../data-model.md#staffaction) sheet records:
+The commit log of the data repo **is** the audit log. There is no separate audit sheet or table.
+
+Every mutation — staff action or self-service edit — lands as a structured commit with author, timestamp, full diff, and trailers. See [behaviors/storage.md](storage.md#commits-are-the-audit-log) for the commit-message + trailer convention.
+
+Staff-relevant actions that get audit attention by virtue of being commits:
 
 - Account-level changes (admin grants/revokes staff)
 - Project soft-deletes and restores
@@ -133,15 +137,21 @@ The [`staff-actions`](../data-model.md#staffaction) sheet records:
 - Help-wanted role transitions when performed by staff (not by the project's own maintainer)
 - Member removals when performed by staff
 
-Records are time-partitioned at `staff-actions/${year}/${month}/${id}.toml`. See [data-model.md](../data-model.md#staffaction) for the record shape.
+Common audit queries:
 
-This is a write-only log. There's no UI for it in v1 — staff just have the records visible by browsing the data repo (or via `git log` on the relevant sheet). A "Recent staff activity" screen is deferred. The git history itself is also a partial audit log "for free" — every mutation is a commit with author and message.
+| Query | Command |
+| ----- | ------- |
+| Recent staff actions | `git log --grep='^Actor-Account-Level: \(staff\|administrator\)$'` |
+| Everything an actor did | `git log --author='chris@example.com'` |
+| All soft-deletes | `git log --grep='^Action: \w\+\.soft-delete$'` |
+| History of one record | `git log -- people/janedoe.toml` |
+
+A "Recent staff activity" UI is deferred — staff query via `git log` or the data repo's web interface (GitHub) until then.
 
 ## Anti-enumeration
 
-- Login failures are uniformly `401 unauthenticated` with `error.code = "invalid_credentials"`, never distinguishing email-not-found from password-wrong.
-- Password reset requests are uniformly `202` regardless of whether the email is registered.
 - `GET /api/people/:slug` returns `404 not_found` for soft-deleted people when the caller isn't staff — the same response as a never-existed slug.
+- Once the GitHub OAuth + account-claim flow is specified, claim-attempt failures (email match misses, password match misses) should also use a uniform response that doesn't distinguish "no such account" from "wrong proof." That's a constraint on the not-yet-written flow, captured here so it isn't forgotten.
 
 ## Account self-deletion
 

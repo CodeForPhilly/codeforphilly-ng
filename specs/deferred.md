@@ -78,14 +78,9 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 
 ### Slack OAuth login
 
-- **What:** Sign in with Slack as a primary auth method, replacing or augmenting email/password.
-- **Why deferred:** Most of the active community has a `codeforphilly.slack.com` account; SSO would reduce friction substantially. Email/password ships first because it's self-contained and doesn't pull in Slack as a hard dependency.
-- **When promoted:** Add a `slackId` column on Person, wire `@fastify/oauth2` with the Slack provider, update [api/auth.md](api/auth.md) and [screens/login.md](screens/login.md).
-
-### GitHub OAuth login
-
-- **What:** Sign in with GitHub.
-- **Why deferred:** Same as Slack OAuth. Once email/password is solid, both Slack and GitHub providers can be added.
+- **What:** Sign in with Slack as a *secondary* auth method, alongside GitHub.
+- **Why deferred:** GitHub OAuth ships first as the sole primary auth method (see Replaced — Email/password auth). Slack OAuth is plausible later — most of the active community has a `codeforphilly.slack.com` account — but only after the GitHub flow is solid and only if there's a demonstrated need for a second provider.
+- **When promoted:** Add a `slackId` field on Person, wire `@fastify/oauth2` with the Slack provider, update the auth specs.
 
 ### Project README sync from GitHub
 
@@ -139,6 +134,13 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 
 - **What:** The entire PHP/Emergence/Habitat layer cake.
 - **Replaced by:** Node 22 + Fastify + gitsheets in a single container image, as described in [architecture.md](architecture.md).
+
+### Email/password authentication
+
+- **What:** laddr's email + password sign-in flow with password-reset, email verification, etc.
+- **Replaced by:** **GitHub OAuth** as the only primary auth method, *once the OAuth + account-claim flow is specified*. Until then, sessions exist only via seeded data from the laddr migration.
+- **Why:** Spam/scam load on the laddr sign-up form was unmanageable even with recaptcha. GitHub-account-creation friction filters bad actors meaningfully better. The audience (civic-tech volunteers) overwhelmingly already has a GitHub account. Side benefit: deletes a lot of code — no password storage, no reset flow, no verification flow, no MFA roadmap.
+- **What about laddr users without a GitHub account?** During the account-claim flow they may prove ownership of an old laddr record by typing their old username + password, in which case the laddr-imported `LegacyPasswordCredential` record validates them and is then deleted. After all migration claims are completed (or expire), no password machinery remains in the system.
 
 ### MySQL / any persistent relational database
 

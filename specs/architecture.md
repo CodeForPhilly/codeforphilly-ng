@@ -17,10 +17,10 @@ Out of scope for v1: see [deferred.md](deferred.md).
 | Routing (web) | **React Router v7** | Per skill. Use `react-router` (not `react-router-dom`). |
 | UI components | **shadcn/ui (New York) + Tailwind v4** | Per skill. Replaces Bootstrap 4 + jQuery widgets from laddr. |
 | Storage | **gitsheets** (git-backed TOML record store) | No persistent OLTP. Records committed atomically to a git repo; pushed to GitHub for backup. Single-replica API loads all data into typed in-memory state on boot. See [behaviors/storage.md](behaviors/storage.md). |
-| Schema validation | **Zod** | Shared schemas in `packages/shared` validate records on read and write, plus all API request/response shapes. Replaces Drizzle's role as the type source. |
+| Schema validation | **Zod** | Shared schemas in `packages/shared` validate records on read and write, plus all API request/response shapes. The single source of types — no ORM in the stack. |
 | Full-text search | **SQLite FTS5 (in-memory)** | Throwaway index built at boot from gitsheets state. Rebuilt incrementally on mutation. Possible v1 fallback to MiniSearch if SQLite native-dep cost is unwanted. |
 | Markdown | **`unified` + `remark` + `rehype-sanitize`** | Replaces laddr's Markdown_AutoLink. Renders on the server to a sanitized HTML string; the client just displays it. |
-| Auth | **`@fastify/jwt` + `@fastify/cookie`** | Stateless JWTs (no per-request DB writes). GitHub OAuth (planned Phase 2 of the rewrite). |
+| Auth | **`@fastify/jwt` + `@fastify/cookie`** | Stateless JWTs (no per-request DB writes). Primary identity provider: GitHub OAuth (sign-in flow + account-claim flow not yet specified). |
 | File uploads (avatars, buzz images) | **gitsheets attachments** | Binary blobs stored alongside their record via gitsheets' `setAttachment` API; served via streaming `GET /api/attachments/<key>`. Object storage was the original plan; gitsheets attachments collapse the moving pieces. |
 | Background jobs | **In-process timers + an in-memory queue** | At single-replica civic scale we don't need Redis/BullMQ for fan-out. Image thumbnailing, scheduled rollups, and async git pushes run in the same process. |
 | Logging | **pino** (Fastify default) | Pretty in dev, JSON in prod. |
@@ -188,6 +188,13 @@ Three levels, matching laddr's `Person.AccountLevel`:
 | **Administrator** | Org leadership | All Staff powers + manage users + irreversible deletes + impersonate |
 
 Authorization rules per endpoint and screen live in the respective spec files, with the cross-cutting policy in [behaviors/authorization.md](behaviors/authorization.md).
+
+**How accounts come into being:** there is no on-site sign-up form. Accounts originate from one of two paths:
+
+- **Laddr migration import** — seeds every existing laddr member as a Person record with their preserved slug, email, and (where applicable) `LegacyPasswordCredential`. These accounts exist but have no JWTs issued yet; the user gets their first session by going through the not-yet-specified GitHub OAuth + account-claim flow.
+- **GitHub OAuth, first sign-in** — once the OAuth flow is specified, a new GitHub user signing in for the first time who can't be matched to a legacy account gets a fresh Person record auto-created at `accountLevel = user`.
+
+`Staff` and `Administrator` levels are set by existing administrators, via a hand-authored commit to the data repo until the staff-level endpoint is built.
 
 ## Performance budgets
 

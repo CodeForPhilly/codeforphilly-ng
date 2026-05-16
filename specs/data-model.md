@@ -29,10 +29,11 @@ Person ──*── ProjectMembership ──*── Project
 Tag ──── TagAssignment ──── (Project | Person | HelpWantedRole)
                               polymorphic via taggableType + taggableId
 
-Person ── has ── PasswordCredential       (1:1; removed in Phase 2 when GitHub OAuth ships)
+Person ── has ── LegacyPasswordCredential (0:1; only populated by laddr migration, consumed by the account-claim flow)
        ── has ── Revocation               (0:many; revoked JWT IDs)
 SlugHistory ── points at any renamed entity by (entityType, oldSlug)
-StaffAction ── audit log
+
+The audit log is the commit log itself — see [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log).
 ```
 
 ## Person
@@ -82,21 +83,26 @@ The user/member of the brigade. Replaces laddr's `Emergence\People\Person`.
 
 The single-writer mutex makes these enforceable in-process: validate-then-write under the lock.
 
-## PasswordCredential _(Phase 1 — removed in Phase 2)_
+## LegacyPasswordCredential
 
-Separated from Person so the auth table can rotate independently. Will be deleted once GitHub OAuth ships in Phase 2 of the rewrite.
+Carries a laddr user's old password hash forward through the migration so they can claim their legacy account by typing their old username + password in the account-claim flow (separate spec, not yet written). **The rewrite never creates new records in this sheet** — only the laddr import does. **The rewrite never signs in against these credentials at runtime** — only the claim endpoint validates against them, and only as a one-time identity proof during the claim.
 
-**Sheet:** `password-credentials`
-**Path template:** `password-credentials/${personId}.toml`
+When a legacy account is successfully claimed (by any path — email-match, password-match, or staff approval), its `LegacyPasswordCredential` record is deleted. Once all migration claims are completed (or expire), this sheet drains to zero records and the entity can be removed from the spec.
+
+**Sheet:** `legacy-password-credentials`
+**Path template:** `legacy-password-credentials/${personId}.toml`
 
 | Field | Type | Notes |
 |-------|------|-------|
-| id | uuid | |
-| personId | uuid | FK people.id, 1:1 |
-| passwordHash | string | argon2id |
-| passwordChangedAt | iso8601 | |
-| createdAt | iso8601 | |
-| updatedAt | iso8601 | |
+| personId | uuid | references people.id, 1:1. Used as the filename. |
+| passwordHash | string | the laddr password hash, *as-is*. We do not re-hash; we use whatever algorithm laddr used (laddr-era PHP, likely bcrypt or sha512crypt — confirm at migration time). |
+| importedAt | iso8601 | when the laddr migration created this record |
+
+No `id`, `createdAt`, `updatedAt` — this is import-immutable. No `accountLevel`, no email — those live on the linked Person.
+
+**Secondary in-memory index:**
+
+- `legacyPasswordByPersonId: Map<personId, LegacyPasswordCredential>` — only used by the account-claim endpoint
 
 ## Revocation
 
@@ -291,7 +297,7 @@ This composite path makes "things with tag X" a single directory traversal in th
 
 **Uniqueness:** `(tagId, taggableType, taggableId)`.
 
-## HelpWantedRole _(new — not in laddr)_
+## HelpWantedRole *(new — not in laddr)*
 
 A specific volunteer "ask" a maintainer posts on their project. See [behaviors/help-wanted-roles.md](behaviors/help-wanted-roles.md) for the rule set.
 
@@ -337,7 +343,7 @@ Tracks who has expressed interest in which role.
 
 Used for the 30-day per-person-per-role rate cap on `POST /express-interest` (see [api/projects-help-wanted.md](api/projects-help-wanted.md)). The composite path makes the rate-cap check a path-exists test.
 
-**Uniqueness:** `(roleId, personId)` _within the trailing 30 days_ — enforced by the API (read the existing record if any, check `createdAt`, accept-or-reject).
+**Uniqueness:** `(roleId, personId)` *within the trailing 30 days* — enforced by the API (read the existing record if any, check `createdAt`, accept-or-reject).
 
 ## SlugHistory
 
@@ -358,40 +364,25 @@ Records past slugs of an entity to power the 90-day redirect window. See [behavi
 
 A periodic in-process task deletes expired entries.
 
-## StaffAction
+## Audit log
 
-Audit log for staff/administrator actions. See [behaviors/authorization.md](behaviors/authorization.md).
+The audit log is the **commit log of the data repo** — there is no separate `staff-actions` (or any other) audit sheet. Every mutation lands as a structured commit with author, timestamp, diff, and trailers; queries that an audit table would serve (`who soft-deleted project X?`, `recent staff actions this month?`) are answered by `git log --grep`, `git log --author`, and `git log -- <sheet-path>/`.
 
-**Sheet:** `staff-actions`
-**Path template:** `staff-actions/${year}/${month}/${id}.toml`
-
-| Field | Type | Notes |
-|-------|------|-------|
-| id | uuid | |
-| actorId | uuid | references people.id |
-| action | string | e.g., `project.delete`, `account-level.change`, `tag.merge` |
-| subjectType | enum | `project` \| `person` \| `tag` \| `help_wanted_role` \| `project_membership` |
-| subjectId | uuid | |
-| before | inline TOML table nullable | snapshot of the relevant record fields before the action |
-| after | inline TOML table nullable | snapshot after |
-| reason | string nullable | |
-| createdAt | iso8601 | |
-
-The time-partitioned path keeps any single directory bounded. The audit log is write-only; never edit or delete entries.
+See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log) for the commit message + trailer convention.
 
 ## Relationships at a glance
 
 | From | To | Cardinality | Field |
 |------|----|-----------:|----|
-| Project | Person | many-to-one (maintainer) | `projects.maintainerId` |
-| ProjectMembership | Project | many-to-one | `project_memberships.projectId` |
-| ProjectMembership | Person | many-to-one | `project_memberships.personId` |
-| ProjectUpdate | Project | many-to-one | `project_updates.projectId` |
-| ProjectUpdate | Person | many-to-one (author) | `project_updates.authorId` |
-| ProjectBuzz | Project | many-to-one | `project_buzz.projectId` |
-| ProjectBuzz | Person | many-to-one (postedBy) | `project_buzz.postedById` |
-| HelpWantedRole | Project | many-to-one | `help_wanted_roles.projectId` |
-| HelpWantedRole | Person | many-to-one (postedBy / filledBy) | `help_wanted_roles.postedById`, `filledById` |
+| Project | Person | many-to-one (maintainer) | `Project.maintainerId` |
+| ProjectMembership | Project | many-to-one | `ProjectMembership.projectId` |
+| ProjectMembership | Person | many-to-one | `ProjectMembership.personId` |
+| ProjectUpdate | Project | many-to-one | `ProjectUpdate.projectId` |
+| ProjectUpdate | Person | many-to-one (author) | `ProjectUpdate.authorId` |
+| ProjectBuzz | Project | many-to-one | `ProjectBuzz.projectId` |
+| ProjectBuzz | Person | many-to-one (postedBy) | `ProjectBuzz.postedById` |
+| HelpWantedRole | Project | many-to-one | `HelpWantedRole.projectId` |
+| HelpWantedRole | Person | many-to-one (postedBy / filledBy) | `HelpWantedRole.postedById`, `filledById` |
 | HelpWantedInterestExpression | HelpWantedRole | many-to-one | `roleId` |
 | HelpWantedInterestExpression | Person | many-to-one | `personId` |
 | TagAssignment | Tag | many-to-one | `tagId` |
@@ -411,15 +402,15 @@ Cascading deletes are not enforced by gitsheets; the API's mutation services del
 | `projects.MaintainerID` | `projects.maintainerId` |
 | `projects.UsersUrl` / `DevelopersUrl` / `ChatChannel` | `projects.usersUrl` / `developersUrl` / `chatChannel` |
 | `project_members` | `project-memberships` sheet |
-| `project_updates.Number` | `project_updates.number` |
-| `project_buzz.Headline` / `URL` / `Published` / `Summary` / `ImageID` | `project_buzz.headline` / `url` / `publishedAt` / `summary` / `imageKey` |
+| `project_updates.Number` | `ProjectUpdate.number` |
+| `project_buzz.Headline` / `URL` / `Published` / `Summary` / `ImageID` | `ProjectBuzz.headline` / `url` / `publishedAt` / `summary` / `imageKey` |
 | `tags.Handle` (e.g., `topic.transit`) | `tags.namespace = 'topic'`, `tags.slug = 'transit'` |
 | `tag_items.ContextClass` / `ContextID` | `tag-assignments.taggableType` / `taggableId` |
 | `Emergence\People\Person.Username` | `people.slug` |
 | `Emergence\People\Person.AccountLevel` | `people.accountLevel` |
-| `Emergence\People\Person.AccountLevel` value `User` | `accountLevel = 'user'` (anonymous is _no record_, not a stored level) |
+| `Emergence\People\Person.AccountLevel` value `User` | `accountLevel = 'user'` (anonymous is *no record*, not a stored level) |
 | Database tables | gitsheets sheets |
 | `INDEX`, `UNIQUE INDEX` | enforced in-process by the API under the write mutex; backed by in-memory indices built at boot |
 | `FOREIGN KEY ... ON DELETE CASCADE` | atomic multi-record gitsheets commit (see Storage spec) |
-| `member_checkins` | _dropped — see [deferred.md](deferred.md)_ |
-| `Emergence\CMS\BlogPost` | _dropped — see [deferred.md](deferred.md)_ |
+| `member_checkins` | *dropped — see [deferred.md](deferred.md)* |
+| `Emergence\CMS\BlogPost` | *dropped — see [deferred.md](deferred.md)* |

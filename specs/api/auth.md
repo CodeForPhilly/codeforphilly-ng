@@ -1,78 +1,56 @@
 # API: Authentication
 
-Session-based auth with opaque tokens in an HttpOnly cookie. Email + password for v1. See [conventions.md](conventions.md) for the cookie attributes and [behaviors/authorization.md](../behaviors/authorization.md) for the authorization model.
+Session management endpoints — `/me`, `/logout`, the session list, and explicit revocation. These are the surface that survives regardless of *how* a session got issued.
+
+The endpoints that actually *issue* sessions (GitHub OAuth start/callback, the account-claim flow) are not yet specified. Email/password sign-in is permanently dropped — see [deferred.md](../deferred.md). Until the OAuth flow lands, sessions exist only via seeded data (the laddr migration imports each Person record but does not auto-issue tokens).
+
+See [behaviors/authorization.md](../behaviors/authorization.md) for the JWT model and revocation semantics, and [api/conventions.md](conventions.md) for the cookie attributes.
 
 ## Endpoints
 
 | Method | Path | Auth | Summary |
-|---|---|---|---|
-| `POST` | `/api/auth/register` | public | Create a new account and start a session. |
-| `POST` | `/api/auth/login` | public | Start a session from email + password. |
-| `POST` | `/api/auth/logout` | user | End the current session. |
-| `POST` | `/api/auth/password-reset/request` | public | Send a password-reset email. |
-| `POST` | `/api/auth/password-reset/confirm` | public | Set a new password from a reset token. |
+| ------ | ---- | ---- | ------- |
 | `GET` | `/api/auth/me` | user | Return the current signed-in person's profile and account level. |
-| `GET` | `/api/auth/sessions` | user | List the current person's active sessions. |
-| `POST` | `/api/auth/sessions/:id/revoke` | user (self) | Revoke a specific session. Cannot revoke the current session via this route — use `/logout`. |
+| `POST` | `/api/auth/refresh` | refresh-cookie | Exchange a valid refresh JWT for a fresh access+refresh pair. |
+| `POST` | `/api/auth/logout` | user | End the current session (revoke its access + refresh JWT `jti`s). |
+| `GET` | `/api/auth/sessions` | user | List the current person's *remembered* sessions — non-revoked refresh-token `jti`s the system is aware of. |
+| `POST` | `/api/auth/sessions/:jti/revoke` | user (self) | Revoke a specific session by `jti`. Cannot revoke the current session via this route — use `/logout`. |
 
-## POST /api/auth/register
+## GET /api/auth/me
 
-### Request
+Returns the current person plus `accountLevel`. Used by the SPA on load to bootstrap the auth context.
 
-```json
-{
-  "email": "person@example.com",
-  "password": "...",
-  "fullName": "Jane Doe",
-  "slug": "janedoe"
-}
-```
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| email | string | yes | RFC 5322. Unique (case-insensitive). |
-| password | string | yes | 12–256 chars. No other complexity rule (NIST guidance). Checked against the [Pwned Passwords range API](https://haveibeenpwned.com/API/v3#PwnedPasswords); rejected if seen ≥10 times. |
-| fullName | string | yes | 1–120 chars. |
-| slug | string | no | If omitted, derived from `fullName`. Must match `^[a-z0-9][a-z0-9-]{1,49}$`. Unique. |
-
-### Response — 201
+### Response — 200
 
 ```json
 {
   "success": true,
   "data": {
-    "person": { /* PersonResponse */ },
-    "accountLevel": "user"
+    "person": { /* PersonResponse, see api/people.md */ },
+    "accountLevel": "staff"
   }
 }
 ```
 
-Sets the `cfp_session` cookie. The new person is created at `accountLevel = user` with `emailVerifiedAt = null` (verification is sent but not required to use the site for v1).
+If no session, returns 200 with `data.person = null` and `data.accountLevel = "anonymous"`. (We deliberately do not 401 here — the frontend calls this on every page load including public pages.)
 
-### Errors
+## POST /api/auth/refresh
 
-- `422 validation_failed` — bad input
-- `409 conflict` — `email` or `slug` already exists. `error.fields` identifies which.
-
-## POST /api/auth/login
+Mints a new access+refresh JWT pair from a valid refresh JWT. Idempotent within the token's window: multiple refreshes against the same refresh JWT return the same new pair until that refresh JWT expires.
 
 ### Request
 
-```json
-{
-  "email": "person@example.com",
-  "password": "..."
-}
-```
+Empty body. The refresh JWT is read from the `cfp_refresh` cookie.
 
 ### Response — 200
 
-Same shape as register. Sets the `cfp_session` cookie.
+Empty body. Sets fresh `cfp_session` and `cfp_refresh` cookies.
 
 ### Errors
 
-- `401 unauthenticated` with `error.code = "invalid_credentials"` — email not found OR password wrong. The two cases are not distinguished in the response (no user enumeration).
-- `403 forbidden` with `error.code = "account_disabled"` — `people.deletedAt is not null`.
+- `401 unauthenticated` with `error.code = "refresh_token_expired"` — refresh JWT is past expiry; user must re-authenticate
+- `401 unauthenticated` with `error.code = "refresh_token_revoked"` — refresh JWT's `jti` is in the revocations sheet
+- `401 unauthenticated` with `error.code = "no_refresh_token"` — cookie missing
 
 ## POST /api/auth/logout
 
@@ -82,61 +60,13 @@ Empty.
 
 ### Response — 204
 
-No body. Clears the `cfp_session` cookie. Marks the underlying `sessions` row `revokedAt = now()`.
-
-## POST /api/auth/password-reset/request
-
-### Request
-
-```json
-{ "email": "person@example.com" }
-```
-
-### Response — 202
-
-Empty `data`. Always 202 even if email isn't registered (no user enumeration).
-
-A token is mailed to the address if it exists. Tokens are single-use, expire in 1 hour, are stored hashed.
-
-## POST /api/auth/password-reset/confirm
-
-### Request
-
-```json
-{
-  "token": "...",
-  "password": "..."
-}
-```
-
-### Response — 200
-
-Sets the `cfp_session` cookie and starts a new session for the person.
-
-### Errors
-
-- `422 validation_failed` — token missing or password rejected (too short / Pwned)
-- `401 unauthenticated` with `error.code = "invalid_token"` — expired, already used, or never existed
-
-## GET /api/auth/me
-
-Returns the current person (full PersonResponse shape — see [api/people.md](people.md)) plus `accountLevel`. Used by the SPA on load to bootstrap the auth context.
-
-### Response — 200
-
-```json
-{
-  "success": true,
-  "data": {
-    "person": { /* PersonResponse */ },
-    "accountLevel": "staff"
-  }
-}
-```
-
-If no session, returns 200 with `data.person = null` and `data.accountLevel = "anonymous"`. (We deliberately do not 401 here — the frontend calls this on every page load including public pages.)
+No body. Clears the `cfp_session` and `cfp_refresh` cookies. Writes the current access JWT's `jti` and refresh JWT's `jti` to the [revocations sheet](../data-model.md#revocation).
 
 ## GET /api/auth/sessions
+
+Lists sessions the system has metadata for. A "session" here is a non-revoked refresh JWT we've kept side-channel metadata about (UA, IP) so the user can see it in the account-settings UI. JWTs we haven't tagged with side-channel metadata don't appear in this list — they're still valid as long as the signature checks out and they're not revoked.
+
+(In practice the API records UA + IP + `jti` to an in-memory map on every fresh issue, then opportunistically persists those entries to a `session-metadata` sheet on logout/revoke so the user can see their devices across restarts. This is observability sugar around the stateless JWTs — not a stateful session store.)
 
 ### Response — 200
 
@@ -145,10 +75,10 @@ If no session, returns 200 with `data.person = null` and `data.accountLevel = "a
   "success": true,
   "data": [
     {
-      "id": "<uuid>",
+      "jti": "<uuidv7>",
       "userAgent": "Mozilla/5.0 ...",
       "ipAddress": "1.2.3.4",
-      "createdAt": "...",
+      "issuedAt": "...",
       "expiresAt": "...",
       "current": true
     }
@@ -158,21 +88,13 @@ If no session, returns 200 with `data.person = null` and `data.accountLevel = "a
 
 `current = true` marks the session the request itself authenticated with.
 
-## POST /api/auth/sessions/:id/revoke
+## POST /api/auth/sessions/:jti/revoke
 
-Revokes a non-current session. Cannot revoke `:id` of the current session (use `/logout`).
+Revokes a non-current session by `jti`. Writes the `jti` to the revocations sheet with the original token's `expiresAt`. Cannot revoke the current session via this route — use `/logout`.
 
 ### Response — 204
 
 ### Errors
 
-- `404 not_found` — session doesn't exist or doesn't belong to caller
+- `404 not_found` — `jti` doesn't match a session we have metadata for (or doesn't belong to caller)
 - `409 conflict` with `error.code = "cannot_revoke_current_session"`
-
-## Notes
-
-- **Token format:** 32 bytes of CSPRNG, base64url-encoded. Stored as sha256 in `sessions.tokenHash`.
-- **Session lifetime:** 30 days sliding. Each authenticated request bumps `expiresAt` if the remaining lifetime is < 7 days (to avoid hammering the DB on every request).
-- **Sign-out everywhere:** Not a v1 endpoint, but trivial — iterate `sessions` for the person and set `revokedAt`. Add when needed.
-- **Email verification:** Tokens for `emailVerifiedAt` work the same as password-reset tokens but expire in 7 days. Endpoint not specified in v1; verification is sent on register but not enforced.
-- **MFA:** Deferred.

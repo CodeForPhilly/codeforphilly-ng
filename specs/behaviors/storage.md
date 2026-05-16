@@ -91,15 +91,14 @@ Each entity lives in one sheet. The path template determines how records are sto
 | TagAssignment | `tag-assignments` | `tag-assignments/${tagId}/${taggableType}/${taggableId}.toml` |
 | SlugHistory | `slug-history` | `slug-history/${entityType}/${oldSlug}.toml` |
 | Revocation | `revocations` | `revocations/${jti}.toml` |
-| StaffAction | `staff-actions` | `staff-actions/${year}/${month}/${id}.toml` |
-| AccountClaimRequest _(Phase 2)_ | `account-claim-requests` | `account-claim-requests/${id}.toml` |
+| LegacyPasswordCredential | `legacy-password-credentials` | `legacy-password-credentials/${personId}.toml` |
 
 ### Why these path shapes
 
 The path template is the only "index" gitsheets provides natively. Choose it to support the _dominant_ access pattern; in-memory secondary indices handle reverse lookups.
 
 - **Composite paths** (`${projectSlug}/${personSlug}.toml`) make "list everything for this parent" a single directory scan. Reverse lookups ("which projects is this person in?") use an in-memory index built at boot.
-- **Time-partitioned paths** (`staff-actions/${year}/${month}/...`) keep directory size bounded as the audit log grows.
+- **Time-partitioned paths** keep directory size bounded for sheets that grow monotonically. None of the v1 sheets currently use time partitioning, but the pattern is reserved for future high-volume sheets (e.g., webhook ingestion logs).
 - **Polymorphic paths** (`tag-assignments/${tagId}/${taggableType}/${taggableId}.toml`) make "tags on this thing" require an inverted in-memory index. The forward direction ("things with this tag") is the dominant query and matches the path template.
 
 ### Record format
@@ -170,15 +169,70 @@ type Store = {
 }
 ```
 
-Mutations:
+Mutations are scoped to the HTTP request — see the [Request-bound commit lifecycle](#request-bound-commit-lifecycle) below.
+
+## Commits are the audit log
+
+There is no separate audit-log table or sheet. Every mutation is a git commit with author, timestamp, full diff, structured message, and trailers. Queries that a SQL audit log would serve (`who soft-deleted project X?`, `recent staff actions this month?`) are answered by `git log --grep`, `git log --author`, and `git log -- path/to/sheet/`.
+
+This is a load-bearing decision. It saves us a sheet, and it makes the data repo's full mutation history first-class — visible in `git log`, scriptable, scrubbable, and naturally tamper-evident.
+
+### Request-bound commit lifecycle
+
+Each state-mutating HTTP request produces exactly one commit, built from the request context. **Commit only on success** — if the handler throws, no commit lands.
+
+A Fastify hook wraps every request that could mutate state:
 
 1. Acquire the per-process write mutex.
-2. Validate the new/changed record against its Zod schema.
-3. Call gitsheets `upsert` / `delete` (which writes TOML and commits).
-4. On success, update the in-memory store + secondary indices + FTS index.
-5. Release the mutex.
+2. Open a tree-writer over the current data tree.
+3. Run the handler. The handler stages writes via the gitsheets API but does not commit.
+4. After the handler resolves:
+   - **If it succeeded AND the tree was modified** — finalize the commit (author, message, trailers, parent), update the in-memory store + secondary indices + FTS index, release the mutex, schedule an async push.
+   - **If it threw OR the tree is unchanged** — discard staged writes, release the mutex, no commit.
 
-A mutation either fully succeeds (gitsheets commit + in-memory update) or fully fails (no commit, no in-memory change). The mutex makes step 3→4 atomic from the API's perspective. If gitsheets commit fails (rare — disk error or signature failure), the mutation rolls back by simply not updating in-memory state.
+Read-only handlers (`GET`, `HEAD`, `OPTIONS`) skip the mutex and the commit machinery entirely.
+
+A mutation thus either fully succeeds (gitsheets commit + in-memory update + scheduled push) or fully fails (nothing persists). The mutex makes the handler's view of state stable for the duration of the request.
+
+### Commit message shape
+
+```text
+<actor-slug>: <method> <path>
+
+<optional human-readable summary or rendered request/response snippet>
+
+Action: <namespaced action, e.g. project.soft-delete>
+Subject-Type: <project | person | tag | ...>
+Subject-Id: <uuid>
+Subject-Slug: <slug>
+Actor-Slug: <slug>
+Actor-Account-Level: <user | staff | administrator>
+Reason: <optional free-form>
+Host: <request host>
+Content-Type: <request content-type>
+User-Agent: <client UA>
+User-Ip: <client IP>
+Response-Code: <http status>
+Response-Message: <http status text>
+```
+
+Rules:
+
+- The **subject line** is `<actor-slug>: <method> <path>`. For anonymous requests, the actor segment is `anon`.
+- The **author and committer** are the acting Person's `fullName` + `email` (so `git log --author` and `git blame` work without trailer parsing). For anonymous requests, author is `Anonymous <anonymous@codeforphilly.org>`.
+- The **trailers** follow git's standard trailer format (parseable by `git interpret-trailers --parse`). Key convention is HTTP-header style: first letter capitalized, multi-word keys hyphenated, rest lowercase. Examples: `Subject-Type`, `User-Agent`, `Response-Code`. Single-word keys: `Action`, `Reason`, `Host`.
+- `Action` is namespaced with a dot (`project.soft-delete`, `tag.merge`, `account-level.change`) so trailer filters like `git log --grep='^Action: project\.'` work cleanly.
+- Trailers describe the request and the semantic action together. There's no separate "regular commit" vs "audit commit" format — every mutation is audit-loggable.
+
+### PII-aware redaction
+
+The data repo is private, but redaction is defense-in-depth:
+
+- `Authorization` and `Cookie` request headers are never logged.
+- Any request body field matching `/password|token|secret/i` is replaced with `[REDACTED]` before embedding in the commit message.
+- `Set-Cookie` response headers and JWT bodies are not embedded.
+
+The scrubbed public snapshot (see [Dev-environment data](#dev-environment-data)) ships as a single squashed commit without history, so even unredacted history never reaches public.
 
 ## Full-text search
 
