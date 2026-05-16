@@ -13,9 +13,10 @@ build/
 *.local
 *.local.*
 
-# Dev private storage (filesystem backend; see specs/behaviors/private-storage.md)
+# Dev private storage runtime dir (filesystem backend; see specs/behaviors/private-storage.md).
+# The seeded fixture at fixtures/private-storage-seeded/ is intentionally NOT ignored —
+# it ships in the code repo so contributors can load a fake-data baseline.
 private-storage/
-fixtures/private-storage-seeded/
 
 # Editor / OS
 .DS_Store
