@@ -17,7 +17,7 @@ Out of scope: any actual storage, API endpoints, or UI screens. Those land in de
 ## Implements
 
 - [specs/architecture.md](../specs/architecture.md) — repo layout, workspace tool choice (npm), TypeScript posture, ESM-only, asdf-managed Node version, conventions section
-- [CLAUDE.md](../CLAUDE.md) source-control conventions (commit style, lockfile commits, generated-changes-first)
+- [.claude/CLAUDE.md](../.claude/CLAUDE.md) source-control conventions (commit style, lockfile commits, generated-changes-first)
 
 ## Approach
 

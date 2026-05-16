@@ -6,7 +6,7 @@ If `specs/` is the architecture document, `plans/` is the project plan.
 
 ## Workflow
 
-Documented in [`CLAUDE.md`](../CLAUDE.md#plans). Briefly:
+Documented in [`.claude/CLAUDE.md`](../.claude/CLAUDE.md#plans). Briefly:
 
 1. Add a plan to start new work. `status: planned` and `depends:` set.
 2. Move to `in-progress` when starting.

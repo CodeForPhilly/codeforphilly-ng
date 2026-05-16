@@ -85,9 +85,10 @@ codeforphilly-rewrite/
 │       └── src/
 ├── specs/                    # ← source of truth
 ├── .claude/
+│   ├── CLAUDE.md             # authorship + tooling conventions
 │   ├── agents/               # spec-drift-auditor
 │   └── commands/             # /audit-spec-drift
-├── CLAUDE.md
+├── README.md
 ├── package.json              # npm workspaces
 ├── tsconfig.base.json
 └── .tool-versions            # asdf-managed node version
