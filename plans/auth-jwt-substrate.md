@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [api-skeleton]
 specs:
   - specs/api/auth.md
