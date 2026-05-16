@@ -138,7 +138,14 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 ### Habitat + Emergence runtime
 
 - **What:** The entire PHP/Emergence/Habitat layer cake.
-- **Replaced by:** Node 22 + Fastify + Postgres in a single container image, as described in [architecture.md](architecture.md).
+- **Replaced by:** Node 22 + Fastify + gitsheets in a single container image, as described in [architecture.md](architecture.md).
+
+### MySQL / any persistent relational database
+
+- **What:** Storing application data in a long-running OLTP — MySQL today, considered Postgres in an early version of the spec.
+- **Replaced by:** [gitsheets](https://github.com/JarvusInnovations/gitsheets) — TOML records in a git repo, mirrored to GitHub. The whole corpus loads into memory on boot; queries are JS operations against typed in-memory structures; full-text search runs in a throwaway in-memory SQLite FTS5 index rebuilt at boot. See [behaviors/storage.md](behaviors/storage.md).
+- **Why:** At civic scale (low thousands of records), the cost of operating a separate persistent database doesn't pay for itself. The gitsheets backend wins on: contributor onboarding (no DB to install), free audit trail (every mutation is a commit with author + message), trivial backup (`git push`), and propose-review-flow potential (git branches as edit sessions). Tradeoffs accepted: single-replica only, mutations serialized in-process, search index rebuilt at boot.
+- **Trigger to revisit:** Adoption growth past low-tens-of-thousands of records, or a hard requirement for multi-writer concurrency, would push us toward Postgres for some subset of entities. v1 ships gitsheets-only.
 
 ### Hologit layer composition
 
