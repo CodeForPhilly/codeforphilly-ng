@@ -1,5 +1,5 @@
 import { openRepo, openStore } from 'gitsheets';
-import type { StandardSchemaV1, Store, ValidatorMap } from 'gitsheets';
+import type { StandardSchemaV1, Store, StoreTx, ValidatorMap } from 'gitsheets';
 import {
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
@@ -55,6 +55,7 @@ type PublicValidators = {
 } & ValidatorMap;
 
 export type PublicStore = Store<PublicValidators>;
+export type PublicStoreTx = StoreTx<PublicValidators>;
 
 /**
  * Open the gitsheets-backed public data store.
