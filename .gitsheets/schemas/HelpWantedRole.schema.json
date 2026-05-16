@@ -103,6 +103,6 @@
     "createdAt",
     "updatedAt"
   ],
-  "additionalProperties": false,
+  "additionalProperties": {},
   "title": "HelpWantedRole"
 }

@@ -39,6 +39,6 @@
     "personId",
     "createdAt"
   ],
-  "additionalProperties": false,
+  "additionalProperties": {},
   "title": "HelpWantedInterestExpression"
 }
