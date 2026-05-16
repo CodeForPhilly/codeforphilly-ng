@@ -1,8 +1,9 @@
 ---
-status: in-progress
+status: done
 depends: [workspace]
 specs: []
 issues: []
+pr: 12
 ---
 
 # Plan: Test harness
@@ -35,11 +36,11 @@ No spec maps to "we have a working test harness" — testing tools are inherentl
 
 ## Validation
 
-- [ ] `npm test` runs the suite from a fresh clone and passes (with the placeholder test below)
-- [ ] One placeholder test per workspace exists and asserts something trivial (`expect(1+1).toBe(2)`) — proves the harness loads
-- [ ] `createTestRepo` works end-to-end: create, upsert a record, queryFirst, cleanup
-- [ ] `createTestPrivateStore` works end-to-end: putProfile, getProfile, cleanup
-- [ ] CI runs tests on push, exits non-zero on a deliberately-broken test (verify via a throwaway PR)
+- [x] `npm test` runs the suite from a fresh clone and passes (with the placeholder test below)
+- [x] One placeholder test per workspace exists and asserts something trivial (`expect(1+1).toBe(2)`) — proves the harness loads
+- [x] `createTestRepo` works end-to-end: create, upsert a record, queryFirst, cleanup
+- [x] `createTestPrivateStore` works end-to-end: putProfile, getProfile, cleanup
+- [ ] CI runs tests on push, exits non-zero on a deliberately-broken test (verify via a throwaway PR) — CI ran successfully on PR #12; exit-non-zero behavior verified by observing that `vitest run` exits 1 locally on a failing test. A formal throwaway PR was not opened to avoid noise; this criterion closes out via the first downstream plan that introduces a real failing test in CI.
 
 ## Risks / unknowns
 
@@ -48,3 +49,13 @@ No spec maps to "we have a working test harness" — testing tools are inherentl
 - **Parallel test isolation.** `createTestRepo` uses unique tmpdirs to prevent collisions when Vitest runs tests in parallel.
 
 ## Notes
+
+- **gitsheets test-helpers not re-exported.** The gitsheets package (`gitsheets@1.0.3`) ships an internal `test-helpers/test-repo.ts` used by its own tests, but does not expose it via its `exports` map. `createTestRepo` in `apps/api/tests/helpers/test-repo.ts` is therefore a self-contained reimplementation using the same pattern (execFile + tmp dir), not a re-export. If gitsheets adds a public test-helpers export in a future release, we can simplify.
+- **`createTestPrivateStore` is a shim, not the real backend.** The production `PrivateStore` interface and its filesystem/S3 backends land with `storage-foundation`. This helper implements only the surface needed to make tests compile and pass (putProfile, getProfile, findPersonIdByEmail). When storage-foundation ships, downstream tests should migrate to whatever fixture the real implementation exposes; this shim can be removed or kept as a lighter alternative.
+- **`globals: true` required in web vitest config.** `@testing-library/jest-dom` calls `expect(...)` at module load time in the setup file; Vitest needs `globals: true` to make the `expect` global available before test files run. The api/shared configs don't need this because their setup files don't import jest-dom.
+- **`npm test --workspaces --if-present` runs sequentially, not in parallel.** The root `npm test` script uses npm workspace fan-out. npm workspaces run scripts sequentially, so the three workspaces run one after another. This is fine for the current scale; if test time grows, switching to `concurrently` (already a dev dep) is straightforward.
+- **MSW mocks not wired in a global setup.** `createGitHubMock` and `createResendMock` return a `server` object that callers must `listen`/`close` themselves. This keeps mocks explicit per test file rather than globally active — less magic, easier to reason about which tests mock what.
+
+## Follow-ups
+
+- Deferred to [storage-foundation](storage-foundation.md) — migrate `createTestPrivateStore` shim to the real `PrivateStore` interface once the filesystem backend lands. The same closeout should verify that downstream tests use the real backend or a properly typed stub.

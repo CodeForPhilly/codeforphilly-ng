@@ -133,6 +133,10 @@ export function renderMarkdown(source: string): { html: string, excerpt: string 
 
 Wraps unified + remark + rehype-sanitize per [markdown-rendering.md](../specs/behaviors/markdown-rendering.md). Used by record-serialization to populate `*Html` and `*Excerpt` derived fields on read.
 
+### Test helper migration (from test-harness)
+
+The `createTestPrivateStore` shim in `apps/api/tests/helpers/test-private-store.ts` implements only the narrow surface needed by placeholder tests. Once the real `PrivateStore` interface and `FilesystemPrivateStore` implementation land in this plan, downstream tests should migrate to the real backend (or a properly typed stub). The shim can be removed or retained as a lighter alternative; that decision is made during implementation.
+
 ### Boot loader (`apps/api/src/store/boot.ts`)
 
 ```typescript
@@ -158,6 +162,7 @@ Boot fails if either store is unreachable.
 - [ ] A test verifies dual-write semantics: handler succeeds but mock private PUT fails → public commit is rolled back via revert OR reconciliation hooks fire (decide which during implementation; document)
 - [ ] Markdown pipeline test: `renderMarkdown('# Hello\n[link](https://x.org)')` produces sanitized HTML and a plain-text excerpt
 - [ ] Markdown sanitizer rejects `<script>`, `javascript:`, `on*=`, raw HTML — covered by RFC-style negative tests
+- [ ] `createTestPrivateStore` shim in `apps/api/tests/helpers/test-private-store.ts` is evaluated: either migrated to use the real `FilesystemPrivateStore` or documented as intentionally retained as a lighter test fixture
 
 ## Risks / unknowns
 
