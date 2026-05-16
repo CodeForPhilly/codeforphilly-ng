@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [public-screens, write-api]
 specs:
   - specs/screens/project-edit.md
