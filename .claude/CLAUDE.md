@@ -40,7 +40,7 @@ Plans index: [plans/README.md](../plans/README.md). Workflow:
    - **Notes** section: non-actionable carry-forwards — decisions, surprises, gotchas, learnings. Things future-you would want to know.
    - **Follow-ups** section: actionable items that didn't ship with this plan. Each entry is one of:
      - `Issue [#N](link) — short description` — when actionable and not owned by an existing planned-or-in-progress plan, file the issue first (`gh-axi issue create`) and link it
-     - `Deferred to [`<other-plan>`](<other-plan>.md) — short description` — when the work is owned by a downstream plan already
+     - `Deferred to [`<other-plan>`](<other-plan>.md) — short description` — when an unstarted (`status: planned`) downstream plan should own the work. **The same closeout commit must also edit that downstream plan to absorb the deferral** — typically a new bullet under Approach and a new criterion under Validation. If the downstream plan is already `in-progress` or `done`, use the Issue shape instead; never modify a plan that's actively being implemented or already frozen.
      - `Tracked as: <free-form pointer>` — for anything else (waiting on community input, vendor response, etc.)
      - `None.` — explicit when there's nothing, so a future reader can see the section was considered, not just absent
    - The plan is frozen after merge — historical record, no further edits

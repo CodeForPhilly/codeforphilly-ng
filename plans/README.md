@@ -10,7 +10,7 @@ Documented in [`.claude/CLAUDE.md`](../.claude/CLAUDE.md#plans). Briefly:
 
 1. Add a plan to start new work. `status: planned` and `depends:` set.
 2. Move to `in-progress` when starting, as the first commit on the branch (`chore(plans): mark <slug> in-progress`). Skippable for tiny plans.
-3. **Move to `done` as the last commit on the branch, before merge.** That one commit (message: `chore(plans): mark <slug> done (PR #<n>)`) flips frontmatter to `status: done` + `pr: <n>`, ticks each verified validation checkbox, fills in **Notes** (decisions and gotchas worth carrying forward), and fills in **Follow-ups** (actionable items not shipped). Unverifiable criteria stay `[ ]` with a Notes entry explaining where they'll close out — never rewrite a criterion to match what you ended up doing.
+3. **Move to `done` as the last commit on the branch, before merge.** That one commit (message: `chore(plans): mark <slug> done (PR #<n>)`) flips frontmatter to `status: done` + `pr: <n>`, ticks each verified validation checkbox, fills in **Notes** (decisions and gotchas worth carrying forward), and fills in **Follow-ups** (actionable items not shipped). Unverifiable criteria stay `[ ]` with a Notes entry explaining where they'll close out — never rewrite a criterion to match what you ended up doing. When a Follow-up takes the "Deferred to `<plan>`" shape, the same commit must also edit that downstream plan to absorb the deferral (Approach + Validation) — and the downstream plan must still be `planned`; otherwise file an issue.
 4. After merge: frozen. Historical record, no further edits.
 5. A plan implements specs that already exist. If specs need to change mid-plan, the spec change is its own PR before the plan continues.
 
