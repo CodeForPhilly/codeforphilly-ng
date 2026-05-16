@@ -184,8 +184,9 @@ Implementation lives at `apps/api/src/store/private/`. Single class with two bac
 
 ## Coordinates with
 
-- [behaviors/storage.md](storage.md) — public gitsheets store
-- [behaviors/transactions.md](transactions.md) — dual-write coordination at commit time
+- [behaviors/storage.md](storage.md) — public gitsheets store; the request-bound commit lifecycle that the dual-write hooks into is at [storage.md#request-bound-commit-lifecycle](storage.md#request-bound-commit-lifecycle)
 - [behaviors/account-migration.md](account-migration.md) — the largest private-store-reading flow
 - [api/auth.md](../api/auth.md) — GitHub OAuth callback updates the profile
 - [architecture.md](../architecture.md) — bucket as a stack dependency
+
+Upstream transaction semantics (`repo.transact`, commit-on-success-only, single-writer mutex) are owned by gitsheets — see the gitsheets repo's `specs/behaviors/transactions.md`.

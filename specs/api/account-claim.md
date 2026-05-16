@@ -251,7 +251,7 @@ Mark the request denied. Optionally include a denial reason that's emailed to th
 
 - `AccountClaimRequest` records live in the **private store** (they contain free-form evidence that may include PII). Storage path: `account-claim-requests.jsonl` in the private bucket, alongside `profiles.jsonl` and `legacy-passwords.jsonl`. (Filed under [behaviors/private-storage.md](../behaviors/private-storage.md) as a third entity in the private store.)
 - The post-onboarding merge is admin-mediated to prevent accidental or malicious self-merges. There's no self-service "merge two accounts I have" endpoint.
-- All claim approvals/denials produce commit trailers per [behaviors/transactions.md](../behaviors/transactions.md) — the public audit log records *that* a claim happened, even though the *evidence* and email matchers are private.
+- All claim approvals/denials produce commit trailers per [behaviors/storage.md](../behaviors/storage.md#commit-message-shape) — the public audit log records *that* a claim happened, even though the *evidence* and email matchers are private.
 
 ## Coordinates with
 

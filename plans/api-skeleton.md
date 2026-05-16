@@ -21,7 +21,7 @@ Out of scope: any business logic; auth (its own plan); per-endpoint specs.
 
 - [api/conventions.md](../specs/api/conventions.md) — response envelope, error codes table, content type, pagination/sort/filter shape (the helpers; consumers use them later), rate limiting per-IP/in-memory, idempotency-key cache, trace IDs, OpenAPI `/api/_openapi.json` + `/api/_docs`.
 
-Upstream: gitsheets's typed exception classes (`GitsheetsError`, `ValidationError`, `TransactionError`, `IndexError`, `RefError`, `PathTemplateError`, `NotFoundError`) bubble up; the API maps them to the response envelope via a single error hook. The mapping table is in [api/conventions.md](../specs/api/conventions.md#error-envelope).
+Upstream: gitsheets's typed exception classes (`GitsheetsError`, `ValidationError`, `TransactionError`, `IndexError`, `RefError`, `PathTemplateError`, `NotFoundError`) bubble up; the API maps them to the response envelope via a single error hook. The error-code table is in [api/conventions.md](../specs/api/conventions.md#error).
 
 ## Approach
 

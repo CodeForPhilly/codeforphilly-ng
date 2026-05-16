@@ -147,7 +147,7 @@ Lists remembered sessions (non-revoked refresh-token `jti`s with side-channel me
 }
 ```
 
-Note: `userAgent` and `ipAddress` here come from the in-memory session-metadata map, which is populated at JWT issue time and persists across restarts via a small sidecar in the private bucket. They are **never** included in commit trailers on the public repo — see [behaviors/transactions.md](../behaviors/transactions.md).
+Note: `userAgent` and `ipAddress` here come from the in-memory session-metadata map, which is populated at JWT issue time and persists across restarts via a small sidecar in the private bucket. They are **never** included in commit trailers on the public repo — see [behaviors/storage.md](../behaviors/storage.md#pii-aware-redaction).
 
 ## POST /api/auth/sessions/:jti/revoke
 
