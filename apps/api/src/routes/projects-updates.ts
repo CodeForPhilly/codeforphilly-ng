@@ -1,13 +1,17 @@
 /**
  * Project update routes:
- *   GET /api/projects/:slug/updates
- *   GET /api/projects/:slug/updates/:number
- *   GET /api/project-updates (global feed)
+ *   GET    /api/projects/:slug/updates
+ *   GET    /api/projects/:slug/updates/:number
+ *   GET    /api/project-updates (global feed)
+ *   POST   /api/projects/:slug/updates
+ *   PATCH  /api/projects/:slug/updates/:number
+ *   DELETE /api/projects/:slug/updates/:number
  */
 import type { FastifyInstance } from 'fastify';
 import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
+import { buildTransactionOptions } from '../store/commit-meta.js';
 
 export async function projectUpdateRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/projects/:slug/updates
@@ -142,4 +146,113 @@ export async function projectUpdateRoutes(fastify: FastifyInstance): Promise<voi
       });
     },
   );
+
+  // POST /api/projects/:slug/updates
+  fastify.post('/api/projects/:slug/updates', {
+    schema: {
+      tags: ['project-updates'],
+      summary: 'Post a project update',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      body: {
+        type: 'object',
+        properties: { body: { type: 'string' } },
+        required: ['body'],
+      },
+    },
+  }, async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const body = request.body as { body: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'project-update.create',
+        subjectType: 'project-update',
+        subjectSlug: slug,
+        responseCode: 201,
+      }),
+      async (tx) => fastify.services.projectUpdatesWrite.create(tx, slug, body, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    reply.code(201);
+    const caller = getCallerSession(request);
+    const fetched = fastify.services.projectUpdates.getForProject(
+      slug,
+      result.value.update.number,
+      caller,
+    );
+    if (!fetched || 'error' in fetched) {
+      throw new ApiNotFoundError(`Update not found after create`);
+    }
+    return ok(fetched);
+  });
+
+  // PATCH /api/projects/:slug/updates/:number
+  fastify.patch('/api/projects/:slug/updates/:number', {
+    schema: {
+      tags: ['project-updates'],
+      summary: 'Edit a project update',
+      params: {
+        type: 'object',
+        properties: { slug: { type: 'string' }, number: { type: 'integer', minimum: 1 } },
+        required: ['slug', 'number'],
+      },
+      body: {
+        type: 'object',
+        properties: { body: { type: 'string' } },
+        required: ['body'],
+      },
+    },
+  }, async (request) => {
+    const { slug, number } = request.params as { slug: string; number: number };
+    const body = request.body as { body: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'project-update.edit',
+        subjectType: 'project-update',
+        subjectSlug: `${slug}/${number}`,
+        responseCode: 200,
+      }),
+      async (tx) =>
+        fastify.services.projectUpdatesWrite.update(tx, slug, number, body, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    const caller = getCallerSession(request);
+    const fetched = fastify.services.projectUpdates.getForProject(slug, number, caller);
+    if (!fetched || 'error' in fetched) {
+      throw new ApiNotFoundError(`Update not found after edit`);
+    }
+    return ok(fetched);
+  });
+
+  // DELETE /api/projects/:slug/updates/:number
+  fastify.delete('/api/projects/:slug/updates/:number', {
+    schema: {
+      tags: ['project-updates'],
+      summary: 'Delete a project update',
+      params: {
+        type: 'object',
+        properties: { slug: { type: 'string' }, number: { type: 'integer', minimum: 1 } },
+        required: ['slug', 'number'],
+      },
+    },
+  }, async (request, reply) => {
+    const { slug, number } = request.params as { slug: string; number: number };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'project-update.delete',
+        subjectType: 'project-update',
+        subjectSlug: `${slug}/${number}`,
+        responseCode: 204,
+      }),
+      async (tx) =>
+        fastify.services.projectUpdatesWrite.delete(tx, slug, number, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    return reply.code(204).send();
+  });
+
+  // Avoid "unused import" for ApiValidationError when no path-level guards fire.
+  void ApiValidationError;
 }

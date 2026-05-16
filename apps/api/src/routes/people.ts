@@ -1,12 +1,17 @@
 /**
  * People routes:
- *   GET /api/people
- *   GET /api/people/:slug
+ *   GET    /api/people
+ *   GET    /api/people/:slug
+ *   PATCH  /api/people/:slug
+ *   DELETE /api/people/:slug
+ *   PATCH  /api/people/:slug/newsletter (private-only mutation)
  */
 import type { FastifyInstance } from 'fastify';
 import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
+import { buildTransactionOptions } from '../store/commit-meta.js';
+import type { UpdatePersonInput } from '../services/person.write.js';
 
 export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/people
@@ -102,4 +107,82 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       return ok(person);
     },
   );
+
+  // PATCH /api/people/:slug
+  fastify.patch('/api/people/:slug', {
+    schema: {
+      tags: ['people'],
+      summary: 'Update profile',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      body: { type: 'object' },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const body = (request.body ?? {}) as UpdatePersonInput;
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'person.update',
+        subjectType: 'person',
+        subjectSlug: slug,
+        responseCode: 200,
+      }),
+      async (tx) => fastify.services.peopleWrite.update(tx, slug, body, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    const caller = getCallerSession(request);
+    return ok(fastify.services.people.get(result.value.person.slug, caller));
+  });
+
+  // DELETE /api/people/:slug (admin-only soft-delete)
+  fastify.delete('/api/people/:slug', {
+    schema: {
+      tags: ['people'],
+      summary: 'Soft-delete a person (admin only)',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+    },
+  }, async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'person.soft-delete',
+        subjectType: 'person',
+        subjectSlug: slug,
+        responseCode: 204,
+      }),
+      async (tx) => fastify.services.peopleWrite.softDelete(tx, slug, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    return reply.code(204).send();
+  });
+
+  // PATCH /api/people/:slug/newsletter (private-store only — no public commit)
+  fastify.patch('/api/people/:slug/newsletter', {
+    schema: {
+      tags: ['people'],
+      summary: 'Update newsletter opt-in (private-store only)',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      body: {
+        type: 'object',
+        properties: { optedIn: { type: 'boolean' } },
+        required: ['optedIn'],
+      },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const { optedIn } = request.body as { optedIn: boolean };
+    if (typeof optedIn !== 'boolean') {
+      throw new ApiValidationError('optedIn must be boolean', { optedIn: 'required' });
+    }
+    const { profile } = await fastify.services.peopleWrite.updateNewsletter(
+      slug,
+      optedIn,
+      request.session,
+    );
+    return ok({
+      personId: profile.personId,
+      newsletter: profile.newsletter ?? null,
+    });
+  });
 }

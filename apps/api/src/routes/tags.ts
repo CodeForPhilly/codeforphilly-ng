@@ -1,14 +1,18 @@
 /**
  * Tag routes:
- *   GET /api/tags
- *   GET /api/tags/:handle
- *   GET /api/tags/:handle/projects
- *   GET /api/tags/:handle/people
+ *   GET    /api/tags
+ *   GET    /api/tags/:handle
+ *   GET    /api/tags/:handle/projects
+ *   GET    /api/tags/:handle/people
+ *   POST   /api/tags             (staff)
+ *   PATCH  /api/tags/:handle     (staff)
+ *   DELETE /api/tags/:handle     (staff)
  */
 import type { FastifyInstance } from 'fastify';
 import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
+import { buildTransactionOptions } from '../store/commit-meta.js';
 
 export async function tagRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/tags
@@ -239,4 +243,87 @@ export async function tagRoutes(fastify: FastifyInstance): Promise<void> {
       };
     },
   );
+
+  // POST /api/tags
+  fastify.post('/api/tags', {
+    schema: {
+      tags: ['tags'],
+      summary: 'Create a tag (staff only)',
+      body: {
+        type: 'object',
+        properties: {
+          namespace: { type: 'string' },
+          slug: { type: 'string' },
+          title: { type: 'string' },
+        },
+        required: ['namespace', 'slug', 'title'],
+      },
+    },
+  }, async (request, reply) => {
+    const body = request.body as { namespace: string; slug: string; title: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'tag.create',
+        subjectType: 'tag',
+        subjectSlug: `${body.namespace}.${body.slug}`,
+        responseCode: 201,
+      }),
+      async (tx) => fastify.services.tagsWrite.create(tx, body, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    reply.code(201);
+    const tag = fastify.services.tags.get(`${result.value.tag.namespace}.${result.value.tag.slug}`);
+    return ok(tag);
+  });
+
+  // PATCH /api/tags/:handle
+  fastify.patch('/api/tags/:handle', {
+    schema: {
+      tags: ['tags'],
+      summary: 'Update or merge a tag',
+      params: { type: 'object', properties: { handle: { type: 'string' } }, required: ['handle'] },
+      body: { type: 'object' },
+    },
+  }, async (request) => {
+    const { handle } = request.params as { handle: string };
+    const body = (request.body ?? {}) as { title?: string; mergeInto?: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: body.mergeInto ? 'tag.merge' : 'tag.update',
+        subjectType: 'tag',
+        subjectSlug: handle,
+        responseCode: 200,
+        ...(body.mergeInto ? { extraTrailers: { 'Merge-Into': body.mergeInto } } : {}),
+      }),
+      async (tx) => fastify.services.tagsWrite.update(tx, handle, body, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    const tag = fastify.services.tags.get(`${result.value.tag.namespace}.${result.value.tag.slug}`);
+    return ok(tag);
+  });
+
+  // DELETE /api/tags/:handle
+  fastify.delete('/api/tags/:handle', {
+    schema: {
+      tags: ['tags'],
+      summary: 'Delete a tag (cascades through assignments)',
+      params: { type: 'object', properties: { handle: { type: 'string' } }, required: ['handle'] },
+    },
+  }, async (request, reply) => {
+    const { handle } = request.params as { handle: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'tag.delete',
+        subjectType: 'tag',
+        subjectSlug: handle,
+        responseCode: 204,
+      }),
+      async (tx) => fastify.services.tagsWrite.delete(tx, handle, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    return reply.code(204).send();
+  });
 }
