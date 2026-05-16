@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [write-api]
 specs:
   - specs/api/auth.md
