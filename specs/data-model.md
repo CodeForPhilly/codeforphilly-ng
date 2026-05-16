@@ -136,7 +136,7 @@ A periodic background task (in-process) sweeps `revocations` for records whose `
 | slug | string | unique. Was `Handle`. URL: `/projects/<slug>`. See [behaviors/slug-handles.md](behaviors/slug-handles.md). |
 | title | string | required, 1–200 chars |
 | summary | string nullable | short tagline shown on cards; ≤ 280 chars. NEW — laddr derived this from the README first line. We split it out. |
-| readme | string nullable | markdown |
+| overview | string nullable | long-form project description in markdown. Renamed from laddr's `README` because it is *not* the same thing as the project's GitHub README — see [deferred.md](deferred.md#cached-github-readme-on-project-pages) for the planned cached-github-readme alongside. |
 | stage | enum | `commenting` \| `bootstrapping` \| `prototyping` \| `testing` \| `maintaining` \| `drifting` \| `hibernating`. Default `commenting`. See [behaviors/project-stages.md](behaviors/project-stages.md). |
 | maintainerId | uuid nullable | references people.id |
 | usersUrl | string nullable | public-facing site for the project |
@@ -397,7 +397,7 @@ Cascading deletes are not enforced by gitsheets; the API's mutation services del
 | `projects.ID` | `projects` record's `id` (uuid) + `legacyId` (int) |
 | `projects.Handle` | `projects.slug` |
 | `projects.Title` | `projects.title` |
-| `projects.README` | `projects.readme` |
+| `projects.README` | `projects.overview` (renamed: GitHub READMEs are a different thing; see [deferred.md](deferred.md#cached-github-readme-on-project-pages)) |
 | `projects.Stage` (TitleCase) | `projects.stage` (lowercase) |
 | `projects.MaintainerID` | `projects.maintainerId` |
 | `projects.UsersUrl` / `DevelopersUrl` / `ChatChannel` | `projects.usersUrl` / `developersUrl` / `chatChannel` |

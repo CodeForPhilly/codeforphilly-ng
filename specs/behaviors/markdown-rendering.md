@@ -2,7 +2,7 @@
 
 ## Rule
 
-User-authored prose fields (`Project.readme`, `Person.bio`, `ProjectUpdate.body`, `ProjectBuzz.summary`, `HelpWantedRole.description`) are stored as markdown source and delivered to the client as **pre-rendered, sanitized HTML** alongside the source. Rendering happens server-side; clients never invoke a markdown library on user-provided content.
+User-authored prose fields (`Project.overview`, `Person.bio`, `ProjectUpdate.body`, `ProjectBuzz.summary`, `HelpWantedRole.description`) are stored as markdown source and delivered to the client as **pre-rendered, sanitized HTML** alongside the source. Rendering happens server-side; clients never invoke a markdown library on user-provided content.
 
 ## Applies To
 
@@ -37,7 +37,7 @@ The same pipeline runs:
 
 GFM features:
 
-- Headings (h1–h6) — but the renderer demotes by 2 (h1 in source → h3 in output) so a project README's `# Foo` doesn't clash with the page's own H1
+- Headings (h1–h6) — but the renderer demotes by 2 (h1 in source → h3 in output) so a project overview's `# Foo` doesn't clash with the page's own H1
 - Paragraphs, line breaks, soft breaks
 - Strong, emphasis, strikethrough
 - Inline code, fenced code blocks (no syntax highlighting in v1 — class is preserved for future client-side highlighting if desired)
@@ -79,7 +79,7 @@ Truncation tries to break at a word boundary, then a sentence boundary if one is
 
 Used for:
 
-- `ProjectListItem.readmeExcerpt` (600 chars)
+- `ProjectListItem.overviewExcerpt` (600 chars)
 - `PersonListItem.bioExcerpt` (200 chars)
 - HTML `<meta name="description">` (≤ 160 chars) for project detail and person detail pages
 - OpenGraph `og:description` (same)

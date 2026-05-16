@@ -63,7 +63,7 @@ For each project (ProjectListItem):
 
 - **Title** — linked to `/projects/<slug>`
 - **Stage badge** — color per [behaviors/project-stages.md](../behaviors/project-stages.md)
-- **Summary or readmeExcerpt** — `summary` if set, otherwise `readmeExcerpt` (truncated to 600 chars, server-rendered markdown stripped to plain text)
+- **Summary or overviewExcerpt** — `summary` if set, otherwise `overviewExcerpt` (truncated to 600 chars, server-rendered markdown stripped to plain text)
 - **Member avatars** — `members` (max 10, maintainer largest at 64px, others 48px), ordered by `isMaintainer DESC, role asc, fullName asc`. Hover/tooltip shows name + role.
 - **Tag chips** — up to 5, mixed namespaces, color-coded by namespace. "+N more" for additional tags.
 - **Action buttons** — "Public Site" if `usersUrl`, "Developers" if `developersUrl`, "Chat" if `chatChannel`

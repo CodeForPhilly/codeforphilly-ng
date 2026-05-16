@@ -58,34 +58,23 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 - **What:** Bundled third-party MailChimp PHP wrapper.
 - **Why:** Goes with MailChimp integration.
 
+### Versioned record history (laddr's `VersionedRecord`)
+
+- **What:** laddr's `VersionedRecord` pattern that retained a full history of edits to projects and updates in `history_projects` / `history_project_updates`.
+- **Replaced by:** The gitsheets commit log itself — every record edit is a commit with author, timestamp, and diff. See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log). No separate history tables needed.
+
 ## Deferred
-
-### Blog (`/blog`)
-
-- **What:** Long-form posts via Emergence CMS's `BlogPost` class.
-- **Why deferred:** Useful for announcements and write-ups, but post velocity has been near-zero for years. Reintroduce when there's a stakeholder committed to writing content.
-- **When promoted:** Likely use a markdown-files-in-repo approach (or hooks into a headless CMS) rather than a database-backed editor in the site. New spec needed.
 
 ### Project comments
 
 - **What:** Inline comments on project pages (the `Comment::class` references in laddr's Project model). Largely commented-out in the template even in laddr — the feature was half-built.
 - **Why deferred:** Slack is where conversations happen. If commenting is ever wanted on-site, it should be designed deliberately.
 
-### Versioned record history
+### Cached GitHub README on project pages
 
-- **What:** laddr's `VersionedRecord` pattern that retained a full history of edits to projects and updates in `history_projects`/`history_project_updates`.
-- **Why deferred:** Useful for moderation, but adds complexity. Audit logging for staff actions (see [behaviors/authorization.md](behaviors/authorization.md)) covers the most common need.
-
-### Slack OAuth login
-
-- **What:** Sign in with Slack as a *secondary* auth method, alongside GitHub.
-- **Why deferred:** GitHub OAuth ships first as the sole primary auth method (see Replaced — Email/password auth). Slack OAuth is plausible later — most of the active community has a `codeforphilly.slack.com` account — but only after the GitHub flow is solid and only if there's a demonstrated need for a second provider.
-- **When promoted:** Add a `slackId` field on Person, wire `@fastify/oauth2` with the Slack provider, update the auth specs.
-
-### Project README sync from GitHub
-
-- **What:** When a project's `developersUrl` is a GitHub repo, periodically fetch the repo's README and offer to use it as the project README on the site.
-- **Why deferred:** Useful, but a polish feature. v1 has manual README editing.
+- **What:** When a project's `developersUrl` is a GitHub repo, periodically fetch the repo's README and display it on the project page **alongside** the on-site `overview` field.
+- **Why deferred:** Useful but secondary; needs spec work on cache invalidation, rate-limit handling, and how the two prose sources are visually distinguished on the page.
+- **When promoted:** Add a `githubReadmeCache` field on Project (markdown, derived from `developersUrl` when it's a github.com URL), plus a periodic sync job. The on-site `overview` field and the cached GitHub README are *different things* and both displayed.
 
 ### Project activity from GitHub
 
@@ -134,6 +123,12 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 
 - **What:** The entire PHP/Emergence/Habitat layer cake.
 - **Replaced by:** Node 22 + Fastify + gitsheets in a single container image, as described in [architecture.md](architecture.md).
+
+### Blog (`/blog`) as a user-facing CMS
+
+- **What:** Long-form posts via Emergence CMS's `BlogPost` class — a database-backed editor inside the site, available to a user role.
+- **Replaced by:** **Staff-authored markdown files in the code repo** at `apps/web/src/content/blog/<slug>.md`. New posts ship via a PR; the web layer renders them at `/blog/<slug>` and a `/blog` index page. Same convention as the static `/pages/*` content.
+- **Why:** Post velocity has been near-zero for years; a database-backed CMS with user logins is overkill. Markdown-in-repo gives version control, PR review, no auth surface, and lets the same toolchain handle every long-form text on the site.
 
 ### Email/password authentication
 

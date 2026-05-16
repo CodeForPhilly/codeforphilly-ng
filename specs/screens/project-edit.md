@@ -31,7 +31,7 @@ In order:
 | Title | Text input | ✓ | 1–200 chars |
 | Slug | Text input | ✓ on create | Auto-filled from title via slugify on create. On edit, only visible to staff (matches PATCH allowed-fields). |
 | Summary | Text input | – | ≤ 280, character counter |
-| README | Markdown editor | – | Side-by-side preview, drag-drop image upload not in v1 |
+| Overview | Markdown editor | – | Side-by-side preview, drag-drop image upload not in v1. Long-form project description authored on-site; *not* synced from any GitHub README. |
 | Stage | Select | ✓ | Default `commenting` on create. Options labeled with name + description from [behaviors/project-stages.md](../behaviors/project-stages.md) |
 | Users' URL | URL input | – | HTTPS only |
 | Developers' URL | URL input | – | HTTPS only |

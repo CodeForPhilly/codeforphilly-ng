@@ -39,7 +39,7 @@ The page is composed of four sections, top to bottom:
 - Up to 8 featured tiles. Each tile shows:
   - Project image — `project.featuredImageKey` (required field when `project.featured = true`; see [data-model.md#project](../data-model.md#project))
   - Title
-  - Tagline = `project.summary`, or first line of `readmeExcerpt` if `summary` is null
+  - Tagline = `project.summary`, or first line of `overviewExcerpt` if `summary` is null
   - Click: links to `/projects/<slug>`
 - Below the grid: "See all 268 projects →" link to `/projects`. The count is `metadata.totalItems` from a separate cheap `HEAD`-style call (or piggybacked from the featured response — implementer's call).
 

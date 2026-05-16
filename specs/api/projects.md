@@ -22,7 +22,7 @@ See [data-model.md](../data-model.md#project) for the entity shape, [behaviors/p
 
 | Param | Type | Notes |
 |---|---|---|
-| `q` | string | Free-text search across `title`, `summary`, `readme` (SQLite FTS5 in-memory index — see [behaviors/storage.md](../behaviors/storage.md#full-text-search)). |
+| `q` | string | Free-text search across `title`, `summary`, `overview` (SQLite FTS5 in-memory index — see [behaviors/storage.md](../behaviors/storage.md#full-text-search)). |
 | `stage` | enum | `commenting` \| `bootstrapping` \| `prototyping` \| `testing` \| `maintaining` \| `drifting` \| `hibernating` |
 | `stageIn` | csv-of-enum | Multi-value filter. |
 | `tag` | string | Tag handle in `<namespace>.<slug>` form (e.g., `tech.flutter`). Repeatable; semantics are AND across repeats. |
@@ -66,7 +66,7 @@ The summary shape used in lists; smaller than the detail response.
   "title": "SquadQuest",
   "summary": "Realtime community events without Facebook.",
   "stage": "testing",
-  "readmeExcerpt": "SquadQuest is a different kind of civic technology...",  // <= 600 chars, plain text (markdown stripped)
+  "overviewExcerpt": "SquadQuest is a different kind of civic technology...",  // <= 600 chars, plain text (markdown stripped)
   "maintainer": { "slug": "chris", "fullName": "Chris Alfano", "avatarUrl": "..." } | null,
   "memberCount": 5,
   "members": [PersonAvatar, ...],                                            // first 10 by role then alpha
@@ -102,8 +102,8 @@ Fetches a single project by slug.
   "slug": "squadquest",
   "title": "SquadQuest",
   "summary": "...",
-  "readme": "## Markdown source ...",
-  "readmeHtml": "<h2>Markdown source ...",   // sanitized HTML rendered server-side
+  "overview": "## Markdown source ...",
+  "overviewHtml": "<h2>Markdown source ...",   // sanitized HTML rendered server-side
   "stage": "testing",
   "stageProgress": 0.5,                       // derived; see project-stages.md
   "maintainer": Person | null,
@@ -142,7 +142,7 @@ Create a new project. Caller becomes the maintainer and is added as a `Founder` 
   "title": "My New Project",
   "slug": "my-new-project",     // optional; derived from title if omitted
   "summary": "Tagline (optional)",
-  "readme": "Markdown source",
+  "overview": "Markdown source",
   "usersUrl": "https://...",
   "developersUrl": "https://...",
   "chatChannel": "my-channel",
@@ -176,7 +176,7 @@ Update one or more fields. Field-level. Omitted fields are unchanged. Tags, if p
 
 | Field | maintainer | staff |
 |---|:---:|:---:|
-| title, summary, readme, usersUrl, developersUrl, chatChannel | ✓ | ✓ |
+| title, summary, overview, usersUrl, developersUrl, chatChannel | ✓ | ✓ |
 | stage | ✓ | ✓ |
 | tags.{topic,tech,event} | ✓ | ✓ |
 | slug | – | ✓ |
@@ -237,5 +237,5 @@ The previous maintainer remains a member with their old role (or `"Maintainer (f
 ## Notes
 
 - **Slug changes** create a 301 redirect from the old slug for 90 days (handled at the web layer, not the API). The API itself accepts the new slug only after the change. See [behaviors/slug-handles.md](../behaviors/slug-handles.md).
-- **README rendering** happens server-side via the markdown pipeline in [behaviors/markdown-rendering.md](../behaviors/markdown-rendering.md). The `readmeHtml` field is always derived from `readme` on read.
+- **Overview rendering** happens server-side via the markdown pipeline in [behaviors/markdown-rendering.md](../behaviors/markdown-rendering.md). The `overviewHtml` field is always derived from `overview` on read.
 - **Stage transitions** are free-form in v1 — any role permitted to edit can set any stage. We don't enforce ordering. See [behaviors/project-stages.md](../behaviors/project-stages.md) for the rationale and what we want eventually.

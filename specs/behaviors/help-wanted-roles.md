@@ -4,7 +4,7 @@
 
 A "help-wanted role" is a concrete, time-boxed volunteer ask attached to a project: "We need a React dev for ~4 hrs/wk to build the admin dashboard." Roles live on projects, have a status lifecycle, attract interest expressions from prospective volunteers, and roll up into a cross-project browse.
 
-This is the headline new feature in v1. It exists because the laddr project directory left "how to actually contribute" up to each project's README and Slack channel — high friction for newcomers.
+This is the headline new feature in v1. It exists because the laddr project directory left "how to actually contribute" up to each project's overview/README and Slack channel — high friction for newcomers.
 
 ## Applies To
 
@@ -50,7 +50,7 @@ Deferred to a follow-up release; v1 ships without this and we measure how stale 
 
 ## Display rules across screens
 
-- The **Project Detail** page renders the project's open roles inline (between README and Activity). Closed/filled roles are accessible via a "View all roles" link.
+- The **Project Detail** page renders the project's open roles inline (between Overview and Activity). Closed/filled roles are accessible via a "View all roles" link.
 - The **Help-Wanted Index** shows roles where `status = open` across all (non-deleted) projects.
 - The **Home Page** rail shows the 4 most recently created open roles.
 - Cards always show: title, project (where shown out-of-context), description excerpt, commitment chip, tag chips, and one of: "Express Interest" / "Interest Sent ✓" / "Sign in to express interest".

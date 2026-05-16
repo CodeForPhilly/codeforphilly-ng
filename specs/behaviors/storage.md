@@ -61,7 +61,7 @@ A scrubbed snapshot of the data repo is published as a public tag (e.g., `snapsh
 - Real names → faker-generated names
 - IP addresses → `0.0.0.0`
 - `slackHandle` → null
-- `bio`, `readme`, `body` content → unchanged (assumed safe; staff may flag specific records for redaction)
+- `bio`, `overview`, `body` content → unchanged (assumed safe; staff may flag specific records for redaction)
 
 A `scripts/scrub-data.ts` in the code repo produces the snapshot. The contributor bootstrap is:
 
@@ -236,7 +236,7 @@ The scrubbed public snapshot (see [Dev-environment data](#dev-environment-data))
 
 ## Full-text search
 
-Search hits `title + summary + readme` for projects and `fullName + bio` for people (per the API specs). At boot, the API builds an **in-memory SQLite database** (via `better-sqlite3` with `:memory:` or `bun:sqlite` if we end up on bun) with FTS5 virtual tables for projects and people. On every mutation that touches an indexed field, the corresponding row is upserted.
+Search hits `title + summary + overview` for projects and `fullName + bio` for people (per the API specs). At boot, the API builds an **in-memory SQLite database** (via `better-sqlite3` with `:memory:` or `bun:sqlite` if we end up on bun) with FTS5 virtual tables for projects and people. On every mutation that touches an indexed field, the corresponding row is upserted.
 
 - Throwaway: never persisted, rebuilt on every restart. Boot cost is acceptable at civic scale (<1s for our corpus).
 - Engine choice: SQLite FTS5 has built-in ranking, prefix matching, and BM25 scoring — equivalent to what Postgres `tsvector` would give us.

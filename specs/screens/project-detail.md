@@ -32,12 +32,12 @@ If slug is unknown or soft-deleted (and caller isn't staff): 404 page.
 
 ### Main column (two-thirds width at lg, full at sm)
 
-1. **README**
-   - Heading "README"
-   - Rendered HTML from `readmeHtml`
-   - If `readme` is null/empty: hide the section
+1. **Overview**
+   - Heading "Overview"
+   - Rendered HTML from `overviewHtml`
+   - If `overview` is null/empty: hide the section
 
-2. **Open help-wanted roles** _(new section, between README and Activity)_
+2. **Open help-wanted roles** _(new section, between Overview and Activity)_
    - Heading "Help Wanted"
    - One card per open role, oldest to newest within the screen:
      - Title (bold)
