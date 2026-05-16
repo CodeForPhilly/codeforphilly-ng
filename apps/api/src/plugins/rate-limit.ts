@@ -72,17 +72,26 @@ async function rateLimitPlugin(fastify: FastifyInstance): Promise<void> {
       const isWrite = WRITE_METHODS.has(request.method);
       const isAuthEndpoint = request.url.startsWith(AUTH_PATH_PREFIX);
 
+      const personId = request.session?.person?.id;
+
       if (isAuthEndpoint) {
         // Auth endpoints: 10 req / min / IP
         check(ipBuckets, `auth:${ip}`, 10);
       } else if (isWrite) {
-        // Writes: keyed by account if we have one, otherwise IP
-        // (Account ID is not available until auth lands; use IP for now)
-        check(ipBuckets, `write:${ip}`, 30);
+        if (personId) {
+          // Authenticated writes: 30 req / min / account
+          check(accountBuckets, `write-account:${personId}`, 30);
+        } else {
+          check(ipBuckets, `write:${ip}`, 30);
+        }
       } else {
-        // Reads: unauthenticated=60/min/IP, authenticated=300/min/account
-        // Account check will be wired by auth-jwt-substrate plan
-        check(ipBuckets, `read:${ip}`, 60);
+        if (personId) {
+          // Authenticated reads: 300 req / min / account
+          check(accountBuckets, `account:${personId}`, 300);
+        } else {
+          // Unauthenticated reads: 60 req / min / IP
+          check(ipBuckets, `read:${ip}`, 60);
+        }
       }
     } catch (err) {
       done(err as Error);

@@ -30,7 +30,9 @@ import traceIdPlugin from './plugins/trace-id.js';
 import storePlugin from './plugins/store.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import idempotencyPlugin from './plugins/idempotency.js';
+import sessionMiddlewarePlugin from './auth/middleware.js';
 import { healthRoutes } from './routes/health.js';
+import { authRoutes } from './routes/auth.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -97,6 +99,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // ----- 8. Idempotency -----
   await fastify.register(idempotencyPlugin);
 
+  // ----- 8a. Session middleware (JWT auth) -----
+  await fastify.register(sessionMiddlewarePlugin);
+
   // ----- 9-10. OpenAPI / Swagger UI -----
   await fastify.register(fastifySwagger, {
     openapi: {
@@ -122,6 +127,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // ----- 11. Routes -----
   await fastify.register(healthRoutes);
+  await fastify.register(authRoutes);
 
   // Serve the OpenAPI JSON at the spec-mandated path /api/_openapi.json
   // (swagger-ui also exposes it at /api/_docs/json, but the spec names this path)

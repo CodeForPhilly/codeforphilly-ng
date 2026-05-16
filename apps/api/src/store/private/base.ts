@@ -95,6 +95,14 @@ export abstract class BasePrivateStore implements PrivateStore {
     return this.legacyPasswords.size;
   }
 
+  async readBlob(key: string): Promise<string | null> {
+    return this.readRaw(key);
+  }
+
+  async writeBlob(key: string, content: string): Promise<void> {
+    return this.writeRaw(key, content);
+  }
+
   async transact<T>(handler: (tx: PrivateStoreTx) => Promise<T>): Promise<T> {
     // Snapshot current state so we can roll back if the handler throws
     const profilesSnapshot = new Map(this.profiles);
