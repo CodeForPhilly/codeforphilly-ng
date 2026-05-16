@@ -28,11 +28,18 @@ import { envJsonSchema, type Env } from './env.js';
 import { mapError } from './lib/errors.js';
 import traceIdPlugin from './plugins/trace-id.js';
 import storePlugin from './plugins/store.js';
+import servicesPlugin from './plugins/services.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import idempotencyPlugin from './plugins/idempotency.js';
 import sessionMiddlewarePlugin from './auth/middleware.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
+import { projectRoutes } from './routes/projects.js';
+import { peopleRoutes } from './routes/people.js';
+import { tagRoutes } from './routes/tags.js';
+import { projectUpdateRoutes } from './routes/projects-updates.js';
+import { projectBuzzRoutes } from './routes/projects-buzz.js';
+import { helpWantedRoutes } from './routes/projects-help-wanted.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -93,6 +100,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // ----- 6. Store (boots gitsheets + private-store) -----
   await fastify.register(storePlugin);
 
+  // ----- 6b. Services (loads in-memory state + FTS, boots after store) -----
+  await fastify.register(servicesPlugin);
+
   // ----- 7. Rate limiting -----
   await fastify.register(rateLimitPlugin);
 
@@ -128,6 +138,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // ----- 11. Routes -----
   await fastify.register(healthRoutes);
   await fastify.register(authRoutes);
+  await fastify.register(projectRoutes);
+  await fastify.register(peopleRoutes);
+  await fastify.register(tagRoutes);
+  await fastify.register(projectUpdateRoutes);
+  await fastify.register(projectBuzzRoutes);
+  await fastify.register(helpWantedRoutes);
 
   // Serve the OpenAPI JSON at the spec-mandated path /api/_openapi.json
   // (swagger-ui also exposes it at /api/_docs/json, but the spec names this path)

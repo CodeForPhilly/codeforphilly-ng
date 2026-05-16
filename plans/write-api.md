@@ -160,6 +160,26 @@ Deferred from [storage-foundation](storage-foundation.md). Implement
 and ensures each has a matching `profiles.jsonl` entry; flags orphans on both sides.
 Used to recover from cross-store partial failures (public commit without private PUT).
 
+### In-memory state invalidation hooks
+
+Deferred from [read-api](read-api.md). Every project / tag-assignment / stage
+mutation must call `invalidateFacets()` from `apps/api/src/store/memory/facets.ts`
+so the next list response recomputes against the current corpus. Every project
+slug change, person slug change, project soft-delete, and project / person /
+help-wanted-role mutation that affects the search text must also call the
+corresponding `upsertProject` / `removeProject` / `upsertPerson` /
+`removePerson` / `upsertHelpWanted` / `removeHelpWanted` on the FTS engine
+declared in `apps/api/src/store/fts.ts`. The engine is reachable via
+`fastify.services` (decorate the services plugin or pass it explicitly).
+
+### Authenticated `permissions` integration check
+
+Deferred from [read-api](read-api.md). With auth-jwt-substrate populating
+`request.session.person`, add a test that hits `GET /api/projects/:slug` as
+each of {anonymous, member, maintainer, staff} and asserts the
+`permissions.canEdit` / `canDelete` / `canManageMembers` / `canPostUpdate` /
+`canLogBuzz` / `canPostHelpWanted` flags match `computeProjectPermissions`.
+
 ## Validation
 
 - [ ] `Sheet.defineIndex` calls are wired for all secondary indices in `data-model.md`; lookups verified in tests
@@ -176,6 +196,9 @@ Used to recover from cross-store partial failures (public commit without private
 - [ ] Tag mutations: user-supplied unknown tag slug → 422 with hint; staff-supplied unknown slug auto-creates
 - [ ] Cross-cutting: every successful mutation produces exactly one gitsheets commit with the documented commit-message shape (subject + body + trailers) and pseudonymous author
 - [ ] Tests cover happy + auth-failure + validation-failure for every endpoint
+- [ ] `invalidateFacets()` is called from every project/tag-assignment/stage mutation so the next list response reflects the change
+- [ ] FTS engine upsert/remove is called on every project, person, and help-wanted-role mutation that touches its searchable fields (title/summary/overview/fullName/bio/description); verified with an integration test that mutates then queries `?q=`
+- [ ] `GET /api/projects/:slug` `permissions` block flips correctly across anonymous / member / maintainer / staff callers (verified with the auth-jwt-substrate session decorator populated)
 
 ## Risks / unknowns
 
