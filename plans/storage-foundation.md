@@ -187,7 +187,7 @@ Boot fails if either store is unreachable.
 
 - **Secondary in-memory indices not yet wired to `defineIndex`.** The spec describes using `Sheet.defineIndex` for per-sheet secondary indices. This plan establishes the store foundation; the indices (`bySlug.person`, `byLegacyId.person`, etc.) are described in `data-model.md` but not yet populated via `defineIndex` calls. They will be needed in the read-api/write-api plans when lookups happen. Deferred there.
 
-- **Web test harness crashes with SIGSEGV.** `npm test -w apps/web` exits 139 in jsdom. This is pre-existing (present before this plan on main) and unrelated to storage changes. Not investigated here.
+- **`writeOrder: 'private-first'` orphan direction.** In private-first mode, `flushPrivate()` runs inside the `public.transact` callback before gitsheets commits. If private flush fails, the callback exits with an error and gitsheets does NOT commit the public tree — neither side is committed. However, if private flush succeeds but the callback subsequently throws (or gitsheets fails to commit for another reason), a private record without a matching public Person exists. This "private orphan without public" is the opposite direction from public-first failure. It is intentionally preferable for account creation: a private record without a public Person can be detected and cleaned up by the reconcile script, whereas a public Person without a private record (the public-first orphan) is harder to recover because the Person is visible to users without any associated email or auth data.
 
 ## Follow-ups
 
