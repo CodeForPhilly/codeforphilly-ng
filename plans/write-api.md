@@ -141,8 +141,29 @@ When a hard-delete *does* happen (admin tooling, future plan), the cascade rule 
 
 This is a private-only mutation — no public commit produced. Documented in [behaviors/private-storage.md](../specs/behaviors/private-storage.md).
 
+## Approach (absorbed deferrals)
+
+### Secondary in-memory indices via `Sheet.defineIndex`
+
+Deferred from [storage-foundation](storage-foundation.md). Wire `Sheet.defineIndex` calls
+for all secondary in-memory indices declared in `data-model.md`: `bySlug.person`,
+`byLegacyId.person`, `byGithubUserId`, `bySlackSamlNameId`, `membershipsByPerson`,
+`membershipsByProject`, `tagsByAssignment`, `assignmentsByTag`, `featuredProjectIds`,
+`projectsByStage`, `openHelpWanted`, `updatesByProject`, `updatesByAuthor`,
+`buzzByProject`, `buzzByUrl`, `revokedJtis`, etc. These are needed for slug uniqueness
+checks and reverse lookups in the write layer.
+
+### Private-store reconciliation script
+
+Deferred from [storage-foundation](storage-foundation.md). Implement
+`apps/api/scripts/reconcile-private-store.ts` which walks the public Person records
+and ensures each has a matching `profiles.jsonl` entry; flags orphans on both sides.
+Used to recover from cross-store partial failures (public commit without private PUT).
+
 ## Validation
 
+- [ ] `Sheet.defineIndex` calls are wired for all secondary indices in `data-model.md`; lookups verified in tests
+- [ ] `apps/api/scripts/reconcile-private-store.ts` exists and correctly flags/fixes orphan private records vs public Person list
 - [ ] `POST /api/projects` with valid body creates the project, founder membership, and tags in one commit; commit message + trailers match the documented shape
 - [ ] `POST /api/projects` from anonymous → 401
 - [ ] `PATCH /api/projects/:slug` enforces maintainer-or-staff

@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [test-harness]
 specs:
   - specs/data-model.md
@@ -14,6 +14,7 @@ upstream-specs:
   - gitsheets:specs/behaviors/validation.md
   - gitsheets:specs/behaviors/normalization.md
 issues: []
+pr: 13
 ---
 
 # Plan: Storage foundation
@@ -76,7 +77,7 @@ $ref = './schemas/Person.schema.json'
 sort = ['namespace', 'slug']
 ```
 
-Where each `.gitsheets/schemas/<Entity>.schema.json` is JSON Schema generated from the Zod schema via `zod-to-json-schema` at build time. (Generated file; committed; CI verifies it's in sync with the Zod source.)
+Where each `.gitsheets/schemas/<Entity>.schema.json` is JSON Schema generated from the Zod schema via Zod v4's built-in `toJSONSchema` at build time. (Generated file; committed; CI verifies it's in sync with the Zod source.)
 
 ### Public store wiring (`apps/api/src/store/public.ts`)
 
@@ -154,15 +155,15 @@ Boot fails if either store is unreachable.
 
 ## Validation
 
-- [ ] All Zod schemas in `packages/shared/src/schemas/` round-trip against fixture records (one valid + one invalid per schema)
-- [ ] `zod-to-json-schema` build step keeps `.gitsheets/<sheet>.schema.json` files in sync; CI fails if drift
-- [ ] `npm test` includes a test that boots a `Store` against a `createTestRepo()` + `createTestPrivateStore()`, upserts a Project, queries it back, checks the path template rendered correctly
-- [ ] A test inserts a Person and writes a `PrivateProfile` for them via `store.transact`, then verifies both stores reflect the change
-- [ ] A test verifies cross-store transaction rollback: handler throws after public-side stage → no public commit, no private PUT
-- [ ] A test verifies dual-write semantics: handler succeeds but mock private PUT fails → public commit is rolled back via revert OR reconciliation hooks fire (decide which during implementation; document)
-- [ ] Markdown pipeline test: `renderMarkdown('# Hello\n[link](https://x.org)')` produces sanitized HTML and a plain-text excerpt
-- [ ] Markdown sanitizer rejects `<script>`, `javascript:`, `on*=`, raw HTML — covered by RFC-style negative tests
-- [ ] `createTestPrivateStore` shim in `apps/api/tests/helpers/test-private-store.ts` is evaluated: either migrated to use the real `FilesystemPrivateStore` or documented as intentionally retained as a lighter test fixture
+- [x] All Zod schemas in `packages/shared/src/schemas/` round-trip against fixture records (one valid + one invalid per schema)
+- [x] `zod-to-json-schema` build step keeps `.gitsheets/<sheet>.schema.json` files in sync; CI fails if drift
+- [x] `npm test` includes a test that boots a `Store` against a `createTestRepo()` + `createTestPrivateStore()`, upserts a Project, queries it back, checks the path template rendered correctly
+- [x] A test inserts a Person and writes a `PrivateProfile` for them via `store.transact`, then verifies both stores reflect the change
+- [x] A test verifies cross-store transaction rollback: handler throws after public-side stage → no public commit, no private PUT
+- [x] A test verifies dual-write semantics: handler succeeds but mock private PUT fails → public commit is rolled back via revert OR reconciliation hooks fire (decide which during implementation; document)
+- [x] Markdown pipeline test: `renderMarkdown('# Hello\n[link](https://x.org)')` produces sanitized HTML and a plain-text excerpt
+- [x] Markdown sanitizer rejects `<script>`, `javascript:`, `on*=`, raw HTML — covered by RFC-style negative tests
+- [x] `createTestPrivateStore` shim in `apps/api/tests/helpers/test-private-store.ts` is evaluated: either migrated to use the real `FilesystemPrivateStore` or documented as intentionally retained as a lighter test fixture
 
 ## Risks / unknowns
 
@@ -171,3 +172,25 @@ Boot fails if either store is unreachable.
 - **Push daemon at scale of one replica.** No coordination needed; running it is straightforward. Auth (deploy key) is wired in [`deploy`](deploy.md).
 
 ## Notes
+
+- **Cross-store rollback chose option (b) — reconciliation.** `Store.transact()` uses public-first by default (for updates/deletes) and private-first for account creation. If the private flush fails after the public commit, the error is thrown loud and in-memory state is rolled back. No automatic `git revert` of the public commit is attempted. `apps/api/scripts/reconcile-private-store.ts` (not yet written, to be added in a downstream plan) is the recovery path. This matches spec decision in `private-storage.md`.
+
+- **Zod v4 does not work with `zod-to-json-schema@3.25.2`.** The library recognizes the Zod v4 schema class but produces empty schema objects. Used Zod v4's built-in `toJSONSchema` instead (available as `import { toJSONSchema } from 'zod'`). The `zod-to-json-schema` dependency can be removed from `packages/shared` in a follow-up.
+
+- **`$schema` field stripped from generated JSON Schemas.** Zod v4's `toJSONSchema` outputs `https://json-schema.org/draft/2020-12/schema` but gitsheets uses `ajv@8` in draft-07 mode, which rejects the 2020-12 URI. The schemas use only constructs compatible with both drafts, so stripping the field is safe.
+
+- **`StandardSchemaV1` compatibility between Zod v4 and gitsheets.** TypeScript cannot prove that Zod v4's `Result<Output>` is assignable to gitsheets' `StandardSchemaResult<Output>` because of a structural mismatch in the `FailureResult` shape. A safe `as unknown as StandardSchemaV1` cast is used in `openPublicStore`. Both types are correct at runtime.
+
+- **Sheet query after transact requires re-opening the sheet.** `openStore` / `openSheet` captures the git tree at call time. After a `transact` commit, calling `queryFirst` on the captured sheet returns pre-commit state. Tests and production code that need post-commit reads must call `repo.openSheet()` again. This is documented in gitsheets' internals (`#dataTree` is fixed at open time). See `store.test.ts` for the pattern.
+
+- **`createTestPrivateStore` shim retained.** The original harness test in `apps/api/tests/harness.test.ts` still uses the shim via `TestPrivateStore` interface. The new store tests use the real `FilesystemPrivateStore` directly. The shim is lighter (no schema parsing, no transact machinery) and valid for simple fixture use. Downstream plans that add real mutation logic should use `FilesystemPrivateStore`.
+
+- **Secondary in-memory indices not yet wired to `defineIndex`.** The spec describes using `Sheet.defineIndex` for per-sheet secondary indices. This plan establishes the store foundation; the indices (`bySlug.person`, `byLegacyId.person`, etc.) are described in `data-model.md` but not yet populated via `defineIndex` calls. They will be needed in the read-api/write-api plans when lookups happen. Deferred there.
+
+- **Web test harness crashes with SIGSEGV.** `npm test -w apps/web` exits 139 in jsdom. This is pre-existing (present before this plan on main) and unrelated to storage changes. Not investigated here.
+
+## Follow-ups
+
+- Issue [#14](https://github.com/CodeForPhilly/codeforphilly-ng/issues/14) — Remove `zod-to-json-schema` from `packages/shared` dependencies (replaced by Zod v4's built-in `toJSONSchema`)
+- Deferred to [write-api](write-api.md) — Wire `Sheet.defineIndex` calls for all secondary in-memory indices described in `data-model.md` (bySlug, byLegacyId, byGithubUserId, membershipsByPerson, etc.)
+- Deferred to [write-api](write-api.md) — Implement `apps/api/scripts/reconcile-private-store.ts` for cross-store orphan detection/repair

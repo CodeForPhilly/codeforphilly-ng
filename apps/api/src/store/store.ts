@@ -101,29 +101,24 @@ export class Store {
       });
     };
 
-    if (writeOrder === 'private-first' && hasPrivateMutations()) {
-      // For account creation: private first so an orphan private record is
-      // detectable and cleanable; public commit only after private succeeds.
-      await flushPrivate();
-      try {
-        return await this.#public.transact(opts, async (tx) => {
-          return handler({ public: tx, private: privateTx });
-        });
-      } catch (publicErr) {
-        // Public commit failed after private write. Orphan private record
-        // exists. Log loudly — reconcile-private-store.ts handles cleanup.
-        throw publicErr;
-      }
-    } else {
-      // Default: public first. If private flush fails after public commit,
-      // throw loudly for reconciliation.
-      return this.#public.transact(opts, async (tx) => {
-        const result = await handler({ public: tx, private: privateTx });
-        return result;
-      }).then(async (result) => {
+    // Run the handler inside the public transaction, sequencing the private
+    // flush per writeOrder AFTER the handler has had a chance to stage mutations.
+    return this.#public.transact(opts, async (tx) => {
+      const result = await handler({ public: tx, private: privateTx });
+      if (writeOrder === 'private-first') {
+        // Flush private inside the public.transact callback, before gitsheets
+        // commits. If private flush throws, the transact callback exits with an
+        // error and gitsheets won't commit the public tree — atomic-ish.
         await flushPrivate();
-        return result;
-      });
-    }
+      }
+      return result;
+    }).then(async (result) => {
+      if (writeOrder === 'public-first') {
+        // Default: public committed first. If private flush fails after the
+        // public commit, throw loudly for reconciliation.
+        await flushPrivate();
+      }
+      return result;
+    });
   }
 }
