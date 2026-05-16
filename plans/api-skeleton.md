@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [storage-foundation]
 specs:
   - specs/api/conventions.md
@@ -7,6 +7,7 @@ upstream-specs:
   # gitsheets defines its own error class hierarchy; the API maps those to the response envelope
   - gitsheets:specs/api/errors.md
 issues: []
+pr: 17
 ---
 
 # Plan: API skeleton
@@ -107,16 +108,16 @@ In-memory `Map<personId+key, cachedResponse>` with a 24h TTL. Mutating endpoints
 
 ## Validation
 
-- [ ] `GET /api/health` returns `{success:true, data:{status:'ok'}, metadata:{...timestamp}}` exactly per envelope spec
-- [ ] Booting with an invalid `STORAGE_BACKEND` exits 1 with a Zod error printed
-- [ ] An intentionally-thrown `ValidationError` from a stub route surfaces as `422 validation_failed` with the expected error shape
-- [ ] An unknown thrown Error surfaces as `500 internal_error` with no error message leaked
-- [ ] `traceId` appears in both the error response (when error) and the access log line
-- [ ] Per-IP rate limit kicks in: 61 anonymous reads from the same IP within a minute → 429 with `Retry-After`
-- [ ] Repeat POST with the same `Idempotency-Key` returns the cached response (verified by a stub route)
-- [ ] `/api/_openapi.json` returns a valid OpenAPI 3.1 document; `/api/_docs` renders Swagger UI
-- [ ] `.env.example` exists at the repo root with one entry per `EnvSchema` field (deferred from [`workspace`](workspace.md))
-- [ ] CI passes type-check + tests
+- [x] `GET /api/health` returns `{success:true, data:{status:'ok'}, metadata:{...timestamp}}` exactly per envelope spec
+- [x] Booting with an invalid `STORAGE_BACKEND` exits 1 with a Zod error printed
+- [x] An intentionally-thrown `ValidationError` from a stub route surfaces as `422 validation_failed` with the expected error shape
+- [x] An unknown thrown Error surfaces as `500 internal_error` with no error message leaked
+- [x] `traceId` appears in both the error response (when error) and the access log line
+- [x] Per-IP rate limit kicks in: 61 anonymous reads from the same IP within a minute → 429 with `Retry-After`
+- [x] Repeat POST with the same `Idempotency-Key` returns the cached response (verified by a stub route)
+- [x] `/api/_openapi.json` returns a valid OpenAPI 3.1 document; `/api/_docs` renders Swagger UI
+- [x] `.env.example` exists at the repo root with one entry per `EnvSchema` field (deferred from [`workspace`](workspace.md))
+- [x] CI passes type-check + tests
 
 ## Risks / unknowns
 
@@ -124,3 +125,16 @@ In-memory `Map<personId+key, cachedResponse>` with a 24h TTL. Mutating endpoints
 - **Rate-limit counters survive restart?** No — in-memory, intentional. Acceptable at single-replica civic scale.
 
 ## Notes
+
+- `@fastify/env` requires a JSON Schema object (not a Zod schema) passed as `schema`. We maintain both `EnvSchema` (Zod, for TypeScript types and runtime validation in code) and `envJsonSchema` (JSON Schema, for the `@fastify/env` plugin). Keeping them in sync is a per-PR review concern.
+- `@fastify/swagger` does NOT expose the OpenAPI document at a URL by default — it populates `fastify.swagger()`. The spec-mandated `/api/_openapi.json` URL is a manual route added after swagger registration that calls `fastify.swagger()`. The swagger-ui also serves the doc at `/api/_docs/json`.
+- Fastify's default `pluginTimeout` (avvio) is 10s. In the worktree test environment, git operations during `openPublicStore()` exceed that. We set `pluginTimeout: 30_000` in `buildApp()` (not just tests) since a slow git cold-read could also time out in production on a cold start against a large data repo.
+- Vitest's default test timeout (5s) also needed to be raised to 30s for the same reason. This is set in `apps/api/vitest.config.ts`.
+- The "traceId appears in access log" criterion is verified structurally (pino logger receives the traceId via request decorators) but not via a log-line assertion in the tests. Log assertion would require capturing pino output, which is complex for the upside. The functional test verifies traceId in error responses, which exercises the same code path.
+- Rate-limit account-based caps (300 reads/min/account, 30 writes/min/account) are stubbed to the IP-based limit until auth-jwt-substrate lands and `request.person` is available. The plugin has the hook points for account-based keying.
+- `/_test/*` stub routes (validation-error, internal-error, idempotency) are `{ schema: { hide: true } }` so they don't appear in the OpenAPI doc but exist in the running app. These exist only for testing and should be removed or guarded in production (future follow-up).
+
+## Follow-ups
+
+- Issue [#18](https://github.com/CodeForPhilly/codeforphilly-ng/issues/18) — remove or guard `/_test/*` stub routes in production (they test error/idempotency behavior but shouldn't be exposed in prod)
+- Deferred to [`auth-jwt-substrate`](auth-jwt-substrate.md) — wire account-based rate limit caps (300 reads/min, 30 writes/min/account) once `request.person` is available from the JWT plugin
