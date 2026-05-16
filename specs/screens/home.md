@@ -1,0 +1,112 @@
+# Screen: Home
+
+## Route
+
+`/` — public.
+
+Replaces both:
+
+- `codeforphilly.org/` (the hand-curated marketing landing)
+- The laddr `home.tpl` activity feed + meetups sidebar
+
+This v1 page is a blend: marketing hero + featured projects + live activity. The hard-coded portfolio from `codeforphilly.org/html-templates/home.tpl` is replaced by a curated-from-data approach driven by a small `featured` flag.
+
+## Data Requirements
+
+- `GET /api/projects?featured=true&perPage=8` — featured project list (Project list items)
+  - `featured` is a new boolean column on `projects` (add to [data-model.md](../data-model.md#project)). Staff toggles it.
+- `GET /api/project-updates?perPage=10` — recent activity for the activity stream
+- `GET /api/help-wanted?perPage=4&sort=-createdAt` — recent open roles for the "How to help" rail
+- `GET /api/auth/me` — bootstraps the auth context (changes header CTA)
+
+## Display Rules
+
+The page is composed of four sections, top to bottom:
+
+### 1. Hero
+
+- Site logo, headline, subhead
+  - Headline: "Contribute towards technology-related projects that benefit the City of Philadelphia."
+  - Subhead: "No coding experience required."
+- Primary CTA: "Volunteer" (links to `/volunteer`)
+- Background: a looped, muted video (current site uses `/videos/video-small.mp4` with .webm and .ogv fallbacks). v1 carries this asset across; future redesigns can replace.
+- If the user is signed in, the primary CTA changes to "Browse Projects" (`/projects`).
+
+### 2. Featured projects
+
+- Heading: "Join a Project"
+- Grid: responsive — 3 columns ≥ md, 2 columns ≥ sm, 1 column < sm
+- Up to 8 featured tiles. Each tile shows:
+  - Project image (Project has no `imageKey`/`logoKey` in v1; see _Open question_ below)
+  - Title
+  - Tagline = `project.summary`, or first line of `readmeExcerpt` if `summary` is null
+  - Click: links to `/projects/<slug>`
+- Below the grid: "See all 268 projects →" link to `/projects`. The count is `metadata.totalItems` from a separate cheap `HEAD`-style call (or piggybacked from the featured response — implementer's call).
+
+**Open question:** featured projects need a hero image. In v1 we add a `featuredImageKey` to projects (optional) and the home page only includes projects that have one. If none, the section is hidden. _Promote this from open question to data-model amendment before implementing._
+
+### 3. Get involved
+
+Three side-by-side cards (current site has these; they translate cleanly):
+
+| Card | Heading | Body | Link |
+| ---- | ------- | ---- | ---- |
+| Sponsor | "Sponsor" | "Sponsor an event" | `/sponsor` |
+| Start a Project | "Start a Project" | "Start or get help on a project" | external GitBook URL from current site, or `/projects/create` for signed-in users |
+| Volunteer | "Volunteer" | "Join our projects" | `/volunteer` |
+
+### 4. Activity stream
+
+- Heading: "Latest Project Activity"
+- Below heading, three filter buttons (chip-style): All / Updates / Buzz — default All
+- List of activity cards, newest first, 10 items, with "View all activity →" linking to `/project-updates`
+- Each card is either a ProjectUpdate or a ProjectBuzz; rendering rules in [behaviors/activity-feed.md](../behaviors/activity-feed.md)
+
+### 5. Help-wanted rail (new)
+
+- Sidebar on the right at ≥ lg breakpoint, collapses below the activity stream at smaller breakpoints
+- Heading: "Help Wanted"
+- Up to 4 recent open `HelpWantedRole` cards. Each card shows:
+  - Title
+  - Project (link to project page)
+  - `commitmentHoursPerWeek` if set, e.g., "~4 hrs/week"
+  - Tags (small chips)
+- "Browse all open roles →" links to `/help-wanted`
+
+## Actions
+
+| Action | Affects | Caused by |
+| ------ | ------- | --------- |
+| Hero CTA click | Navigation | "Volunteer" or "Browse Projects" button |
+| Featured tile click | Navigation | Tile or title |
+| Get-involved card click | Navigation | Whole card is clickable |
+| Activity card click | Navigation | Card body links to project; "by <author>" links to person |
+| Help-wanted card click | Navigation | Whole card links to project page, anchored to that role |
+| Filter chip click | Local filter of activity stream | No re-fetch in v1 — client-side filter of the loaded 10 |
+
+## Navigation
+
+**To here:**
+
+- Root URL `/`
+- Logo / "home" link in app header from every other page
+
+**From here:**
+
+- `/volunteer`, `/sponsor`, `/projects`, `/projects/<slug>`, `/members/<slug>`, `/project-updates`, `/project-buzz`, `/help-wanted`, `/register`, `/login`
+
+## Authorization
+
+| Section | Anonymous | User |
+| ------- | --------- | ---- |
+| Hero CTA | "Volunteer" | "Browse Projects" |
+| Featured projects | visible | visible |
+| Get involved | visible | visible — "Start a Project" link changes to in-app `/projects/create` form |
+| Activity stream | visible | visible |
+| Help-wanted rail | visible | visible — "Express interest" CTA on each card (deferred polish; v1 just links to project page) |
+
+There are no staff- or admin-only home sections.
+
+## Performance
+
+This is the first impression. Inline-critical CSS for the hero; lazy-load below-fold sections; defer the activity stream and help-wanted rail to a post-FCP fetch.
