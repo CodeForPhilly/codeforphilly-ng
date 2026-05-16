@@ -1,9 +1,22 @@
-import { createBrowserRouter, RouterProvider } from 'react-router';
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppShell } from '@/components/AppShell';
 import { NetworkErrorProvider } from '@/components/NetworkErrorBanner';
 import { AuthProvider } from '@/hooks/useAuth';
-import { HomeStub } from '@/pages/HomeStub';
+import { ApiQueryClientProvider } from '@/lib/queryClient';
+import { Home } from '@/screens/Home';
+import { ProjectsIndex } from '@/screens/ProjectsIndex';
+import { ProjectDetail } from '@/screens/ProjectDetail';
+import { PeopleIndex } from '@/screens/PeopleIndex';
+import { PersonDetail } from '@/screens/PersonDetail';
+import { HelpWantedIndex } from '@/screens/HelpWantedIndex';
+import { ProjectUpdatesFeed } from '@/screens/ProjectUpdatesFeed';
+import { ProjectBuzzFeed } from '@/screens/ProjectBuzzFeed';
+import { TagsOverview } from '@/screens/TagsOverview';
+import { TagsNamespace } from '@/screens/TagsNamespace';
+import { TagDetail } from '@/screens/TagDetail';
+import { Volunteer } from '@/screens/Volunteer';
+import { Sponsor } from '@/screens/Sponsor';
 import { ComingSoon } from '@/pages/ComingSoon';
 import { NotFound } from '@/pages/NotFound';
 import { LoginPlaceholder } from '@/pages/LoginPlaceholder';
@@ -12,35 +25,51 @@ const router = createBrowserRouter([
   {
     element: <AppShell />,
     children: [
-      { path: '/', element: <HomeStub /> },
-      { path: '/projects', element: <ComingSoon /> },
+      { path: '/', element: <Home /> },
+      { path: '/projects', element: <ProjectsIndex /> },
       { path: '/projects/create', element: <ComingSoon /> },
-      { path: '/projects/:slug', element: <ComingSoon /> },
+      { path: '/projects/:slug', element: <ProjectDetail /> },
       { path: '/projects/:slug/edit', element: <ComingSoon /> },
-      { path: '/help-wanted', element: <ComingSoon /> },
-      { path: '/members', element: <ComingSoon /> },
-      { path: '/members/:slug', element: <ComingSoon /> },
-      { path: '/volunteer', element: <ComingSoon /> },
-      { path: '/sponsor', element: <ComingSoon /> },
+      { path: '/projects/:slug/updates/:number', element: <ProjectDetail anchor="update" /> },
+      { path: '/projects/:slug/buzz/:buzzSlug', element: <ProjectDetail anchor="buzz" /> },
+      { path: '/projects/:slug/buzz/new', element: <ComingSoon /> },
+      { path: '/help-wanted', element: <HelpWantedIndex /> },
+      { path: '/people', element: <Navigate to="/members" replace /> },
+      { path: '/members', element: <PeopleIndex /> },
+      { path: '/members/:slug', element: <PersonDetail /> },
+      { path: '/members/:slug/edit', element: <ComingSoon /> },
+      { path: '/project-updates', element: <ProjectUpdatesFeed /> },
+      { path: '/project-buzz', element: <ProjectBuzzFeed /> },
+      { path: '/tags', element: <TagsOverview /> },
+      { path: '/tags/:namespace', element: <TagsNamespace /> },
+      { path: '/tags/:namespace/:slug', element: <TagDetail /> },
+      { path: '/volunteer', element: <Volunteer /> },
+      { path: '/sponsor', element: <Sponsor /> },
       { path: '/account', element: <ComingSoon /> },
-      { path: '/chat', element: <ComingSoon /> },
-      { path: '/search', element: <ComingSoon /> },
+      { path: '/search', element: <SearchRedirect /> },
       { path: '/pages/:slug', element: <ComingSoon /> },
       { path: '/contact', element: <ComingSoon /> },
-      { path: '/tags/:namespace/:slug', element: <ComingSoon /> },
       { path: '/login', element: <LoginPlaceholder /> },
       { path: '*', element: <NotFound /> },
     ],
   },
 ]);
 
+// /search?q=… isn't a separate page in v1 — redirect to /projects with the query preserved.
+function SearchRedirect() {
+  const q = new URLSearchParams(window.location.search).get('q');
+  return <Navigate to={`/projects${q ? `?q=${encodeURIComponent(q)}` : ''}`} replace />;
+}
+
 export function App() {
   return (
     <TooltipProvider>
       <NetworkErrorProvider>
-        <AuthProvider>
-          <RouterProvider router={router} />
-        </AuthProvider>
+        <ApiQueryClientProvider>
+          <AuthProvider>
+            <RouterProvider router={router} />
+          </AuthProvider>
+        </ApiQueryClientProvider>
       </NetworkErrorProvider>
     </TooltipProvider>
   );

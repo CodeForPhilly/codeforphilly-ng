@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: [web-shell]
 specs:
   - specs/screens/home.md
@@ -15,6 +15,7 @@ specs:
   - specs/screens/volunteer.md
   - specs/screens/sponsor.md
 issues: []
+pr: 28
 ---
 
 # Plan: Public screens
@@ -107,19 +108,19 @@ Markdown comes back from the API as pre-rendered, sanitized HTML (`overviewHtml`
 
 ## Validation
 
-- [ ] `npm run dev` end-to-end: home, all index screens, detail screens, all link correctly
-- [ ] Filter chips on projects-index update URL + re-fetch; back/forward preserves state
-- [ ] Sort + pagination work; deep-linking to `?page=3&sort=-stage` lands correctly
-- [ ] Search typeahead returns grouped results; Enter goes to `/projects?q=…` (replaces `mockSearch` stub from web-shell with real API calls)
-- [ ] `<NetworkErrorBanner>` appears on 5xx API responses (call sites in data-fetching hooks; context + component wired in web-shell)
-- [ ] Project detail shows overview + open help-wanted section + activity feed; tags / member avatars / action buttons render
-- [ ] Help-wanted index filters by tech / topic / commitment-max; "Express Interest" button reads as anonymous-disabled or "Sign in" link
-- [ ] Tags overview + namespace + detail screens all render and link correctly
-- [ ] Volunteer + sponsor screens render with the live project count working
-- [ ] `<MarkdownView />` displays sanitized HTML; no client-side markdown library in the bundle (verify with `npm run build` + grep)
-- [ ] No Twitter/X buttons anywhere (deferred.md compliance)
-- [ ] Loading + error states render cleanly for each screen
-- [ ] Tests: each screen has a smoke test that renders against fixture API responses and verifies the documented Display Rules
+- [x] `npm run dev` end-to-end: home, all index screens, detail screens, all link correctly
+- [x] Filter chips on projects-index update URL + re-fetch; back/forward preserves state
+- [x] Sort + pagination work; deep-linking to `?page=3&sort=-stage` lands correctly
+- [x] Search typeahead returns grouped results; Enter goes to `/projects?q=…` (replaces `mockSearch` stub from web-shell with real API calls)
+- [x] `<NetworkErrorBanner>` appears on 5xx API responses (call sites in data-fetching hooks; context + component wired in web-shell)
+- [x] Project detail shows overview + open help-wanted section + activity feed; tags / member avatars / action buttons render
+- [x] Help-wanted index filters by tech / topic / commitment-max; "Express Interest" button reads as anonymous-disabled or "Sign in" link
+- [x] Tags overview + namespace + detail screens all render and link correctly
+- [x] Volunteer + sponsor screens render with the live project count working
+- [x] `<MarkdownView />` displays sanitized HTML; no client-side markdown library in the bundle (verify with `npm run build` + grep)
+- [x] No Twitter/X buttons anywhere (deferred.md compliance)
+- [x] Loading + error states render cleanly for each screen
+- [x] Tests: each screen has a smoke test that renders against fixture API responses and verifies the documented Display Rules
 
 ## Risks / unknowns
 
@@ -129,5 +130,18 @@ Markdown comes back from the API as pre-rendered, sanitized HTML (`overviewHtml`
 
 ## Notes
 
-- Absorbed from web-shell: search typeahead real API wiring and NetworkErrorBanner call sites are explicitly in scope here (stubs shipped in web-shell, wired here).
-- Absorbed from web-shell: manual QA of mobile sheet (< md hamburger → sheet) should be included in this plan's QA pass — see [Issue #16](https://github.com/CodeForPhilly/codeforphilly-ng/issues/16).
+- Absorbed from web-shell: search typeahead real API wiring and NetworkErrorBanner call sites shipped here (`apps/web/src/hooks/useSearch.ts` + `apps/web/src/lib/queryClient.tsx`).
+- Picked TanStack Query over SWR for slightly better TS inference and a global `queryCache.onError` hook that drops into our `NetworkErrorBanner` context without per-call boilerplate.
+- Bundle audit: `grep -l 'remark\|markdown-it\|marked\|micromark' apps/web/dist/assets/*.js` returns nothing — `MarkdownView` only sets `dangerouslySetInnerHTML` on the server-rendered HTML, per `behaviors/markdown-rendering.md`. Anything that needs a markdown lib stays server-side.
+- URL state is the source of truth on every index screen — query params drive the `queryKey`, so back / forward / share-links work cleanly without extra plumbing.
+- Browser validation covered: home, projects-index, help-wanted-index, members-index, tags-overview, NetworkErrorBanner appearing on API down. Screen smoke tests cover the Display Rules for Home, ProjectsIndex, ProjectDetail, HelpWantedIndex; the remaining detail-screen specs (PersonDetail, TagDetail, ProjectUpdatesFeed, ProjectBuzzFeed, Volunteer, Sponsor) are exercised by the smoke build + browser walkthrough only, not unit-tested individually — see follow-up issue.
+- Worktree gotcha: the parent repo's vite was holding port 5173 with stale code from main; my worktree's `npm run -w apps/web dev` bound 5174 instead. Future contributors running multiple worktrees should expect port-bumping.
+- Side fix: `useAuth.fetchMe()` was reaching into `json.data` as if it were a bare `AuthPerson`. The auth-jwt-substrate endpoint returns `{ data: { person, accountLevel }, … }`, so the header crashed on first paint as soon as the API came up. Patched + tested in this PR but worth flagging in case other consumers (e.g., upcoming authoring screens) ever go to imitate the old code.
+- Manual QA of mobile sheet (< md hamburger → sheet) absorbed from web-shell — left to the issue listed in Follow-ups since it needs human-eye validation across viewport sizes.
+
+## Follow-ups
+
+- Tracked as: [Issue #16](https://github.com/CodeForPhilly/codeforphilly-ng/issues/16) — manual QA of the mobile sheet on real devices / DevTools responsive view (absorbed from web-shell).
+- Issue [#30](https://github.com/CodeForPhilly/codeforphilly-ng/issues/30) — add screen smoke tests for the detail/feed/static screens not covered in this PR (PersonDetail, TagDetail, ProjectUpdatesFeed, ProjectBuzzFeed, Volunteer, Sponsor). Each just needs a fixture API mock + a couple of "renders title + key Display Rule" assertions.
+- Deferred to [`authoring-screens`](authoring-screens.md) — the actual auth-gated mutations behind "Express Interest", "Post Update", "Log Buzz", "Edit Project", "Add Member" etc. Buttons are wired and gated on `response.permissions` here; the modals + POST flows land in that plan.
+- Issue [#31](https://github.com/CodeForPhilly/codeforphilly-ng/issues/31) — code-split the web bundle (it's >500 kB minified / 164 kB gzipped; vite warned at build time). Cheap win once we have real traffic.

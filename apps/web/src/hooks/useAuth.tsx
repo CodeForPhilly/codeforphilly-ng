@@ -31,6 +31,13 @@ export interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+interface MeEnvelope {
+  data?: {
+    person?: AuthPerson | null;
+    accountLevel?: AccountLevel;
+  };
+}
+
 async function fetchMe(): Promise<AuthPerson | null> {
   try {
     const res = await fetch('/api/auth/me', { credentials: 'include' });
@@ -38,8 +45,8 @@ async function fetchMe(): Promise<AuthPerson | null> {
       // 401 = anonymous, 404 = not yet implemented — both mean no session
       return null;
     }
-    const json = (await res.json()) as { data?: AuthPerson };
-    return json.data ?? null;
+    const json = (await res.json()) as MeEnvelope;
+    return json.data?.person ?? null;
   } catch {
     // Network error — treat as anonymous, don't throw
     return null;

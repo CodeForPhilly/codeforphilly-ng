@@ -4,12 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from './test-utils.js';
 import { AppHeader } from '../src/components/AppHeader.js';
 import { AuthProvider } from '../src/hooks/useAuth.js';
+import { NetworkErrorProvider } from '../src/components/NetworkErrorBanner.js';
 
 function Wrapped() {
   return (
-    <AuthProvider>
-      <AppHeader />
-    </AuthProvider>
+    <NetworkErrorProvider>
+      <AuthProvider>
+        <AppHeader />
+      </AuthProvider>
+    </NetworkErrorProvider>
   );
 }
 

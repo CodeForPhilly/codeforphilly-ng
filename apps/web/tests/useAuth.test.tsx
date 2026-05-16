@@ -79,10 +79,13 @@ describe('useAuth', () => {
       new Response(
         JSON.stringify({
           data: {
-            id: '01927a5f-0000-7000-8000-000000000001',
-            slug: 'jane-doe',
-            fullName: 'Jane Doe',
-            avatarUrl: null,
+            person: {
+              id: '01927a5f-0000-7000-8000-000000000001',
+              slug: 'jane-doe',
+              fullName: 'Jane Doe',
+              avatarUrl: null,
+              accountLevel: 'user',
+            },
             accountLevel: 'user',
           },
         }),
