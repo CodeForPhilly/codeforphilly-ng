@@ -31,7 +31,7 @@ rehype-stringify  →  rendered HTML
 The same pipeline runs:
 
 - On write — to validate that the source produces non-empty output if the field is required, and to surface any sanitizer warnings.
-- On read — to populate the `*Html` field in API responses. The result is **not** cached in the database column; it's computed on serialization. (If profiling shows this is a hot spot, cache `*Html` alongside `*Source` and invalidate on write. Don't pre-optimize.)
+- On read — to populate the `*Html` field in API responses. The result is **not** cached on the record; it's computed on serialization. (If profiling shows this is a hot spot, cache `*Html` alongside `*Source` in-memory and invalidate on write. Don't pre-optimize.)
 
 ## What's allowed
 

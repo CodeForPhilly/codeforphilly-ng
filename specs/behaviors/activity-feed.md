@@ -8,7 +8,7 @@ A unified, reverse-chronological stream of "things that happened on a project" �
 
 - [screens/home.md](../screens/home.md) — Latest Project Activity section
 - [screens/project-detail.md](../screens/project-detail.md) — Project Activity section
-- [screens/project-updates.md](../screens/project-updates.md), [screens/project-buzz.md](../screens/project-buzz.md) — single-type browse pages
+- [screens/project-updates-feed.md](../screens/project-updates-feed.md), [screens/project-buzz-feed.md](../screens/project-buzz-feed.md) — single-type browse pages
 - [api/projects-updates.md](../api/projects-updates.md), [api/projects-buzz.md](../api/projects-buzz.md) — feeds delivered via per-type endpoints
 
 ## Item types
@@ -83,4 +83,4 @@ Tracked here so the design accommodates them without redoing the schema:
 - **Help-wanted role posted** card — fires on `HelpWantedRole` creation.
 - **Project created** card — fires on project creation.
 
-These would be generated on read by combining database rows, not stored as discrete `activity` rows. If activity volume grows enough to need a materialized feed table, that's the cue to revisit.
+These would be generated on read by combining records in the in-memory store, not stored as discrete `activity` records. If activity volume grows enough to need a materialized feed sheet, that's the cue to revisit.

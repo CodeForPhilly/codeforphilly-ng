@@ -57,7 +57,7 @@ Deferred to a follow-up release; v1 ships without this and we measure how stale 
 
 ## Tags
 
-Roles can be tagged in any namespace that applies to projects (`topic`, `tech`, `event`). The schema adds `help_wanted_role` to the polymorphic `tag_assignments.taggableType` enum. See [data-model.md#tagassignment](../data-model.md#tagassignment).
+Roles can be tagged in any namespace that applies to projects (`topic`, `tech`, `event`). The schema adds `help_wanted_role` to the polymorphic `taggableType` enum on `tag-assignments`. See [data-model.md#tagassignment](../data-model.md#tagassignment).
 
 Browse defaults sort by `-createdAt`. Tag facets surface in `metadata.facets`.
 
@@ -70,7 +70,7 @@ Browse defaults sort by `-createdAt`. Tag facets surface in `metadata.facets`.
 
 ## Interest expressions
 
-- Store a row in a `help_wanted_interest_expressions` table:
+- Store a record in the `help-wanted-interest` sheet (see [data-model.md](../data-model.md#helpwantedinterestexpression)):
   - `id`, `roleId`, `personId`, `message`, `createdAt`
 - The list of interest expressions is **not** publicly visible. The role's `interestCount` is, so callers can see "this role has 3 interested people."
 - The maintainer of the project can see the full list (people + messages) via a deferred endpoint `GET /api/projects/:slug/help-wanted/:roleId/interest`. Not in v1's API spec yet; promote when needed.

@@ -118,7 +118,7 @@ or:
 
 ## DELETE /api/tags/:handle
 
-Hard delete. Cascades through `tag_assignments` (CASCADE on FK).
+Hard delete. The mutation service deletes all `tag-assignments` records for this tag in the same commit (gitsheets has no FK CASCADE; cascade is a service-layer concern — see [behaviors/storage.md](../behaviors/storage.md)).
 
 ### Response — 204
 

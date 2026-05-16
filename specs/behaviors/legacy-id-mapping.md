@@ -6,7 +6,7 @@ The rewrite migrates rows from the laddr MySQL database into gitsheets while pre
 
 ## Applies To
 
-- [data-model.md](../data-model.md) — `legacyId` field on `people`, `projects`, `project-updates`, `project-buzz`, `tags`, `project-memberships` (and any other migrated sheet)
+- [data-model.md](../data-model.md) — `legacyId` field on `people`, `projects`, `project-updates`, `project-buzz`, `tags` (the migrated sheets where laddr's auto-increment IDs were ever referenced externally; `project-memberships` is *not* in this list — laddr's `project_members.ID` never escaped to URLs)
 - The one-shot importer (`apps/api/scripts/import-laddr.ts` — implementation, not spec)
 - The web layer's legacy-URL redirect handler (described below)
 - [behaviors/storage.md](storage.md) — the import is a single big commit on the data repo

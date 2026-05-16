@@ -22,12 +22,12 @@ See [data-model.md](../data-model.md#project) for the entity shape, [behaviors/p
 
 | Param | Type | Notes |
 |---|---|---|
-| `q` | string | Free-text search across `title`, `summary`, `readme` (Postgres FTS, tsvector). |
+| `q` | string | Free-text search across `title`, `summary`, `readme` (SQLite FTS5 in-memory index — see [behaviors/storage.md](../behaviors/storage.md#full-text-search)). |
 | `stage` | enum | `commenting` \| `bootstrapping` \| `prototyping` \| `testing` \| `maintaining` \| `drifting` \| `hibernating` |
 | `stageIn` | csv-of-enum | Multi-value filter. |
 | `tag` | string | Tag handle in `<namespace>.<slug>` form (e.g., `tech.flutter`). Repeatable; semantics are AND across repeats. |
 | `maintainer` | string | Person slug. |
-| `memberSlug` | string | Person slug — returns projects where this person is in `project_memberships`. |
+| `memberSlug` | string | Person slug — returns projects where this person is in `project-memberships`. |
 | `helpWanted` | bool | If `true`, only projects with at least one `helpWantedRoles.status = 'open'`. |
 | `featured` | bool | If `true`, only projects with `featured = true`. Used by the home page. |
 | `sort` | sort spec | Default `-updatedAt`. Allowed keys: `createdAt`, `updatedAt`, `title`, `stage` (stage ordered by `project-stages.md` rank). |
@@ -224,7 +224,7 @@ Unset `deletedAt`.
 { "personSlug": "another-member" }
 ```
 
-The new maintainer must already be a member (`project_memberships` row exists). If not, respond `409 conflict` with `error.code = "not_a_member"`.
+The new maintainer must already be a member (a `project-memberships` record exists for them). If not, respond `409 conflict` with `error.code = "not_a_member"`.
 
 The previous maintainer remains a member with their old role (or `"Maintainer (former)"` if their role was previously `null`).
 

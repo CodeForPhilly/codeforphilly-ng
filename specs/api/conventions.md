@@ -70,9 +70,10 @@ For paginated lists, the `data` is an array and `metadata` includes pagination:
 
 ## Authentication
 
-- Session cookie `cfp_session` carries an opaque token. Set by `POST /api/auth/login` and `POST /api/auth/register`; cleared by `POST /api/auth/logout`. See [api/auth.md](auth.md).
-- `Secure`, `HttpOnly`, `SameSite=Lax`. In development, `Secure` is dropped when the host is `localhost`.
-- The token in the cookie maps to a row in `sessions` (see [data-model.md](../data-model.md)). The cookie value is never the session ID directly; it is the opaque token whose sha256 is stored.
+- Two cookies carry **stateless JWTs**: `cfp_session` (15-minute access JWT) and `cfp_refresh` (30-day refresh JWT, path-scoped to `/api/auth/refresh`). Cleared by `POST /api/auth/logout`. See [behaviors/authorization.md](../behaviors/authorization.md) for the full token model and [api/auth.md](auth.md) for the surviving session endpoints.
+- Both cookies: `HttpOnly`, `Secure`, `SameSite=Lax`. In development, `Secure` is dropped when the host is `localhost`.
+- There is no `sessions` table or sheet. Revocation is tracked in a small `revocations` sheet plus an in-memory `Set` of revoked `jti`s.
+- The endpoints that *issue* JWTs (GitHub OAuth callback, account-claim flow) are not yet specified. The endpoints that *manage* JWTs once issued are in [api/auth.md](auth.md).
 - Endpoints that mutate state require a CSRF mitigation. With `SameSite=Lax` cookies on a same-origin SPA this is sufficient; if we ever expose the API to a different origin, switch to a CSRF token header.
 
 ## Authorization
@@ -83,8 +84,8 @@ Per-endpoint auth requirements appear in each endpoint table. The vocabulary:
 |--------|---------|
 | `public` | No authentication required. |
 | `user` | Any signed-in person. |
-| `member` | Signed-in person who is a `project_membership` row for the project. |
-| `maintainer` | Signed-in person who is the project's `maintainerId` (or who has `isMaintainer = true` in `project_memberships`). |
+| `member` | Signed-in person who has a `ProjectMembership` record for the project. |
+| `maintainer` | Signed-in person who is the project's `maintainerId` (or who has `isMaintainer = true` in their `ProjectMembership` record). |
 | `staff` | `accountLevel` ∈ `{staff, administrator}`. |
 | `administrator` | `accountLevel = administrator`. |
 | `self` | The acting person matches the resource's owner (e.g., editing your own profile). |

@@ -1,6 +1,6 @@
 # codeforphilly-rewrite
 
-A modernization of [laddr](https://github.com/CodeForPhilly/laddr) (the platform behind [codeforphilly.org](https://codeforphilly.org)) onto a Fastify + Vite/React + Postgres stack.
+A modernization of [laddr](https://github.com/CodeForPhilly/laddr) (the platform behind [codeforphilly.org](https://codeforphilly.org)) onto a Fastify + Vite/React + gitsheets stack.
 
 ## Spec-driven
 

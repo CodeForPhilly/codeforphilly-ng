@@ -37,13 +37,13 @@ The page is composed of four sections, top to bottom:
 - Heading: "Join a Project"
 - Grid: responsive — 3 columns ≥ md, 2 columns ≥ sm, 1 column < sm
 - Up to 8 featured tiles. Each tile shows:
-  - Project image (Project has no `imageKey`/`logoKey` in v1; see _Open question_ below)
+  - Project image — `project.featuredImageKey` (required field when `project.featured = true`; see [data-model.md#project](../data-model.md#project))
   - Title
   - Tagline = `project.summary`, or first line of `readmeExcerpt` if `summary` is null
   - Click: links to `/projects/<slug>`
 - Below the grid: "See all 268 projects →" link to `/projects`. The count is `metadata.totalItems` from a separate cheap `HEAD`-style call (or piggybacked from the featured response — implementer's call).
 
-**Open question:** featured projects need a hero image. In v1 we add a `featuredImageKey` to projects (optional) and the home page only includes projects that have one. If none, the section is hidden. _Promote this from open question to data-model amendment before implementing._
+If no featured projects have a `featuredImageKey` set, the section renders no tiles (rendered empty rather than hidden — the heading stays so staff notice).
 
 ### 3. Get involved
 
@@ -93,7 +93,7 @@ Three side-by-side cards (current site has these; they translate cleanly):
 
 **From here:**
 
-- `/volunteer`, `/sponsor`, `/projects`, `/projects/<slug>`, `/members/<slug>`, `/project-updates`, `/project-buzz`, `/help-wanted`, `/register`, `/login`
+- `/volunteer`, `/sponsor`, `/projects`, `/projects/<slug>`, `/members/<slug>`, `/project-updates`, `/project-buzz`, `/help-wanted`, `/login`
 
 ## Authorization
 

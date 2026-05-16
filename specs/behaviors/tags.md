@@ -53,7 +53,7 @@ The legacy laddr form `?tag=tech.flutter` also resolves because the API accepts 
 
 ## Tag merge
 
-Staff can merge two tags via `PATCH /api/tags/:handle { mergeInto: 'other.handle' }`. The source tag is deleted; all its `tag_assignments` are reassigned to the target tag. The merge target must be in the same namespace.
+Staff can merge two tags via `PATCH /api/tags/:handle { mergeInto: 'other.handle' }`. The source tag is deleted; all its `tag-assignments` records are reassigned to the target tag in the same commit. The merge target must be in the same namespace.
 
 ## Facets
 

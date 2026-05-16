@@ -54,7 +54,7 @@ Any signed-in user can log buzz on any project (laddr precedent). The poster is 
 | url | yes | HTTPS. Unique within `(projectId, url)`. |
 | publishedAt | yes | Date or datetime. Date-only normalized to T00:00:00Z. |
 | summary | no | ≤ 2,000 chars markdown. |
-| imageUpload.key | no | Object storage key from a prior `POST /api/uploads` (separate spec, not in v1 for general media; for buzz, allow direct upload URL flow). |
+| imageUpload.key | no | Gitsheets attachment key from a prior upload (separate endpoint, not in v1 for general media; for buzz, allow direct multipart upload alongside the create call). Stored under `project-buzz/<projectSlug>/<buzzSlug>/image.jpg`. See [behaviors/storage.md](../behaviors/storage.md#attachments). |
 
 ### Response — 201
 
@@ -78,7 +78,7 @@ Editable fields: `headline`, `url`, `publishedAt`, `summary`, `imageUpload`. Slu
 
 ## DELETE /api/projects/:slug/buzz/:buzzSlug
 
-Hard delete. The image (if any) is removed from object storage by a background job.
+Hard delete. The image attachment (if any) is removed from the gitsheets data repo as part of the same commit.
 
 ### Response — 204
 
@@ -116,7 +116,7 @@ Global feed of buzz across all projects.
   "publishedAt": "2026-04-12T00:00:00Z",
   "summary": "Excerpt.",
   "summaryHtml": "<p>Excerpt.</p>",
-  "imageUrl": "https://cdn.../buzz-uploads/abc-123.jpg" | null,
+  "imageUrl": "/api/attachments/project-buzz/squadquest/inquirer-praises-foo/image.jpg" | null,
   "permissions": {
     "canEdit": false,
     "canDelete": false

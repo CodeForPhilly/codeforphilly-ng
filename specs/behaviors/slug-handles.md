@@ -46,23 +46,14 @@ Uniqueness violation on create or rename → `409 conflict`.
 
 Slugs **can** change. When they do:
 
-- The entity row's `slug` field is updated.
-- A row is added to `slug_history`:
-
-  ```
-  slug_history(id uuid, entityType enum, entityId uuid, oldSlug text, newSlug text, changedAt timestamptz, expiresAt timestamptz)
-  ```
-
-  Where:
-  - `entityType` ∈ {`project`, `person`, `tag`, `buzz`}
-  - `expiresAt = changedAt + 90 days`
-
+- The entity record's `slug` field is updated.
+- A `SlugHistory` record is written to the `slug-history` sheet (see [data-model.md](../data-model.md#slughistory)) with `oldSlug`, `newSlug`, `entityType`, `entityId`, `changedAt`, and `expiresAt = changedAt + 90 days`.
 - On any request to a URL using an `oldSlug` that is *not yet* expired, the web layer serves a **301 redirect** to the current canonical URL.
-- After `expiresAt`, the redirect is no longer served. The row is retained for audit but doesn't affect routing.
+- After `expiresAt`, the redirect is no longer served. The record is retained as part of the commit history but is removed from the sheet by a periodic sweeper task.
 
 Edge cases:
 
-- If `slug_history.oldSlug` is itself a currently-active slug of a *different* row (someone took the freed slug), the current slug wins — no redirect.
+- If a `SlugHistory.oldSlug` is itself a currently-active slug of a *different* entity (someone took the freed slug), the current slug wins — no redirect.
 - If a project is renamed A → B → C, both A and B redirect to C until they each expire.
 
 ## Reserved slugs
@@ -81,5 +72,5 @@ The reserved list is enforced in validators and surfaces as `422 validation_fail
 
 - laddr `projects.Handle`, `Emergence\People\Person.Username`, `tags.Handle` (after splitting namespace) — copied directly into `slug`
 - Slug format is preserved as-is in the import (uppercase letters lowercased; whitespace replaced with hyphens)
-- `slug_history` is empty after the initial import — the first-90-days redirect window starts the day a slug is changed on the new system
+- The `slug-history` sheet is empty after the initial import — the first-90-days redirect window starts the day a slug is changed on the new system
 - Legacy URLs from the old system continue to work because we preserve slugs verbatim; the redirect machinery only kicks in for *future* renames

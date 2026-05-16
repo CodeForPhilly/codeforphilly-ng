@@ -18,7 +18,7 @@ This screen is mostly static content + the live help-wanted preview. The static 
 - H1: "Volunteer with Code for Philly"
 - Subhead: "No coding experience required. We have a project for you."
 - Primary CTA:
-  - Anonymous: "Create an account →" → `/register?return=/volunteer`
+  - Anonymous: "Create an account →" → `/login?return=/volunteer`
   - User: "Browse projects →" → `/projects`
 
 ### "How it works" (3 steps)
@@ -49,7 +49,7 @@ Static content emphasizing the non-developer roles (designers, project managers,
 Footer-style band at the bottom: "Have an idea? Start your own project."
 
 - Link to the external GitBook "creating-new-partnerships/first-steps" page (matches current codeforphilly.org)
-- Secondary link "or create one on the site →" to `/projects/create` (signed-in) or `/register?return=/projects/create` (anonymous)
+- Secondary link "or create one on the site →" to `/projects/create` (signed-in) or `/login?return=/projects/create` (anonymous)
 
 ## Actions
 
@@ -59,7 +59,7 @@ All navigation. No mutations.
 
 **To here:** Home page hero CTA, header nav, every "Volunteer" link across the site.
 
-**From here:** `/register`, `/projects`, `/chat`, `/help-wanted`, `/projects/create`.
+**From here:** `/login`, `/projects`, `/chat`, `/help-wanted`, `/projects/create`.
 
 ## Authorization
 

@@ -146,7 +146,7 @@ Editable by staff additionally:
 
 ### Email change side-effects
 
-Changing `email` does not log out other sessions in v1, but invalidates any in-flight password-reset tokens.
+Changing `email` does not log out other sessions in v1. The sign-out-everywhere mechanism (revoke all of a person's JWTs by `jti`) is documented in [behaviors/authorization.md](../behaviors/authorization.md) but not auto-triggered on email change.
 
 ## POST /api/people/:slug/avatar
 
@@ -157,7 +157,7 @@ Multipart upload, single file field `image`.
 | Max size | 5 MB |
 | Allowed types | `image/png`, `image/jpeg`, `image/webp` |
 
-Server crops to a square and stores the original plus the 128x128 thumbnail in S3. `avatarKey` is set to the object key.
+Server crops to a square and stores the original plus the 128x128 thumbnail as gitsheets attachments alongside the person's record (`people/<slug>/avatar.jpg`, `people/<slug>/avatar-128.jpg`). `avatarKey` is set to the relative path. Served via `GET /api/attachments/<key>`. See [behaviors/storage.md](../behaviors/storage.md#attachments).
 
 ### Response — 200
 

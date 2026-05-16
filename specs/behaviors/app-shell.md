@@ -6,7 +6,7 @@ Every screen on the site is rendered inside the same chrome — a sticky header,
 
 ## Applies To
 
-Every URL except the auth flows (`/login`, `/register`, `/forgot-password`) which intentionally render a minimal shell.
+Every URL except `/login` (which intentionally renders a minimal shell). The GitHub OAuth callback handler and the account-claim screens (not yet specified) will also use the minimal shell.
 
 ## Composition
 
@@ -53,11 +53,13 @@ Primary nav, items in this order:
 - Code of Conduct → `/pages/code-of-conduct`
 - Hackathons → `/pages/hackathons`
 - Sponsor → `/sponsor`
-- Contact → `/contact` (deferred screen; rendered as `mailto:` for v1)
+- Contact → `/contact` (not yet specified; rendered as `mailto:` for v1)
+
+The `/pages/*` URLs serve **static content pages** authored as MDX/Markdown in the code repo (`apps/web/src/content/pages/`). They have no per-page screen spec — the content is the spec. Source copy ports from `codeforphilly.org/site-root/pages/` in the legacy repo.
 
 ### Auth controls (rightmost)
 
-- **Anonymous:** "Login" (text), "Sign up" (primary button)
+- **Anonymous:** "Sign in" (primary button) → `/login`. There is no separate "Sign up" button — sign-in and sign-up are the same flow once GitHub OAuth is specified (first sign-in creates the account).
 - **User:** Avatar + name dropdown:
   - "My profile" → `/members/<slug>`
   - "Account settings" → `/account`
@@ -91,7 +93,7 @@ Single search input in the header. Behavior:
 
 The `/search` results page is **deferred**; for v1 we ship only the typeahead and the `/search` page renders a redirect-to-projects with the q prefilled. Tracked in [deferred.md](../deferred.md) as a follow-up.
 
-Sort order within each group: relevance (Postgres FTS rank).
+Sort order within each group: relevance (SQLite FTS5 BM25 rank — see [behaviors/storage.md](storage.md#full-text-search)).
 
 ## Breadcrumbs
 
