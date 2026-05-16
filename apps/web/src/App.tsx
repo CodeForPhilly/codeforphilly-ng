@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from 'react-router';
+import { createBrowserRouter, RouterProvider } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppShell } from '@/components/AppShell';
 import { NetworkErrorProvider } from '@/components/NetworkErrorBanner';
@@ -8,37 +8,40 @@ import { ComingSoon } from '@/pages/ComingSoon';
 import { NotFound } from '@/pages/NotFound';
 import { LoginPlaceholder } from '@/pages/LoginPlaceholder';
 
+const router = createBrowserRouter([
+  {
+    element: <AppShell />,
+    children: [
+      { path: '/', element: <HomeStub /> },
+      { path: '/projects', element: <ComingSoon /> },
+      { path: '/projects/create', element: <ComingSoon /> },
+      { path: '/projects/:slug', element: <ComingSoon /> },
+      { path: '/projects/:slug/edit', element: <ComingSoon /> },
+      { path: '/help-wanted', element: <ComingSoon /> },
+      { path: '/members', element: <ComingSoon /> },
+      { path: '/members/:slug', element: <ComingSoon /> },
+      { path: '/volunteer', element: <ComingSoon /> },
+      { path: '/sponsor', element: <ComingSoon /> },
+      { path: '/account', element: <ComingSoon /> },
+      { path: '/chat', element: <ComingSoon /> },
+      { path: '/search', element: <ComingSoon /> },
+      { path: '/pages/:slug', element: <ComingSoon /> },
+      { path: '/contact', element: <ComingSoon /> },
+      { path: '/tags/:namespace/:slug', element: <ComingSoon /> },
+      { path: '/login', element: <LoginPlaceholder /> },
+      { path: '*', element: <NotFound /> },
+    ],
+  },
+]);
+
 export function App() {
   return (
-    <BrowserRouter>
-      <TooltipProvider>
-        <NetworkErrorProvider>
-          <AuthProvider>
-            <Routes>
-              <Route element={<AppShell />}>
-                <Route path="/" element={<HomeStub />} />
-                <Route path="/projects" element={<ComingSoon />} />
-                <Route path="/projects/:slug" element={<ComingSoon />} />
-                <Route path="/projects/:slug/edit" element={<ComingSoon />} />
-                <Route path="/projects/create" element={<ComingSoon />} />
-                <Route path="/help-wanted" element={<ComingSoon />} />
-                <Route path="/members" element={<ComingSoon />} />
-                <Route path="/members/:slug" element={<ComingSoon />} />
-                <Route path="/volunteer" element={<ComingSoon />} />
-                <Route path="/sponsor" element={<ComingSoon />} />
-                <Route path="/account" element={<ComingSoon />} />
-                <Route path="/chat" element={<ComingSoon />} />
-                <Route path="/search" element={<ComingSoon />} />
-                <Route path="/pages/:slug" element={<ComingSoon />} />
-                <Route path="/contact" element={<ComingSoon />} />
-                <Route path="/tags/:namespace/:slug" element={<ComingSoon />} />
-                <Route path="/login" element={<LoginPlaceholder />} />
-                <Route path="*" element={<NotFound />} />
-              </Route>
-            </Routes>
-          </AuthProvider>
-        </NetworkErrorProvider>
-      </TooltipProvider>
-    </BrowserRouter>
+    <TooltipProvider>
+      <NetworkErrorProvider>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </NetworkErrorProvider>
+    </TooltipProvider>
   );
 }
