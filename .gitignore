@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Local environment + secrets
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+
+# Dev private storage runtime dir (filesystem backend; see specs/behaviors/private-storage.md).
+# The seeded fixture at fixtures/private-storage-seeded/ is intentionally NOT ignored —
+# it ships in the code repo so contributors can load a fake-data baseline.
+private-storage/
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+.idea/
+
+# Logs
+*.log
+npm-debug.log*

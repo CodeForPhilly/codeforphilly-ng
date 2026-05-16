@@ -62,6 +62,8 @@ export const EnvSchema = z.object({
 
 Validation runs at boot; bad config exits 1 with a clear error. No `process.env.X` reads outside `env.ts`.
 
+Ship a `.env.example` file at the repo root that enumerates every `EnvSchema` field with placeholder values + an inline comment per field describing what it's for. This is what new contributors `cp .env.example .env` on first checkout. Keeps the `EnvSchema` and `.env.example` in lockstep is a per-PR review concern; if it drifts, that's a CI follow-up worth filing.
+
 ### Response envelope
 
 `apps/api/src/lib/response.ts` exports:
@@ -113,6 +115,7 @@ In-memory `Map<personId+key, cachedResponse>` with a 24h TTL. Mutating endpoints
 - [ ] Per-IP rate limit kicks in: 61 anonymous reads from the same IP within a minute → 429 with `Retry-After`
 - [ ] Repeat POST with the same `Idempotency-Key` returns the cached response (verified by a stub route)
 - [ ] `/api/_openapi.json` returns a valid OpenAPI 3.1 document; `/api/_docs` renders Swagger UI
+- [ ] `.env.example` exists at the repo root with one entry per `EnvSchema` field (deferred from [`workspace`](workspace.md))
 - [ ] CI passes type-check + tests
 
 ## Risks / unknowns

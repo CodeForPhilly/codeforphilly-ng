@@ -1,0 +1,28 @@
+{
+  "name": "codeforphilly-rewrite",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Modernization of laddr / codeforphilly.org on Fastify + Vite/React + gitsheets.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.0 <23"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run -w apps/api dev\" \"npm run -w apps/web dev\"",
+    "build": "npm run build --workspaces --if-present",
+    "type-check": "npm run type-check --workspaces --if-present",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.2.1",
+    "eslint": "^10.4.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
+    "typescript-eslint": "^8.59.3"
+  }
+}

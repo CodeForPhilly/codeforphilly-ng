@@ -1,9 +1,10 @@
 ---
-status: planned
+status: done
 depends: []
 specs:
   - specs/architecture.md
 issues: []
+pr: 9
 ---
 
 # Plan: Workspace scaffold
@@ -17,7 +18,7 @@ Out of scope: any actual storage, API endpoints, or UI screens. Those land in de
 ## Implements
 
 - [specs/architecture.md](../specs/architecture.md) — repo layout, workspace tool choice (npm), TypeScript posture, ESM-only, asdf-managed Node version, conventions section
-- [CLAUDE.md](../CLAUDE.md) source-control conventions (commit style, lockfile commits, generated-changes-first)
+- [.claude/CLAUDE.md](../.claude/CLAUDE.md) source-control conventions (commit style, lockfile commits, generated-changes-first)
 
 ## Approach
 
@@ -40,14 +41,14 @@ Out of scope: any actual storage, API endpoints, or UI screens. Those land in de
 
 ## Validation
 
-- [ ] `git clone … && npm install && npm run dev` works on a fresh machine with only asdf preinstalled
-- [ ] `curl localhost:3001/api/health` returns `{"status":"ok"}`
-- [ ] The web dev server serves the placeholder page at `http://localhost:5173/`
-- [ ] `npm run type-check` exits 0
-- [ ] `npm run build` produces `apps/api/dist/` and `apps/web/dist/`
-- [ ] `.github/workflows/ci.yml` passes on a clean push
-- [ ] `package-lock.json` is committed at root
-- [ ] No `.js` files in `apps/api/src/` or `apps/web/src/` (TypeScript only)
+- [x] `git clone … && npm install && npm run dev` works on a fresh machine with only asdf preinstalled
+- [x] `curl localhost:3001/api/health` returns `{"status":"ok"}`
+- [x] The web dev server serves the placeholder page at `http://localhost:5173/`
+- [x] `npm run type-check` exits 0
+- [x] `npm run build` produces `apps/api/dist/` and `apps/web/dist/`
+- [x] `.github/workflows/ci.yml` passes on a clean push
+- [x] `package-lock.json` is committed at root
+- [x] No `.js` files in `apps/api/src/` or `apps/web/src/` (TypeScript only)
 
 ## Risks / unknowns
 
@@ -57,4 +58,12 @@ Out of scope: any actual storage, API endpoints, or UI screens. Those land in de
 
 ## Notes
 
-When plans land use this section to capture decisions / gotchas worth carrying forward.
+- **Vite 8 + npm-workspace-hoisted React** — `apps/web/vite.config.ts` needs `resolve.dedupe: ['react', 'react-dom']` or Vite's dep scanner fails to resolve `react/jsx-dev-runtime` even though the package exposes it via `exports`. Without dedupe, `/src/main.tsx` returns 500 with "Failed to resolve import 'react/jsx-dev-runtime'." Worth knowing when adding more React-adjacent packages.
+- **`npm install -w <ws> <pkg>` followed by `npm install -w <ws> -D <pkg>` can silently drop runtime deps** — happened with `react`/`react-dom` mid-plan. The lockfile retained the entries but the workspace manifest didn't, so `npm ci` would have produced a broken tree. Fix is to re-run the install explicitly (`fix(web): persist react / react-dom in workspace deps`). Pattern: when chaining workspace installs, verify each step's manifest before continuing.
+- **`exactOptionalPropertyTypes` is not part of `strict`** — it's an independent opt-in. Setting it to `false` explicitly was a no-op that implied intent without explanation; removed during PR review.
+- **Latest deps as of cutover commit (May 2026):** Fastify 5.8, Vite 8.0, React 19.2, typescript-eslint 6.x, asdf-vm/actions@v4, actions/checkout@v6. Pin in `package.json` carets; rolling-major tags for GitHub Actions.
+- **CLAUDE.md lives at `.claude/CLAUDE.md`** after the relocation in this PR — both `<project>/CLAUDE.md` and `<project>/.claude/CLAUDE.md` are valid project-scoped locations for Claude Code; the latter keeps all Claude-specific config under one directory.
+
+## Follow-ups
+
+- Deferred to [`api-skeleton`](api-skeleton.md) — `.env.example` lands when `EnvSchema` is introduced; the `!.env.example` carve-out in `.gitignore` is harmless until then.
