@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [web-shell]
 specs:
   - specs/screens/home.md
