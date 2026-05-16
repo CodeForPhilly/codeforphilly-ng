@@ -1,10 +1,11 @@
 ---
-status: planned
+status: done
 depends: [storage-foundation]
 specs:
   - specs/behaviors/legacy-id-mapping.md
   - specs/data-model.md
 issues: []
+pr: 24
 ---
 
 # Plan: Laddr importer
@@ -125,17 +126,17 @@ Staff review the report before the real run.
 
 ## Validation
 
-- [ ] Run against a small fixture mysqldump → produces the expected records in the public repo + private store
-- [ ] Re-run against the same dump → no-op (idempotent; byLegacyId lookups hit existing rows)
-- [ ] Run with `--limit=10` → only the first 10 of each table imported
-- [ ] Dry-run produces a complete JSON report with no DB writes
-- [ ] `Person.slackSamlNameId` populated correctly for every Person; matches their `slug`
-- [ ] Stage values translated (TitleCase → lowercase)
-- [ ] `Person.email`, `LegacyPasswordCredential.passwordHash` land in the private store, not the public repo (grep the public repo for any email pattern → zero hits)
-- [ ] Tag handles like `topic.transit` split correctly into `namespace='topic', slug='transit'`
-- [ ] `tag_items.ContextClass` → `taggableType` mapping correct
+- [x] Run against a small fixture mysqldump → produces the expected records in the public repo + private store
+- [x] Re-run against the same dump → no-op (idempotent; byLegacyId lookups hit existing rows)
+- [x] Run with `--limit=10` → only the first 10 of each table imported
+- [x] Dry-run produces a complete JSON report with no DB writes
+- [x] `Person.slackSamlNameId` populated correctly for every Person; matches their `slug`
+- [x] Stage values translated (TitleCase → lowercase)
+- [x] `Person.email`, `LegacyPasswordCredential.passwordHash` land in the private store, not the public repo (grep the public repo for any email pattern → zero hits)
+- [x] Tag handles like `topic.transit` split correctly into `namespace='topic', slug='transit'`
+- [x] `tag_items.ContextClass` → `taggableType` mapping correct
 - [ ] All laddr slugs are accessible via `/projects/:slug` and `/members/:slug` after the import (verified via API test on a sample of 100 random records)
-- [ ] Drop-tables (member_checkins, blog_posts, etc.) are skipped without error
+- [x] Drop-tables (member_checkins, blog_posts, etc.) are skipped without error
 
 ## Risks / unknowns
 
@@ -145,3 +146,17 @@ Staff review the report before the real run.
 - **Time of run.** The single big commit is large — could be hundreds of thousands of file writes if laddr has lots of project-updates. May need to chunk by entity type into multiple commits to keep individual commits reviewable. Decide during dry-run; could end up with one commit per entity type (7 commits total).
 
 ## Notes
+
+- **Per-entity commits over single big commit.** Shipped as 7 commits (one per sheet, in FK-order). Each is reviewable on its own — the "could be hundreds of thousands of file writes" risk in the original plan landed on the chunked side.
+- **Slug-collision policy: silently slugify-and-dedupe with `-N` suffix.** That was the plan's "default I'd go with" choice. Warnings emitted for every normalization or dedupe so staff can review them in the dry-run report before the real run.
+- **`--limit=10` criterion verified with `--limit=1` in the test.** The CLI parameter is the same; only the test value differs.
+- **`/projects/:slug` and `/members/:slug` reachability** stays unchecked at merge time — those routes are owned by `read-api` and aren't built yet. The slugs themselves are committed (verified by the import-laddr test) and the gitsheets path templates match the API's expected lookup shape, so reachability will close out once `read-api` lands. Tracked in Follow-ups.
+- **Idempotence for memberships + tag-assignments** uses composite-path presence in the data repo's git tree, not `legacyId` (those sheets don't carry one). This means re-running after a manual edit that changes path-defining fields would no-op rather than re-import; staff should reset the repo before a re-run if they want a forced re-import.
+- **LegacyPasswordCredential writes** reach past the `PrivateStoreTx` runtime interface (which only exposes profile mutations + legacy-password *deletes* — the runtime drains them, never adds). Import flushes via a typed cast onto the BasePrivateStore's internal `legacyPasswords` Map. Documented at the call site; narrow blast radius (one-shot migration only).
+- **Password-hash algorithm verification deferred** — the fixture uses synthetic `$2y$10$...` (bcrypt) strings. Real production hashes need a one-time inspection before cutover; the account-claim endpoint (separate plan) will verify against them.
+
+## Follow-ups
+
+- Tracked as: `read-api` / `web-routing` to close out the last validation criterion (laddr slugs reachable via `/projects/:slug` and `/members/:slug`) once those routes exist.
+- Issue [#25](https://github.com/CodeForPhilly/codeforphilly-ng/issues/25) — verify production-dump password-hash format (bcrypt vs sha512crypt vs Emergence-specific) before staging cutover.
+- Issue [#26](https://github.com/CodeForPhilly/codeforphilly-ng/issues/26) — `--limit=N` tally edge case: `input` counts pre-limit rows (intentional, so dry-run reports reflect dump size) but `imported + skipped + errors` < `input` when limited, which may surprise; document in the script's --help once we have one.
