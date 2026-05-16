@@ -73,7 +73,8 @@ Signing: HS256 with `CFP_JWT_SIGNING_KEY` (server-managed secret, rotated on a c
 ### Lifecycle
 
 ```text
-[issuance — flow not yet specified; will be GitHub OAuth callback + account-claim]
+GitHub OAuth callback resolves to a Person
+(directly, or via /account-claim — see behaviors/account-migration.md)
         │
         ▼
   Issue access JWT (15m) + refresh JWT (30d) ─▶ Set cookies
@@ -86,6 +87,8 @@ Signing: HS256 with `CFP_JWT_SIGNING_KEY` (server-managed secret, rotated on a c
         │                        Frontend hits POST /api/auth/refresh, gets a new pair, retries
         └─ refresh JWT expired → 401 with `error.code = "session_expired"` → user re-authenticates
 ```
+
+There's a third short-lived JWT — the **claim-pending JWT** issued by the OAuth callback when legacy candidates exist. It has `scope: "claim"`, lifetime 5 minutes, and is accepted only by the `/api/account-claim/*` endpoints. See [api/account-claim.md](../api/account-claim.md).
 
 The access-token TTL is intentionally short so revocation has a small blast radius. The refresh-token TTL is "session length" — 30 days of inactivity logs you out.
 
