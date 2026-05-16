@@ -6,7 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
-import { getCallerSession } from '../lib/session.js';
+import { getCallerSession } from '../services/permissions.js';
 
 export async function projectRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/projects

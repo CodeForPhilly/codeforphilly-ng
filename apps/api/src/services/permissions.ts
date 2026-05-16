@@ -5,16 +5,30 @@
  * scatter across route handlers. Routes call these with the caller
  * (which may be undefined for unauthenticated requests) and the entity.
  *
- * request.session?.person is provided by auth-jwt-substrate. We use
- * optional chaining everywhere so this module works before that plan lands.
+ * The caller is derived from `request.session.person` (decorated by the
+ * session middleware in auth-jwt-substrate) via `getCallerSession()` below.
  */
+import type { FastifyRequest } from 'fastify';
 import type { Person, Project, ProjectBuzz, ProjectMembership, ProjectUpdate } from '@cfp/shared/schemas';
 import type { HelpWantedRole } from '@cfp/shared/schemas';
 
-/** Minimal caller shape — populated by auth-jwt-substrate. */
+/** Minimal caller shape used by permission helpers. Derived from `request.session.person`. */
 export interface CallerSession {
   readonly id: string;
   readonly accountLevel: 'user' | 'staff' | 'administrator';
+}
+
+/**
+ * Extract the caller's session view from a Fastify request. Returns undefined
+ * for anonymous or claim-pending requests (where `session.person` is null or
+ * accountLevel is `'anonymous'`).
+ */
+export function getCallerSession(request: FastifyRequest): CallerSession | undefined {
+  const person = request.session.person;
+  if (!person) return undefined;
+  const level = person.accountLevel;
+  if (level !== 'user' && level !== 'staff' && level !== 'administrator') return undefined;
+  return { id: person.id, accountLevel: level };
 }
 
 export interface ProjectPermissions {
