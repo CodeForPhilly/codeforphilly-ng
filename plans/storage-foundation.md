@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [test-harness]
 specs:
   - specs/data-model.md
