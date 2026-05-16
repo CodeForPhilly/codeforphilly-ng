@@ -11,6 +11,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/.vite/**',
       '**/coverage/**',
+      '.claude/worktrees/**',
     ],
   },
   js.configs.recommended,

@@ -117,6 +117,10 @@ Drafts shipped with this plan:
 
 A small one-off script + Resend send: pull the list of unclaimed Persons (every Person with `githubUserId is null` from the public state, who has a `PrivateProfile.email` from before cutover that we still have), send each a reminder mail with claim instructions. Run manually at T+90.
 
+### Snapshot CI invocation (deferred from `public-snapshot-scrub`)
+
+A scheduled GitHub Actions workflow in the data repo (or triggered from here) runs `npm run -w apps/api script:scrub-data -- --source=. --target=../codeforphilly-data-snapshot` weekly, force-pushes the result to the snapshot branch, and creates a dated tag (`snapshot-<year>-<quarter>-scrubbed`). This is the "how it gets invoked in CI" piece that `public-snapshot-scrub` explicitly deferred.
+
 ## Validation
 
 - [ ] Dry-run runs end-to-end against a staging environment without errors
@@ -128,6 +132,8 @@ A small one-off script + Resend send: pull the list of unclaimed Persons (every 
 - [ ] Cutover runbook reviewed by at least one staff member who hasn't been deep in the code
 - [ ] Post-cutover monitoring alarms verified by intentionally breaking `/api/health` in staging
 - [ ] T+90 mailout script tested in dry-run mode against a fixture (no real emails sent)
+- [ ] Snapshot CI workflow in place: `scrub-data.ts` runs on schedule, pushes to `codeforphilly-data-snapshot`, tags the run (deferred from `public-snapshot-scrub`)
+- [ ] Snapshot clones + boots a fresh dev API (`STORAGE_BACKEND=filesystem`, empty private storage) — deferred from `public-snapshot-scrub` validation
 
 ## Risks / unknowns
 
