@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "codeforphilly.fullname" . }}-env
+  labels:
+    {{- include "codeforphilly.labels" . | nindent 4 }}
+data:
+  # Static env values from values.yaml `env:` block.
+  {{- range $k, $v := .Values.env }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+  STORAGE_BACKEND: {{ .Values.storage.backend | quote }}
+  CFP_DATA_BRANCH: {{ .Values.dataRepo.branch | quote }}
+  {{- range $k, $v := .Values.publicEnv }}
+  {{- if $v }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.deployKey.secretName }}
+  # Tell git to use the mounted SSH key. accept-new keeps first-connect simple;
+  # populate deployKey.knownHostsConfigMap for strict host-key checking.
+  GIT_SSH_COMMAND: "ssh -i {{ .Values.deployKey.mountPath }}/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{- if .Values.deployKey.knownHostsConfigMap }} -o UserKnownHostsFile={{ .Values.deployKey.mountPath }}/known_hosts{{- end }}"
+  {{- end }}
