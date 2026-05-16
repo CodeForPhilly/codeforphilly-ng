@@ -1,0 +1,56 @@
+import type { LegacyPasswordCredential, PrivateProfile } from '@cfp/shared/schemas';
+
+/** Secondary in-memory indices built from private store data. */
+export interface PrivateIndices {
+  /** email (lowercase) → personId */
+  readonly byEmail: Map<string, string>;
+  /** unsubscribeToken → personId */
+  readonly byUnsubscribeToken: Map<string, string>;
+  /** personId → LegacyPasswordCredential */
+  readonly legacyPasswordByPersonId: Map<string, LegacyPasswordCredential>;
+}
+
+/**
+ * Transaction object passed to PrivateStore.transact handlers.
+ * Mutations are applied to in-memory state; the `.jsonl` files are
+ * flushed after the handler completes.
+ */
+export interface PrivateStoreTx {
+  putProfile(profile: PrivateProfile): void;
+  deleteProfile(personId: string): void;
+  deleteLegacyPassword(personId: string): void;
+}
+
+/**
+ * The private data store interface.
+ *
+ * Two implementations: FilesystemPrivateStore (dev) and S3PrivateStore (prod).
+ * Both follow the load-at-boot + in-memory + PUT-on-mutation pattern from
+ * specs/behaviors/private-storage.md.
+ */
+export interface PrivateStore {
+  /** Load both .jsonl files into memory. Must be called before any reads. */
+  load(): Promise<void>;
+
+  /** Secondary in-memory indices, populated after load(). */
+  readonly indices: PrivateIndices;
+
+  // --- Profiles ---
+  getProfile(personId: string): Promise<PrivateProfile | null>;
+  putProfile(profile: PrivateProfile): Promise<void>;
+  deleteProfile(personId: string): Promise<void>;
+  findPersonIdByEmail(email: string): Promise<string | null>;
+  listAllProfiles(): AsyncIterable<PrivateProfile>;
+
+  // --- Legacy passwords ---
+  getLegacyPassword(personId: string): Promise<LegacyPasswordCredential | null>;
+  deleteLegacyPassword(personId: string): Promise<void>;
+  countLegacyPasswords(): Promise<number>;
+
+  /**
+   * Run a handler with a transaction object. On success, flush updated
+   * `.jsonl` files to the backend. On throw, discard; in-memory state
+   * is not updated.
+   */
+  transact<T>(handler: (tx: PrivateStoreTx) => Promise<T>): Promise<T>;
+}
