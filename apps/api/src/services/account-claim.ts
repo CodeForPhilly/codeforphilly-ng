@@ -74,10 +74,10 @@ export interface ClaimSuccessResult {
 }
 
 /** Result of `confirm` and `byPassword` — used by the route to issue session. */
-export interface AutoClaimResult extends ClaimSuccessResult {}
+export type AutoClaimResult = ClaimSuccessResult;
 
 /** Result of `decline` — fresh Person + PrivateProfile created. */
-export interface DeclineResult extends ClaimSuccessResult {}
+export type DeclineResult = ClaimSuccessResult;
 
 export interface StaffApproveResult {
   readonly request: AccountClaimRequest;
@@ -336,7 +336,7 @@ export class AccountClaimService {
     const trimmed = q.trim().toLowerCase();
     if (!trimmed) return null;
 
-    let personId: string | null = null;
+    let personId: string | null;
     let matchedVia: Array<'email' | 'username'> = [];
     let matchedEmail: string | null = null;
 
