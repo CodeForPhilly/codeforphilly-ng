@@ -1,0 +1,124 @@
+name: Public snapshot
+
+# Runs apps/api/scripts/scrub-data.ts against the production data repo every
+# Sunday at 03:00 UTC, force-pushes the anonymized result to
+# codeforphilly-data-snapshot, and tags the run.
+#
+# This is the "how it gets invoked" piece that public-snapshot-scrub deferred
+# to cutover-prep — see plans/public-snapshot-scrub.md follow-ups.
+#
+# Permissions: needs read access to codeforphilly-data + push access to
+# codeforphilly-data-snapshot. Both supplied via SNAPSHOT_DEPLOY_KEY (an SSH
+# private key registered as a deploy key on both repos).
+
+on:
+  schedule:
+    # 03:00 UTC every Sunday. Quiet hours for both producing and consuming
+    # the data; gives weekly snapshots that contributor clones can rely on.
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Override pseudonymization seed (defaults to today's date)"
+        required: false
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out rewrite repo
+        uses: actions/checkout@v6
+
+      - name: Install asdf-managed tools
+        uses: asdf-vm/actions/install@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure SSH for git
+        # Single deploy key registered on BOTH codeforphilly-data and
+        # codeforphilly-data-snapshot. Production-data read; snapshot push.
+        # Rotation: regenerate, update both repos' deploy-keys settings,
+        # update the SNAPSHOT_DEPLOY_KEY secret.
+        env:
+          SNAPSHOT_DEPLOY_KEY: ${{ secrets.SNAPSHOT_DEPLOY_KEY }}
+        run: |
+          mkdir -p "$HOME/.ssh"
+          echo "$SNAPSHOT_DEPLOY_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          ssh-keyscan github.com >> "$HOME/.ssh/known_hosts"
+
+      - name: Clone source data repo
+        run: |
+          git clone --depth=1 --branch=main \
+            git@github.com:CodeForPhilly/codeforphilly-data.git ./source-data
+
+      - name: Clone target snapshot repo
+        run: |
+          # Full clone (not --depth=1) because scrub-data writes an orphan
+          # commit and pushes with --force, but we want the previous tags
+          # to remain readable for diagnostics.
+          git clone \
+            git@github.com:CodeForPhilly/codeforphilly-data-snapshot.git ./snapshot
+
+      - name: Resolve seed
+        id: seed
+        run: |
+          if [ -n "${{ github.event.inputs.seed }}" ]; then
+            seed="${{ github.event.inputs.seed }}"
+          else
+            seed="$(date -u +%F)"
+          fi
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "Snapshot seed: $seed"
+
+      - name: Compute tag
+        id: tag
+        run: |
+          year="$(date -u +%Y)"
+          month="$(date -u +%m)"
+          # Calendar quarter: 1..4
+          quarter=$(( ( (10#$month - 1) / 3 ) + 1 ))
+          tag="snapshot-${year}-q${quarter}-scrubbed"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Snapshot tag: $tag"
+
+      - name: Scrub
+        run: |
+          npm run -w apps/api script:scrub-data -- \
+            --source=./source-data \
+            --target=./snapshot \
+            --seed=${{ steps.seed.outputs.seed }}
+
+      - name: Force-push branch + tag
+        working-directory: ./snapshot
+        run: |
+          # The scrub script created an orphan commit on a branch named
+          # snapshot-<seed>-scrubbed. We force-push that branch as `main`
+          # so contributor clones of the snapshot repo see a clean linear
+          # history. We also push the dated tag for traceability.
+          current_branch="$(git rev-parse --abbrev-ref HEAD)"
+          echo "Current branch: $current_branch"
+
+          git push --force origin "${current_branch}:main"
+          git tag -f "${{ steps.tag.outputs.tag }}"
+          git push --force origin "refs/tags/${{ steps.tag.outputs.tag }}"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Snapshot run"
+            echo ""
+            echo "- Seed: \`${{ steps.seed.outputs.seed }}\`"
+            echo "- Tag: \`${{ steps.tag.outputs.tag }}\`"
+            echo "- Source: codeforphilly-data@main"
+            echo "- Target: codeforphilly-data-snapshot@main"
+          } >> "$GITHUB_STEP_SUMMARY"
