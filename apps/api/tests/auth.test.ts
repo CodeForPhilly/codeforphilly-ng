@@ -197,41 +197,9 @@ describe('GET /api/auth/me', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// OAuth stubs — shared app
-// ---------------------------------------------------------------------------
-
-describe('OAuth stub endpoints', () => {
-  let dataRepo: { path: string; cleanup: () => Promise<void> };
-  let privateStore: { path: string; cleanup: () => Promise<void> };
-  let app: FastifyInstance;
-
-  beforeAll(async () => {
-    dataRepo = await createFullDataRepo();
-    privateStore = await createPrivateStorageDir();
-    app = await buildTestApp(dataRepo.path, privateStore.path);
-  }, 60_000);
-
-  afterAll(async () => {
-    await app.close();
-    await dataRepo.cleanup();
-    await privateStore.cleanup();
-  });
-
-  it('GET /api/auth/github/start returns 501 oauth_not_yet_wired', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/auth/github/start' });
-    expect(res.statusCode).toBe(501);
-    const body = res.json<{ error: { code: string } }>();
-    expect(body.error.code).toBe('oauth_not_yet_wired');
-  });
-
-  it('GET /api/auth/github/callback returns 501 oauth_not_yet_wired', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/auth/github/callback' });
-    expect(res.statusCode).toBe(501);
-    const body = res.json<{ error: { code: string } }>();
-    expect(body.error.code).toBe('oauth_not_yet_wired');
-  });
-});
+// OAuth flow tests live in github-oauth.test.ts — they require MSW to
+// intercept api.github.com and a richer fixture setup than the simple
+// session-management tests above.
 
 // ---------------------------------------------------------------------------
 // POST /api/auth/refresh — shared app
