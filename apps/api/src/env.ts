@@ -40,6 +40,11 @@ export const EnvSchema = z.object({
   /** SAML IdP certificate (PEM) for the Slack SAML integration. */
   SAML_CERTIFICATE: z.string().optional(),
   /**
+   * Slack workspace host. Used as the SAML `NameQualifier` per
+   * specs/api/saml.md and shared with the `/chat` redirect handler.
+   */
+  SLACK_TEAM_HOST: z.string().default('codeforphilly.slack.com'),
+  /**
    * Path to the built apps/web/dist directory. When set, the API serves the
    * SPA as a fallthrough for non-/api/* routes. Set in the production Docker
    * image; unset in dev (Vite owns 5173).
@@ -77,6 +82,7 @@ export const envJsonSchema = {
     CFP_JWT_SIGNING_KEY: { type: 'string', minLength: 1 },
     SAML_PRIVATE_KEY: { type: 'string' },
     SAML_CERTIFICATE: { type: 'string' },
+    SLACK_TEAM_HOST: { type: 'string', default: 'codeforphilly.slack.com' },
     CFP_WEB_DIST_PATH: { type: 'string' },
   },
 } as const;

@@ -21,6 +21,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import fastifyEnv from '@fastify/env';
 import fastifyCors from '@fastify/cors';
 import fastifyCookie from '@fastify/cookie';
+import fastifyFormbody from '@fastify/formbody';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 
@@ -44,6 +45,7 @@ import { projectBuzzRoutes } from './routes/projects-buzz.js';
 import { helpWantedRoutes } from './routes/projects-help-wanted.js';
 import { projectMembershipRoutes } from './routes/projects-members.js';
 import { previewRoutes } from './routes/preview.js';
+import { samlRoutes } from './routes/saml.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -94,6 +96,10 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // ----- 3. Cookie parsing -----
   await fastify.register(fastifyCookie);
+
+  // ----- 3a. Form-body parsing (application/x-www-form-urlencoded) -----
+  // Needed for SAML SP-initiated SSO (Slack POSTs AuthnRequest as form data).
+  await fastify.register(fastifyFormbody);
 
   // ----- 4. Trace ID (UUIDv7 on every request) -----
   await fastify.register(traceIdPlugin);
@@ -151,6 +157,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(helpWantedRoutes);
   await fastify.register(projectMembershipRoutes);
   await fastify.register(previewRoutes);
+  await fastify.register(samlRoutes);
 
   // Serve the OpenAPI JSON at the spec-mandated path /api/_openapi.json
   // (swagger-ui also exposes it at /api/_docs/json, but the spec names this path)
