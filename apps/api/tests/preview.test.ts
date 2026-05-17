@@ -72,7 +72,7 @@ describe('POST /api/_preview', () => {
       url: '/api/_preview',
       payload: {},
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(422);
   });
 
   it('rejects oversized source with 422', async () => {
