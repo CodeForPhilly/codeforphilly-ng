@@ -2,6 +2,9 @@
 
 On-call playbooks for the codeforphilly-rewrite production service.
 
+> See also: [monitoring.md](monitoring.md) for the alarm signals that page
+> on-call, [cutover.md](cutover.md) for cutover-specific procedures.
+
 ## "API won't boot"
 
 Symptoms: pod CrashLoopBackOff, `kubectl describe pod` shows the container
