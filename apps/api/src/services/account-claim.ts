@@ -463,10 +463,13 @@ export class AccountClaimService {
         githubUserId: existing.requesterGithubId,
         githubLogin: existing.requesterGithubLogin,
         githubLinkedAt: now,
+        slackSamlNameId: claimed.slackSamlNameId ?? claimed.slug,
         updatedAt: now,
       });
       await tx.public.people.upsert(updated);
       stateApply.upsertPerson(updated);
+      // Drop the legacy credential — the user now signs in via GitHub.
+      tx.private.deleteLegacyPassword(claimed.id);
 
       const markedReviewed: AccountClaimRequest = {
         ...existing,
