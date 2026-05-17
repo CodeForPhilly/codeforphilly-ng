@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [github-oauth]
 specs:
   - specs/api/saml.md
