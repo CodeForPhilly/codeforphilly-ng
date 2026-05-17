@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: codeforphilly
+  annotations:
+    # cert-manager will provision a TLS cert. Override the issuer per-overlay.
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [PLACEHOLDER_HOST]
+      secretName: codeforphilly-tls
+  rules:
+    - host: PLACEHOLDER_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: codeforphilly
+                port:
+                  number: 80

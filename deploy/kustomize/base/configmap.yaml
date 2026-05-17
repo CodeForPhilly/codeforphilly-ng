@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: codeforphilly-env
+data:
+  CFP_DATA_REPO_PATH: "/app/data"
+  CFP_PRIVATE_STORAGE_PATH: "/app/private-storage"
+  CFP_WEB_DIST_PATH: "/app/apps/web/dist"
+  GIT_AUTHOR_EMAIL: "api@codeforphilly.org"
+  GIT_AUTHOR_NAME: "CodeForPhilly API"
+  NODE_ENV: "production"
+  PORT: "3001"
+  STORAGE_BACKEND: "filesystem"
+  CFP_DATA_BRANCH: "fixture"
+  # SSH key for the data repo deploy key (private branch reads).
+  # accept-new keeps first-connect simple; strict host-key checking via
+  # known_hosts ConfigMap is an overlay concern.
+  GIT_SSH_COMMAND: "ssh -i /etc/cfp-data-deploy-key/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null"

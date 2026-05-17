@@ -47,18 +47,17 @@ WORKDIR /app
 
 RUN apk add --no-cache git python3 make g++
 
+# npm workspaces hoists every dep to the root node_modules; the per-workspace
+# node_modules dirs don't exist at this scale. Copy only the root.
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
 
 COPY tsconfig.base.json package.json package-lock.json ./
 COPY apps ./apps
 COPY packages ./packages
 
-# Build both workspaces. Web is built first so api/dist references work; the
-# workspace `build` script handles order via `--if-present`.
-RUN npm run build --workspaces --if-present
+# Build in dependency order: shared first (api + web both import from it),
+# then api + web. The root `build` script enforces this ordering.
+RUN npm run build
 
 # Drop devDependencies from node_modules to shrink the runtime image. We still
 # need workspace-local node_modules (better-sqlite3 native binding lives there).
@@ -77,16 +76,14 @@ RUN apk add --no-cache git ca-certificates tini openssh-client
 
 WORKDIR /app
 
-# Copy built artifacts + pruned node_modules.
+# Copy built artifacts + pruned node_modules (hoisted at the root).
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/api/package.json ./apps/api/
 COPY --from=build /app/apps/api/dist ./apps/api/dist
-COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /app/apps/web/dist ./apps/web/dist
 COPY --from=build /app/packages/shared/package.json ./packages/shared/
 COPY --from=build /app/packages/shared/dist ./packages/shared/dist
-COPY --from=build /app/packages/shared/node_modules ./packages/shared/node_modules
 
 # Entrypoint script handles data-repo init/refresh before exec'ing node.
 COPY deploy/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
