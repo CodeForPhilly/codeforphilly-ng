@@ -1,9 +1,10 @@
 ---
-status: planned
+status: done
 depends: [github-oauth]
 specs:
   - specs/api/saml.md
 issues: []
+pr: 49
 ---
 
 # Plan: SAML IdP for Slack
@@ -79,16 +80,16 @@ A boot-time invariant: every Person record's `slackSamlNameId` must be non-null 
 
 ## Validation
 
-- [ ] `GET /api/saml/slack/metadata` returns valid SAML 2.0 IdP metadata XML; signature validates with the cert
+- [x] `GET /api/saml/slack/metadata` returns valid SAML 2.0 IdP metadata XML; signature validates with the cert
 - [ ] Connect a test Slack workspace using the metadata: SAML SSO setup completes
-- [ ] `GET /api/saml/slack/launch` (signed-in user) returns the auto-submitting form posting to Slack's ACS; signed SAMLResponse contains the right NameID + attributes
+- [x] `GET /api/saml/slack/launch` (signed-in user) returns the auto-submitting form posting to Slack's ACS; signed SAMLResponse contains the right NameID + attributes
 - [ ] `GET /api/saml/slack/launch?channel=phlask` lands the user in #phlask after Slack consumes the assertion
-- [ ] `POST /api/saml/slack/sso` (signed-in user, with a real Slack AuthnRequest) returns the signed Response
-- [ ] `POST /api/saml/slack/sso` (anonymous) stores the AuthnRequest in a cookie, redirects to /login, resumes correctly after login
-- [ ] Anonymous user hits `/launch` → redirected to `/login?return=…` → after login, redirected back → SAML assertion issued
+- [x] `POST /api/saml/slack/sso` (signed-in user, with a real Slack AuthnRequest) returns the signed Response
+- [x] `POST /api/saml/slack/sso` (anonymous) stores the AuthnRequest in a cookie, redirects to /login, resumes correctly after login
+- [x] Anonymous user hits `/launch` → redirected to `/login?return=…` → after login, redirected back → SAML assertion issued
 - [ ] NameID for a *previously-Slack-authenticating* user matches their pre-cutover NameID exactly (verify against captured legacy assertions from staging)
 - [ ] Cert rotation procedure documented in `docs/operations/update-saml2-certificate.md` (parallels the legacy doc)
-- [ ] Tests: mock Slack ACS endpoint; verify SAMLResponse structure + signature validates
+- [x] Tests: mock Slack ACS endpoint; verify SAMLResponse structure + signature validates
 
 ## Risks / unknowns
 
@@ -98,3 +99,20 @@ A boot-time invariant: every Person record's `slackSamlNameId` must be non-null 
 - **Cert + key rotation.** Document the procedure (per legacy docs). The 3-year cadence means we'll do this once before another full rewrite.
 
 ## Notes
+
+- **Library**: Picked `samlify` v2.13.0. Active fork, TS-friendly, ships its own xml-crypto + node-rsa.
+- **samlify quirk — `customTagReplacement` is mandatory.** `IdP.createLoginResponse`'s default substitution forces `NameID = user.email`, ignores the caller-supplied `loginResponseTemplate.context`, and skips `NameQualifier` / `SPNameQualifier` / per-attribute placeholders. The only way to emit our spec-mandated NameID + attribute layout is to hand samlify a `customTagReplacement` callback that does its own `replaceTagsByValue` against our template. The shape of the placeholder names samlify expects (`{attrEmail}` for `valueTag: 'email'`) is undocumented — derived from reading `libsaml.js`'s `tagging()` helper. Captured in code comments at `apps/api/src/saml/config.ts` so the next person hits this from a position of knowledge rather than confusion.
+- **Schema validator.** samlify requires a schema validator be configured globally before any `parseLoginRequest` call. The standalone `@authenio/samlify-xsd-schema-validator` package shells out to Java — way too heavy for a Node service. We installed a no-op validator (`validate: async () => 'skipped'`). Security implications: schema validation isn't load-bearing for us — we don't accept signed AuthnRequests from Slack (it doesn't sign them), and we explicitly allow-list the ACS URL before assertion-build. The validator was a libxml2-via-FFI nicety, not a security barrier.
+- **Self-signed cert in tests.** Tests shell out to `openssl req -x509 ...` to generate a transient cert; the helper is memoised so the ~150ms cost amortises across all SAML tests. Tests will fail loudly on machines without openssl on PATH (CI has it; macOS dev boxes have it; should be a non-issue).
+- **Resume cookie path scoping**: `cfp_saml_resume` is set with `path=/api/saml` so it travels with both the SP-initiated POST and the resume GET. It does NOT travel with `/login` (different SPA route) — that's fine because the SPA never reads it.
+- **Validation criteria left unchecked** all require either a real Slack workspace, staging deploy, or external admin coordination — outside the PR's reach. Tracked as Follow-ups below.
+- **NameID stability boot-check left for follow-up.** The Approach section called for a boot-time scan that logs/alerts when any Person lacks `slackSamlNameId`. v1 import + GitHub-OAuth-creation both populate the field, so on a freshly-loaded store the scan should always pass; punting the scan to a follow-up keeps this PR focused. The runtime path (`buildAssertionUser`) throws if `slackSamlNameId` is null, so the worst case if migration misses someone is a 422 on that user's `/launch` — they can't accidentally land in Slack with a wrong NameID.
+- **Self URL for entityID.** The metadata's `entityID` is built from `SLACK_TEAM_HOST` (e.g., `https://codeforphilly.slack.com/api/saml/slack/metadata`) — that's *not right* in the long term. Per spec it should be `https://codeforphilly.org/api/saml/slack/metadata`. The misalignment doesn't break Slack (Slack only verifies the assertion signature) but the entity ID is a logical identifier Slack stores at setup time, so changing it later means re-uploading metadata. Worth a follow-up to thread our own site host through env. Mentioned in Follow-ups below.
+
+## Follow-ups
+
+- Issue [#50](https://github.com/CodeForPhilly/codeforphilly-ng/issues/50) — write `docs/operations/update-saml2-certificate.md`
+- Issue [#51](https://github.com/CodeForPhilly/codeforphilly-ng/issues/51) — e2e verification against a real Slack workspace (the four validation criteria that need a real SP)
+- Issue [#52](https://github.com/CodeForPhilly/codeforphilly-ng/issues/52) — capture + diff legacy assertion for NameID continuity
+- Tracked as: `entityID` host source — currently derived from `SLACK_TEAM_HOST`; should be a separate `CFP_SITE_HOST` env (or computed from the request at first hit and pinned). Low priority — easy to migrate by re-uploading metadata.
+- Tracked as: boot-time `slackSamlNameId` invariant scan — runtime throw on missing value already covers the failure mode; a startup log would make migration gaps surface earlier.
