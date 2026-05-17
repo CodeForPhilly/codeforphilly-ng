@@ -1,5 +1,5 @@
 import type { TransactionOptions, TransactionResult } from 'gitsheets';
-import type { PrivateProfile } from '@cfp/shared/schemas';
+import type { AccountClaimRequest, PrivateProfile } from '@cfp/shared/schemas';
 import type { PrivateStore, PrivateStoreTx } from './private/index.js';
 import type { PublicStore, PublicStoreTx } from './public.js';
 
@@ -77,17 +77,20 @@ export class Store {
     const stagedPrivatePuts: PrivateProfile[] = [];
     const stagedPrivateProfileDeletes: string[] = [];
     const stagedLegacyPasswordDeletes: string[] = [];
+    const stagedClaimRequestPuts: AccountClaimRequest[] = [];
 
     const privateTx: PrivateStoreTx = {
       putProfile: (profile) => { stagedPrivatePuts.push(profile); },
       deleteProfile: (personId) => { stagedPrivateProfileDeletes.push(personId); },
       deleteLegacyPassword: (personId) => { stagedLegacyPasswordDeletes.push(personId); },
+      putClaimRequest: (req) => { stagedClaimRequestPuts.push(req); },
     };
 
     const hasPrivateMutations = () =>
       stagedPrivatePuts.length > 0 ||
       stagedPrivateProfileDeletes.length > 0 ||
-      stagedLegacyPasswordDeletes.length > 0;
+      stagedLegacyPasswordDeletes.length > 0 ||
+      stagedClaimRequestPuts.length > 0;
 
     const flushPrivate = async (): Promise<void> => {
       if (!hasPrivateMutations()) return;
@@ -95,6 +98,7 @@ export class Store {
         for (const profile of stagedPrivatePuts) tx.putProfile(profile);
         for (const id of stagedPrivateProfileDeletes) tx.deleteProfile(id);
         for (const id of stagedLegacyPasswordDeletes) tx.deleteLegacyPassword(id);
+        for (const req of stagedClaimRequestPuts) tx.putClaimRequest(req);
       });
     };
 
