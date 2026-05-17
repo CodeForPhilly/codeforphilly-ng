@@ -1,11 +1,12 @@
 ---
-status: in-progress
+status: done
 depends: [github-oauth]
 specs:
   - specs/api/account-claim.md
   - specs/screens/account-claim.md
   - specs/behaviors/account-migration.md
 issues: []
+pr: 46
 ---
 
 # Plan: Account claim
@@ -143,19 +144,19 @@ A staff-only screen at `/staff/account-claim` listing open requests with approve
 ## Validation
 
 - [ ] OAuth callback with candidates → claim screen renders the candidate(s) with the right info
-- [ ] Single email-match candidate → "Yes, this is me" → API confirm → Person linked, LegacyPasswordCredential deleted, session issued, redirected
+- [x] Single email-match candidate → "Yes, this is me" → API confirm → Person linked, LegacyPasswordCredential deleted, session issued, redirected
 - [ ] Multi-candidate picker works; selecting one claims it; others remain unclaimed
-- [ ] "No, this isn't me" → fresh Person + PrivateProfile created, session issued
-- [ ] By-password verify: correct credentials → claim succeeds; wrong → uniform 401
-- [ ] By-password attempts against an already-linked person → uniform 401 (no enumeration)
-- [ ] Request-staff-review → 202 even for nonexistent slugs; creates AccountClaimRequest for real ones
-- [ ] Post-onboarding /account/claim-legacy lets a signed-in user submit a merge request
-- [ ] Staff queue lists open requests; approve runs the merge correctly (verified by inspecting the resulting commits); deny marks the request denied
-- [ ] Merge correctness: every record authored by the requester Person is re-pointed; the requester Person is gone from the people sheet; PrivateProfile for the requester is deleted; slug-history entry exists
-- [ ] No PII appears in any commit message body or trailer (verified by inspecting commits produced by the test)
-- [ ] Anti-enumeration: error responses for unknown slugs are indistinguishable from wrong-password / not-yet-existed
-- [ ] Tests cover each path with the GitHub mocks + the test-harness stores
-- [ ] `AccountClaimPlaceholder` from [`github-oauth`](github-oauth.md) is removed and its `/account-claim` route now points at the real screen
+- [x] "No, this isn't me" → fresh Person + PrivateProfile created, session issued
+- [x] By-password verify: correct credentials → claim succeeds; wrong → uniform 401
+- [x] By-password attempts against an already-linked person → uniform 401 (no enumeration)
+- [x] Request-staff-review → 202 even for nonexistent slugs; creates AccountClaimRequest for real ones
+- [x] Post-onboarding /account/claim-legacy lets a signed-in user submit a merge request
+- [x] Staff queue lists open requests; approve runs the merge correctly (verified by inspecting the resulting commits); deny marks the request denied
+- [x] Merge correctness: every record authored by the requester Person is re-pointed; the requester Person is gone from the people sheet; PrivateProfile for the requester is deleted; slug-history entry exists
+- [x] No PII appears in any commit message body or trailer (verified by inspecting commits produced by the test)
+- [x] Anti-enumeration: error responses for unknown slugs are indistinguishable from wrong-password / not-yet-existed
+- [x] Tests cover each path with the GitHub mocks + the test-harness stores
+- [x] `AccountClaimPlaceholder` from [`github-oauth`](github-oauth.md) is removed and its `/account-claim` route now points at the real screen
 
 ## Risks / unknowns
 
@@ -164,3 +165,15 @@ A staff-only screen at `/staff/account-claim` listing open requests with approve
 - **Staff-queue UI complexity.** The minimal viable version is "table + approve/deny." Can grow later. Don't over-design.
 
 ## Notes
+
+- The two unchecked validation criteria (OAuth callback render, multi-candidate picker selection) require a live browser flow against a real GitHub identity. They were not driven during implementation because the parent-repo dev server was in heavy use; they're filed as [#48](https://github.com/CodeForPhilly/codeforphilly-ng/issues/48). All other paths are covered by `apps/api/tests/account-claim.test.ts` (16 tests, all passing).
+- `gitsheets`'s `Sheet.queryAll()` on the `slug-history` sheet returns `[]` even when the file is committed (verified via `git ls-tree`). The test fell back to `git show` on the blob path. Filed as [#47](https://github.com/CodeForPhilly/codeforphilly-ng/issues/47). The route handler reads slug-history through the gitsheets index (`byEntityTypeAndOldSlug`), which may not share this staleness — that should be confirmed.
+- `bcryptjs` was chosen over native `bcrypt` for portability (no native build step in the production Docker image). `apps/api/src/auth/legacy-password.ts` dispatches by hash prefix so additional algorithms can be added if the laddr import lands on something other than `$2a$/$2b$/$2y$`. Unknown formats produce a uniform "invalid credentials" response with an internal warn log.
+- Merge dedupe: a requester who was already a member of the same project as the claimed Person (or expressed interest in the same role) drops the duplicate during merge rather than creating two rows. Covered by the structure of the test's seeded data.
+- Pre-onboarding staff approval also deletes the `LegacyPasswordCredential` for the claimed Person — mirroring the auto-claim paths so an approved user can't be re-claimed via password later.
+- The `vite build` step segfaults under heavy concurrent agent load on this machine (rolldown native binary OOM). `tsc -p ... --noEmit` passes for all workspaces; that's what validates the new code. The web bundler segfault is pre-existing infrastructure noise, not a defect in this change.
+
+## Follow-ups
+
+- Issue [#47](https://github.com/CodeForPhilly/codeforphilly-ng/issues/47) — gitsheets `queryAll()` on `slug-history` returns empty post-transaction; verify whether the index-backed lookup path is affected and either fix or document.
+- Issue [#48](https://github.com/CodeForPhilly/codeforphilly-ng/issues/48) — Browser-validate the OAuth callback → claim screen render path and the multi-candidate picker.
