@@ -329,7 +329,7 @@ describe('POST /api/account-claim/decline', () => {
   let dataRepo: { path: string; cleanup: () => Promise<void> };
   let privateStore: { path: string; cleanup: () => Promise<void> };
   let app: FastifyInstance;
-  const candidateId = '01951a3c-0000-7000-8000-0000cccccccc1';
+  const candidateId = '01951a3c-0000-7000-8000-0000ccccccc1';
 
   beforeAll(async () => {
     dataRepo = await createFullDataRepo();
@@ -701,13 +701,11 @@ describe('Post-onboarding /account-claim/legacy search + merge approval', () => 
     expect(fresh).toBeUndefined();
 
     // slug-history entry created for old → new
-    let foundSlugHistory = false;
-    for await (const entry of app.store.public['slug-history'].query()) {
-      if (entry.oldSlug === 'fresh-new' && entry.newSlug === 'legacy-old') {
-        foundSlugHistory = true;
-      }
-    }
-    expect(foundSlugHistory).toBe(true);
+    const showRes = await exec('git', ['show', 'HEAD:slug-history/person/fresh-new.toml'], {
+      cwd: dataRepo.path,
+    });
+    expect(showRes.stdout).toContain('newSlug');
+    expect(showRes.stdout).toContain('legacy-old');
   });
 });
 
