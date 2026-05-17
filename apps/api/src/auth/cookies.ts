@@ -15,6 +15,7 @@ const COOKIE_OPTS_BASE = {
 const ACCESS_TTL_MS = 15 * 60 * 1000;
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CLAIM_TTL_MS = 5 * 60 * 1000;
+const OAUTH_TTL_MS = 10 * 60 * 1000;
 
 function isSecure(nodeEnv: string): boolean {
   return nodeEnv === 'production';
@@ -58,4 +59,31 @@ export function clearSessionCookies(reply: FastifyReply): void {
 
 export function clearClaimCookie(reply: FastifyReply): void {
   reply.clearCookie('cfp_claim', { path: '/api/account-claim' });
+}
+
+export function setOAuthStateCookie(reply: FastifyReply, state: string, nodeEnv: string): void {
+  reply.setCookie('cfp_oauth_state', state, {
+    ...COOKIE_OPTS_BASE,
+    secure: isSecure(nodeEnv),
+    path: '/api/auth',
+    maxAge: OAUTH_TTL_MS / 1000,
+  });
+}
+
+export function setOAuthSessionCookie(
+  reply: FastifyReply,
+  token: string,
+  nodeEnv: string,
+): void {
+  reply.setCookie('cfp_oauth_session', token, {
+    ...COOKIE_OPTS_BASE,
+    secure: isSecure(nodeEnv),
+    path: '/api/auth',
+    maxAge: OAUTH_TTL_MS / 1000,
+  });
+}
+
+export function clearOAuthCookies(reply: FastifyReply): void {
+  reply.clearCookie('cfp_oauth_state', { path: '/api/auth' });
+  reply.clearCookie('cfp_oauth_session', { path: '/api/auth' });
 }

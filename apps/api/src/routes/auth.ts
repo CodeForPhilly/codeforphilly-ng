@@ -2,26 +2,41 @@
  * Auth routes — session management endpoints.
  *
  * Implements specs/api/auth.md:
+ *   GET  /api/auth/github/start
+ *   GET  /api/auth/github/callback
  *   GET  /api/auth/me
  *   POST /api/auth/refresh
  *   POST /api/auth/logout
  *   GET  /api/auth/sessions
  *   POST /api/auth/sessions/:jti/revoke
- *
- * OAuth flow stubs (return 501 until github-oauth plan):
- *   GET  /api/auth/github/start
- *   GET  /api/auth/github/callback
  */
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { errors as JoseErrors } from 'jose';
 import { ok } from '../lib/response.js';
 import { UnauthenticatedError, ConflictError, ApiNotFoundError } from '../lib/errors.js';
 import { verifyRefresh, issueSession } from '../auth/jwt.js';
-import { setSessionCookies, clearSessionCookies } from '../auth/cookies.js';
+import {
+  setSessionCookies,
+  clearSessionCookies,
+  setClaimCookie,
+  setOAuthStateCookie,
+  setOAuthSessionCookie,
+  clearOAuthCookies,
+} from '../auth/cookies.js';
 import { requireAuth } from '../auth/guards.js';
 import type { SessionMeta } from '../auth/session-metadata.js';
+import {
+  generateCsrfState,
+  generatePkceVerifier,
+  pkceChallengeFromVerifier,
+} from '../auth/oauth-pkce.js';
+import {
+  signOAuthSession,
+  verifyOAuthSession,
+} from '../auth/oauth-session-cookie.js';
+import { buildAuthorizeUrl, completeCallback } from '../auth/github-oauth.js';
 
-function clientIp(request: import('fastify').FastifyRequest): string {
+function clientIp(request: FastifyRequest): string {
   const forwarded = request.headers['x-forwarded-for'];
   if (typeof forwarded === 'string') {
     return (forwarded.split(',')[0] ?? '').trim();
@@ -29,33 +44,196 @@ function clientIp(request: import('fastify').FastifyRequest): string {
   return request.socket?.remoteAddress ?? 'unknown';
 }
 
+function safeReturnPath(input: string | undefined | null): string {
+  if (!input || typeof input !== 'string') return '/';
+  // Must be a same-origin path: starts with '/' but not '//' (protocol-relative).
+  if (!input.startsWith('/') || input.startsWith('//')) return '/';
+  return input;
+}
+
+function callbackRedirectUri(request: FastifyRequest): string {
+  // GitHub OAuth Apps require the redirect_uri sent at /authorize to exactly
+  // match what was registered. We derive it from the inbound request so dev,
+  // staging, and prod each end up routing back to themselves without an env var.
+  const protocol = request.headers['x-forwarded-proto']
+    ? String(request.headers['x-forwarded-proto']).split(',')[0]?.trim() ?? 'http'
+    : request.protocol;
+  const host = request.headers['x-forwarded-host']
+    ? String(request.headers['x-forwarded-host']).split(',')[0]?.trim() ?? request.hostname
+    : request.hostname;
+  return `${protocol}://${host}/api/auth/github/callback`;
+}
+
+function loginErrorRedirect(reply: FastifyReply, code: string): FastifyReply {
+  return reply.redirect(`/login?error=${encodeURIComponent(code)}`);
+}
+
+async function persistSessionMetadata(
+  fastify: FastifyInstance,
+  request: FastifyRequest,
+  refreshJti: string,
+  personId: string,
+): Promise<void> {
+  const now = Date.now();
+  const meta: SessionMeta = {
+    refreshJti,
+    personId,
+    userAgent: String(request.headers['user-agent'] ?? ''),
+    ipAddress: clientIp(request),
+    issuedAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+  await fastify.sessionMetadata.add(meta, fastify.store.private);
+}
+
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ---------------------------------------------------------------------------
-  // OAuth stubs — return 501 until github-oauth plan is implemented
+  // GET /api/auth/github/start
   // ---------------------------------------------------------------------------
 
   fastify.get(
     '/api/auth/github/start',
-    { schema: { tags: ['auth'], summary: 'Begin GitHub OAuth flow (not yet wired)' } },
-    async (_request, reply) => {
-      return reply.code(501).send({
-        success: false,
-        error: { code: 'oauth_not_yet_wired', message: 'GitHub OAuth flow is not yet implemented' },
-        metadata: { timestamp: new Date().toISOString() },
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'Begin GitHub OAuth flow',
+        querystring: {
+          type: 'object',
+          properties: { return: { type: 'string' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const cfg = fastify.config;
+      if (!cfg.GITHUB_OAUTH_CLIENT_ID || !cfg.GITHUB_OAUTH_CLIENT_SECRET) {
+        return loginErrorRedirect(reply, 'github_unreachable');
+      }
+
+      const { return: returnParam } = request.query as { return?: string };
+      const returnPath = safeReturnPath(returnParam);
+
+      const state = generateCsrfState();
+      const codeVerifier = generatePkceVerifier();
+      const codeChallenge = pkceChallengeFromVerifier(codeVerifier);
+
+      const sessionToken = await signOAuthSession(
+        { state, codeVerifier, return: returnPath },
+        cfg.CFP_JWT_SIGNING_KEY,
+      );
+
+      setOAuthStateCookie(reply, state, cfg.NODE_ENV);
+      setOAuthSessionCookie(reply, sessionToken, cfg.NODE_ENV);
+
+      const url = buildAuthorizeUrl({
+        clientId: cfg.GITHUB_OAUTH_CLIENT_ID,
+        redirectUri: callbackRedirectUri(request),
+        state,
+        codeChallenge,
       });
+
+      return reply.redirect(url);
     },
   );
 
+  // ---------------------------------------------------------------------------
+  // GET /api/auth/github/callback
+  // ---------------------------------------------------------------------------
+
   fastify.get(
     '/api/auth/github/callback',
-    { schema: { tags: ['auth'], summary: 'GitHub OAuth callback (not yet wired)' } },
-    async (_request, reply) => {
-      return reply.code(501).send({
-        success: false,
-        error: { code: 'oauth_not_yet_wired', message: 'GitHub OAuth flow is not yet implemented' },
-        metadata: { timestamp: new Date().toISOString() },
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'GitHub OAuth callback',
+        querystring: {
+          type: 'object',
+          properties: {
+            code: { type: 'string' },
+            state: { type: 'string' },
+            error: { type: 'string' },
+            error_description: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const cfg = fastify.config;
+      const query = request.query as {
+        code?: string;
+        state?: string;
+        error?: string;
+        error_description?: string;
+      };
+
+      // User denied (or some other GitHub-originated error) — surface to /login.
+      if (query.error) {
+        clearOAuthCookies(reply);
+        return loginErrorRedirect(reply, query.error);
+      }
+
+      // Validate state cookie vs query state (CSRF).
+      const stateCookie = request.cookies['cfp_oauth_state'];
+      const oauthSessionCookie = request.cookies['cfp_oauth_session'];
+
+      if (!query.state || !stateCookie || query.state !== stateCookie) {
+        clearOAuthCookies(reply);
+        return loginErrorRedirect(reply, 'oauth_state_mismatch');
+      }
+
+      if (!oauthSessionCookie) {
+        clearOAuthCookies(reply);
+        return loginErrorRedirect(reply, 'oauth_session_invalid');
+      }
+
+      let sessionClaims;
+      try {
+        sessionClaims = await verifyOAuthSession(oauthSessionCookie, cfg.CFP_JWT_SIGNING_KEY);
+      } catch (err) {
+        fastify.log.warn({ err }, 'oauth session cookie verification failed');
+        clearOAuthCookies(reply);
+        return loginErrorRedirect(reply, 'oauth_session_invalid');
+      }
+
+      if (sessionClaims.state !== query.state) {
+        clearOAuthCookies(reply);
+        return loginErrorRedirect(reply, 'oauth_state_mismatch');
+      }
+
+      if (!query.code) {
+        clearOAuthCookies(reply);
+        return loginErrorRedirect(reply, 'github_unreachable');
+      }
+
+      // Pipeline: code → token → user/emails → match → outcome.
+      const outcome = await completeCallback({
+        fastify,
+        request,
+        code: query.code,
+        codeVerifier: sessionClaims.codeVerifier,
+        redirectUri: callbackRedirectUri(request),
       });
+
+      clearOAuthCookies(reply);
+
+      if (outcome.kind === 'error') {
+        return loginErrorRedirect(reply, outcome.code);
+      }
+
+      if (outcome.kind === 'claim-pending') {
+        setClaimCookie(reply, outcome.token, cfg.NODE_ENV);
+        const target = `/account-claim?return=${encodeURIComponent(sessionClaims.return)}`;
+        return reply.redirect(target);
+      }
+
+      // session — set cookies, persist metadata, redirect to safe return.
+      setSessionCookies(
+        reply,
+        { access: outcome.accessToken, refresh: outcome.refreshToken },
+        cfg.NODE_ENV,
+      );
+      await persistSessionMetadata(fastify, request, outcome.refreshJti, outcome.personId);
+      return reply.redirect(sessionClaims.return);
     },
   );
 
@@ -110,7 +288,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         throw new UnauthenticatedError('Refresh token revoked', 'refresh_token_revoked');
       }
 
-      // Look up person to get current accountLevel
       const person = await fastify.store.public.people.queryFirst({ id: claims.sub });
       if (!person) {
         throw new UnauthenticatedError('Person not found', 'refresh_token_revoked');
@@ -122,7 +299,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         fastify.config.CFP_JWT_SIGNING_KEY,
       );
 
-      // Revoke the old refresh jti
       const oldExpiresAt = new Date(claims.exp * 1000).toISOString();
       await fastify.revocations.revoke(
         { jti: claims.jti, personId: claims.sub, expiresAt: oldExpiresAt },
@@ -130,7 +306,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       );
       await fastify.sessionMetadata.remove(claims.jti, fastify.store.private);
 
-      // Store metadata for new refresh token
       const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       const newMeta: SessionMeta = {
         refreshJti: newTokens.refreshJti,
@@ -158,7 +333,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       const { session } = request;
       const personId = session.personId ?? session.person?.id;
 
-      // Revoke access jti — use personId from claims (available even without person lookup)
       if (session.jti && personId) {
         const accessExp = new Date(Date.now() + 15 * 60 * 1000).toISOString();
         await fastify.revocations.revoke(
@@ -167,7 +341,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         );
       }
 
-      // Revoke the refresh token as well
       const refreshToken = request.cookies['cfp_refresh'];
       if (refreshToken) {
         try {
@@ -200,7 +373,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       const { session } = request;
       const personId = session.personId ?? session.person!.id;
 
-      // Get current refresh jti from cookie
       let currentRefreshJti: string | null = null;
       const refreshToken = request.cookies['cfp_refresh'];
       if (refreshToken) {
@@ -247,7 +419,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       const personId = session.personId ?? session.person!.id;
       const { jti } = request.params as { jti: string };
 
-      // Identify current refresh jti
       const refreshToken = request.cookies['cfp_refresh'];
       if (refreshToken) {
         try {

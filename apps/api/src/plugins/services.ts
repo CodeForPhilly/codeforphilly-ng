@@ -25,6 +25,7 @@ import { ProjectBuzzWriteService } from '../services/project-buzz.write.js';
 import { HelpWantedWriteService } from '../services/help-wanted.write.js';
 import { PersonWriteService } from '../services/person.write.js';
 import { TagWriteService } from '../services/tag.write.js';
+import { GitHubAccountService } from '../services/github-account.js';
 import { LoggingNotifier, type Notifier } from '../notify/index.js';
 
 declare module 'fastify' {
@@ -44,6 +45,7 @@ declare module 'fastify' {
       helpWantedWrite: HelpWantedWriteService;
       peopleWrite: PersonWriteService;
       tagsWrite: TagWriteService;
+      githubAccount: GitHubAccountService;
     };
     /** Shared in-memory state — write routes call StateApply.apply against this. */
     inMemoryState: InMemoryState;
@@ -79,6 +81,7 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
     helpWantedWrite: new HelpWantedWriteService(state),
     peopleWrite: new PersonWriteService(state, fastify.store.private),
     tagsWrite: new TagWriteService(state),
+    githubAccount: new GitHubAccountService(state),
   });
 }
 
