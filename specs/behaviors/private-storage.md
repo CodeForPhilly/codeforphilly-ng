@@ -96,8 +96,8 @@ The dual-write is **not atomic across the two stores**. Mitigations:
 - **Write order is use-case-specific:**
   - **Account creation:** write private **first**. If private fails, no public-visible artifact yet. If private succeeds and public fails, we have an orphan private profile referencing a `personId` that doesn't exist in the public repo — easy to detect and clean up.
   - **Updates / deletes:** public first. Rollback of a public commit (revert) is straightforward if private fails.
-- **Reconciliation script** — `apps/api/scripts/reconcile-private-store.ts` walks the public Person records and ensures each has a matching `profiles.jsonl` entry; flags orphans on both sides.
-- **Loud failure** — partial commits log structured errors and emit a Prometheus alert. Admins intervene for the handful per year that hit this.
+- **Reconciliation script** — `apps/api/scripts/reconcile.ts` walks the public Person records and ensures each has a matching `profiles.jsonl` entry; flags orphans on both sides, plus inconsistent newsletter state and drained legacy-password credentials.
+- **Loud failure** — partial commits log structured errors at `level >= 40` so they flow to the `#alerts` Slack channel via the log webhook (see [docs/operations/monitoring.md](../../docs/operations/monitoring.md)). Admins intervene for the handful per year that hit this.
 
 In practice the dual-write moment is **rare** — primarily account creation. Most mutations touch only one side: updating a project (public only) or refreshing email at login (private only).
 
