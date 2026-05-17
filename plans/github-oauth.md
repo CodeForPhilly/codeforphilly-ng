@@ -1,11 +1,12 @@
 ---
-status: planned
+status: done
 depends: [write-api]
 specs:
   - specs/api/auth.md
   - specs/behaviors/account-migration.md
   - specs/screens/login.md
 issues: []
+pr: 41
 ---
 
 # Plan: GitHub OAuth
@@ -129,15 +130,15 @@ Per [api/auth.md](../specs/api/auth.md): redirect to `/login?error=<code>` on ea
 
 ## Validation
 
-- [ ] OAuth happy path: never-seen-this-user → clicks Sign in with GitHub → GitHub auth → callback → fresh Person + PrivateProfile created → session issued → redirected to `/`
-- [ ] OAuth returning user: a Person with `githubUserId` set → callback → session issued → no Person/PrivateProfile mutations beyond email refresh + githubLogin refresh
-- [ ] OAuth with candidates: a Person without `githubUserId` exists whose PrivateProfile.email matches a GitHub-verified email → callback → claim-pending JWT issued → redirected to `/account-claim` placeholder
-- [ ] CSRF: tampering with the `state` query param → 401 `oauth_state_mismatch`
-- [ ] PKCE: GitHub returns an error → handled gracefully → redirected to `/login?error=…`
-- [ ] User denies on GitHub (`error=access_denied`) → redirected to `/login?error=access_denied` with the documented message
-- [ ] GitHub returns no verified emails → redirected to `/login?error=email_unverified` with the documented help message
-- [ ] `cfp_oauth_session` cookie expires after 10 minutes; expired sessions fail with `oauth_session_invalid`
-- [ ] Tests: mock GitHub via the test-harness mocks; cover each outcome (existing / fresh / candidates) + each error mode
+- [x] OAuth happy path: never-seen-this-user → clicks Sign in with GitHub → GitHub auth → callback → fresh Person + PrivateProfile created → session issued → redirected to `/`
+- [x] OAuth returning user: a Person with `githubUserId` set → callback → session issued → no Person/PrivateProfile mutations beyond email refresh + githubLogin refresh
+- [x] OAuth with candidates: a Person without `githubUserId` exists whose PrivateProfile.email matches a GitHub-verified email → callback → claim-pending JWT issued → redirected to `/account-claim` placeholder
+- [x] CSRF: tampering with the `state` query param → 401 `oauth_state_mismatch`
+- [x] PKCE: GitHub returns an error → handled gracefully → redirected to `/login?error=…`
+- [x] User denies on GitHub (`error=access_denied`) → redirected to `/login?error=access_denied` with the documented message
+- [x] GitHub returns no verified emails → redirected to `/login?error=email_unverified` with the documented help message
+- [x] `cfp_oauth_session` cookie expires after 10 minutes; expired sessions fail with `oauth_session_invalid`
+- [x] Tests: mock GitHub via the test-harness mocks; cover each outcome (existing / fresh / candidates) + each error mode
 
 ## Risks / unknowns
 
@@ -146,3 +147,19 @@ Per [api/auth.md](../specs/api/auth.md): redirect to `/login?error=<code>` on ea
 - **`gh.login` slugify collisions.** `kebab-case-this-name` might already be taken by an existing legacy slug. The dedup-with-`-2`/`-3` is a clean fallback but the resulting fresh slug could look weird (`jane-doe-3`). Acceptable for v1; staff can rename later if needed.
 
 ## Notes
+
+- **Hand-rolled PKCE over `@fastify/oauth2`.** Verifier = base64url(32 random bytes); challenge = base64url(sha256(verifier)). Keeps the dependency surface small and the flow legible. The carry-state cookie is a signed JWT (10 min) carrying `{ state, codeVerifier, return }` so the verifier survives the GitHub round-trip without server-side state.
+- **State + session cookies both scoped to `/api/auth`.** Tightens blast radius vs `Path=/` and keeps them out of every other request's cookie jar. Cleared on every callback regardless of outcome.
+- **Redirect-for-every-error.** The spec lists 401/403/502 status codes for some OAuth error modes; the github-oauth flow is browser-driven so the implementation always redirects to `/login?error=<code>`. Validation criterion #4's "401" wording reflects the spec's status code; the implemented behavior (redirect carrying the same code) was the plan's explicit choice. See follow-up #42.
+- **`callbackRedirectUri` is derived from the inbound request** (honoring `X-Forwarded-Proto` and `X-Forwarded-Host`) so dev/staging/prod each round-trip to themselves without an env var per environment. The deployed OAuth Apps still need their callback URLs registered at github.com/settings/developers.
+- **Fresh-user slug derivation.** `slugifyGitHubLogin(login, ghId)` lowercases, handles reserved-slug collision (`user-<login>`), and falls back to `user-<gh-id>` if both shape and reservation lose. `ensureUniqueSlug` then dedupes with `-2`/`-3` against the in-memory `personIdBySlug` index.
+- **Fresh-user transaction uses `writeOrder: 'private-first'`.** If the private-profile flush fails, the public Person commit never lands — no orphaned public-only Person records.
+- **Email refresh on every existing-linked sign-in.** Per spec, `PrivateProfile.email` always tracks the user's current GitHub primary verified email. `refreshLinked` rewrites the private profile even when the email is unchanged so `emailRefreshedAt` bumps.
+- **No welcome notification on fresh signup.** Wired LoggingNotifier doesn't expose `notifyAccountWelcome` yet. Tracked as follow-up #43.
+- **Test parallelism flakiness.** The full API suite under default vitest parallelism is flaky on contended machines (worker timeouts in `read-api`/`write-api`). Running with `--no-file-parallelism` yields 158/158. Pre-existing on `main` — not introduced by this plan. Each new test in `github-oauth.test.ts` uses a unique `remoteAddress` to avoid the 10-req/min/IP cap on `/api/auth/*`.
+
+## Follow-ups
+
+- Issue [#42](https://github.com/CodeForPhilly/codeforphilly-ng/issues/42) — clarify auth.md status codes vs redirects for OAuth error modes
+- Issue [#43](https://github.com/CodeForPhilly/codeforphilly-ng/issues/43) — send welcome notification on fresh-user OAuth signup
+- Deferred to [`account-claim`](account-claim.md) — full `/account-claim` UI consuming the `cfp_claim` cookie (this plan only ships the placeholder page)

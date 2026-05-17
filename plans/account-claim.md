@@ -131,7 +131,7 @@ Audit-logged via commit trailers (`Action: account-claim.approve`, etc.).
 
 ### Screens (`apps/web/src/pages/AccountClaim*.tsx`)
 
-- `/account-claim` — main entry, fetches candidates, routes by N=0/1/N
+- `/account-claim` — main entry, fetches candidates, routes by N=0/1/N. **Replaces the placeholder shipped by [`github-oauth`](github-oauth.md)** at `apps/web/src/pages/AccountClaimPlaceholder.tsx`; the existing route in `apps/web/src/App.tsx` should be repointed to the new screen and the placeholder file deleted as part of this plan.
 - `/account-claim/by-password` — username + password form
 - `/account-claim/request-staff-review` — evidence textarea, submit
 - `/account/claim-legacy` — post-onboarding search box → either auto-resolve (email match found, similar confirmation) or "submit for staff review" with the merge framing
@@ -155,6 +155,7 @@ A staff-only screen at `/staff/account-claim` listing open requests with approve
 - [ ] No PII appears in any commit message body or trailer (verified by inspecting commits produced by the test)
 - [ ] Anti-enumeration: error responses for unknown slugs are indistinguishable from wrong-password / not-yet-existed
 - [ ] Tests cover each path with the GitHub mocks + the test-harness stores
+- [ ] `AccountClaimPlaceholder` from [`github-oauth`](github-oauth.md) is removed and its `/account-claim` route now points at the real screen
 
 ## Risks / unknowns
 

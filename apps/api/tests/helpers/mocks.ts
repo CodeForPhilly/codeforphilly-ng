@@ -31,7 +31,8 @@ export interface CapturedEmail {
 }
 
 /**
- * Build an MSW server that intercepts outbound HTTP to api.github.com.
+ * Build an MSW server that intercepts outbound HTTP to api.github.com and the
+ * GitHub OAuth token endpoint.
  *
  * Usage:
  *   const { server, setGitHubUser } = createGitHubMock();
@@ -42,6 +43,8 @@ export interface CapturedEmail {
 export function createGitHubMock(defaults?: {
   user?: GitHubUser;
   emails?: GitHubEmail[];
+  tokenResponse?: Record<string, unknown>;
+  capturedTokenRequests?: Array<Record<string, unknown>>;
 }) {
   let currentUser: GitHubUser = defaults?.user ?? {
     id: 1,
@@ -54,7 +57,17 @@ export function createGitHubMock(defaults?: {
     { email: 'testuser@example.com', primary: true, verified: true, visibility: 'public' },
   ];
 
+  let tokenResponse: Record<string, unknown> =
+    defaults?.tokenResponse ?? { access_token: 'gho_test_access_token', token_type: 'bearer', scope: 'read:user,user:email' };
+
+  const capturedTokenRequests = defaults?.capturedTokenRequests ?? [];
+
   const server = setupServer(
+    http.post('https://github.com/login/oauth/access_token', async ({ request }) => {
+      const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+      capturedTokenRequests.push(body);
+      return HttpResponse.json(tokenResponse);
+    }),
     http.get('https://api.github.com/user', () =>
       HttpResponse.json(currentUser),
     ),
@@ -65,11 +78,15 @@ export function createGitHubMock(defaults?: {
 
   return {
     server,
+    capturedTokenRequests,
     setGitHubUser(user: GitHubUser) {
       currentUser = user;
     },
     setGitHubEmails(emails: GitHubEmail[]) {
       currentEmails = emails;
+    },
+    setTokenResponse(resp: Record<string, unknown>) {
+      tokenResponse = resp;
     },
   };
 }

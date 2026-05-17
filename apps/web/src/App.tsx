@@ -24,6 +24,7 @@ import { Sponsor } from '@/screens/Sponsor';
 import { ComingSoon } from '@/pages/ComingSoon';
 import { NotFound } from '@/pages/NotFound';
 import { LoginPlaceholder } from '@/pages/LoginPlaceholder';
+import { AccountClaimPlaceholder } from '@/pages/AccountClaimPlaceholder';
 
 const router = createBrowserRouter([
   {
@@ -54,6 +55,7 @@ const router = createBrowserRouter([
       { path: '/pages/:slug', element: <ComingSoon /> },
       { path: '/contact', element: <ComingSoon /> },
       { path: '/login', element: <LoginPlaceholder /> },
+      { path: '/account-claim', element: <AccountClaimPlaceholder /> },
       { path: '*', element: <NotFound /> },
     ],
   },
