@@ -488,6 +488,44 @@ export interface NewsletterResponse {
   newsletter: NewsletterState | null;
 }
 
+export interface AccountClaimCandidate {
+  readonly personId: string;
+  readonly slug: string;
+  readonly fullName: string;
+  readonly memberOfCount: number;
+  readonly lastActiveAt: string;
+  readonly matchedVia: ReadonlyArray<'email' | 'username'>;
+  readonly matchedEmail: string | null;
+}
+
+export interface AccountClaimCandidatesPayload {
+  readonly ghLogin: string;
+  readonly ghName: string | null;
+  readonly candidates: AccountClaimCandidate[];
+}
+
+export interface AccountClaimSessionResult {
+  readonly person: PersonDetail;
+  readonly accountLevel: 'user' | 'staff' | 'administrator';
+}
+
+export interface AccountClaimQueueItem {
+  readonly requestId: string;
+  readonly type: 'pre-onboarding' | 'post-onboarding-merge';
+  readonly claimedSlug: string;
+  readonly claimedPersonId: string | null;
+  readonly requesterGithubLogin: string;
+  readonly requesterPersonId: string | null;
+  readonly evidence: string;
+  readonly submittedAt: string;
+}
+
+export interface AccountClaimDecision {
+  readonly requestId: string;
+  readonly status: 'open' | 'approved' | 'denied';
+  readonly person?: PersonDetail | null;
+}
+
 export interface CreateTagInput {
   namespace: 'topic' | 'tech' | 'event';
   slug: string;
@@ -655,5 +693,64 @@ export const api = {
     sessions: (): Promise<SuccessEnvelope<SessionListItem[]>> => request(`/api/auth/sessions`),
     revokeSession: (jti: string): Promise<void> =>
       request(`/api/auth/sessions/${encodeURIComponent(jti)}/revoke`, { method: 'POST' }),
+  },
+  accountClaim: {
+    candidates: (): Promise<SuccessEnvelope<AccountClaimCandidatesPayload>> =>
+      request(`/api/account-claim/candidates`),
+    confirm: (personId: string): Promise<SuccessEnvelope<AccountClaimSessionResult>> =>
+      request(`/api/account-claim/confirm`, {
+        method: 'POST',
+        body: JSON.stringify({ personId }),
+      }),
+    decline: (): Promise<SuccessEnvelope<AccountClaimSessionResult>> =>
+      request(`/api/account-claim/decline`, { method: 'POST', body: '{}' }),
+    byPassword: (
+      slug: string,
+      password: string,
+    ): Promise<SuccessEnvelope<AccountClaimSessionResult>> =>
+      request(`/api/account-claim/by-password`, {
+        method: 'POST',
+        body: JSON.stringify({ slug, password }),
+      }),
+    requestStaffReview: (
+      claimedSlug: string,
+      evidence: string,
+    ): Promise<SuccessEnvelope<{ delivered: boolean }>> =>
+      request(`/api/account-claim/request-staff-review`, {
+        method: 'POST',
+        body: JSON.stringify({ claimedSlug, evidence }),
+      }),
+    legacySearch: (
+      q: string,
+    ): Promise<SuccessEnvelope<{ candidates: AccountClaimCandidate[] }>> =>
+      request(`/api/account-claim/legacy${buildQuery({ q })}`),
+    legacyRequest: (
+      claimedSlug: string,
+      evidence: string,
+    ): Promise<SuccessEnvelope<{ delivered: boolean }>> =>
+      request(`/api/account-claim/legacy/request`, {
+        method: 'POST',
+        body: JSON.stringify({ claimedSlug, evidence }),
+      }),
+  },
+  staffAccountClaim: {
+    queue: (): Promise<SuccessEnvelope<AccountClaimQueueItem[]>> =>
+      request(`/api/staff/account-claim/queue`),
+    approve: (
+      requestId: string,
+      reason?: string,
+    ): Promise<SuccessEnvelope<AccountClaimDecision>> =>
+      request(`/api/staff/account-claim/${encodeURIComponent(requestId)}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(reason ? { reason } : {}),
+      }),
+    deny: (
+      requestId: string,
+      reason?: string,
+    ): Promise<SuccessEnvelope<AccountClaimDecision>> =>
+      request(`/api/staff/account-claim/${encodeURIComponent(requestId)}/deny`, {
+        method: 'POST',
+        body: JSON.stringify(reason ? { reason } : {}),
+      }),
   },
 };

@@ -24,7 +24,11 @@ import { Sponsor } from '@/screens/Sponsor';
 import { ComingSoon } from '@/pages/ComingSoon';
 import { NotFound } from '@/pages/NotFound';
 import { LoginPlaceholder } from '@/pages/LoginPlaceholder';
-import { AccountClaimPlaceholder } from '@/pages/AccountClaimPlaceholder';
+import { AccountClaim } from '@/pages/AccountClaim';
+import { AccountClaimByPassword } from '@/pages/AccountClaimByPassword';
+import { AccountClaimRequestStaffReview } from '@/pages/AccountClaimRequestStaffReview';
+import { AccountClaimLegacy } from '@/pages/AccountClaimLegacy';
+import { StaffAccountClaimQueue } from '@/pages/StaffAccountClaimQueue';
 
 const router = createBrowserRouter([
   {
@@ -55,7 +59,11 @@ const router = createBrowserRouter([
       { path: '/pages/:slug', element: <ComingSoon /> },
       { path: '/contact', element: <ComingSoon /> },
       { path: '/login', element: <LoginPlaceholder /> },
-      { path: '/account-claim', element: <AccountClaimPlaceholder /> },
+      { path: '/account-claim', element: <AccountClaim /> },
+      { path: '/account-claim/by-password', element: <AccountClaimByPassword /> },
+      { path: '/account-claim/request-staff-review', element: <AccountClaimRequestStaffReview /> },
+      { path: '/account/claim-legacy', element: <AccountClaimLegacy /> },
+      { path: '/staff/account-claim', element: <StaffAccountClaimQueue /> },
       { path: '*', element: <NotFound /> },
     ],
   },
