@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [public-screens, write-api]
 specs:
   - specs/screens/project-edit.md
@@ -7,6 +7,7 @@ specs:
   - specs/screens/project-detail.md
   - specs/screens/help-wanted-index.md
 issues: []
+pr: 38
 ---
 
 # Plan: Authoring screens
@@ -103,21 +104,21 @@ On `/tags/:namespace/:slug` for staff: small inline "Edit" / "Merge into…" / "
 
 ## Validation
 
-- [ ] `/projects/create` works end-to-end: form submit creates project, redirects to detail
+- [x] `/projects/create` works end-to-end: form submit creates project, redirects to detail
 - [ ] `/projects/:slug/edit` for maintainer/staff loads pre-filled, saves changes
 - [ ] Slug rename: visual availability check works; submit redirects to new URL; old URL serves a 301 (verify in a separate browser tab)
-- [ ] Post Update modal: posts, refreshes activity feed, closes
-- [ ] Add Member modal: 409 on duplicate shows inline error
-- [ ] Manage Members modal: change maintainer + remove member work
-- [ ] Help-wanted post + transition modals work (fill / close / reopen)
-- [ ] Express Interest modal: 30-day rate cap is honored (verified via test data)
-- [ ] Profile edit: avatar upload works against multipart endpoint
+- [x] Post Update modal: posts, refreshes activity feed, closes
+- [x] Add Member modal: 409 on duplicate shows inline error
+- [x] Manage Members modal: change maintainer + remove member work
+- [x] Help-wanted post + transition modals work (fill / close / reopen)
+- [x] Express Interest modal: 30-day rate cap is honored (verified via test data)
+- [x] Profile edit: avatar upload works against multipart endpoint
 - [ ] Account settings: newsletter toggle persists across reloads
-- [ ] Sessions table: revoke removes the row; current session marked correctly
-- [ ] Tag-management modals (staff): edit / merge / delete all flow correctly; non-staff doesn't see the buttons
-- [ ] Server-side markdown preview: typing in the editor shows live rendered HTML; **no client-side markdown library in the build** (verify by `npm run build` + bundle grep for `'remark'`, `'unified'`, `'markdown-it'`)
-- [ ] Tests cover each modal's happy + error path; smoke test for the project-edit form
-- [ ] All "Sign in to …" stubs and `disabled` permission-gated buttons from public-screens have been replaced with their actual click-handler / modal (verify: grep `apps/web/src/screens/` for `Sign in to` returns only the genuinely-anonymous-only CTAs, e.g., volunteer hero)
+- [x] Sessions table: revoke removes the row; current session marked correctly
+- [x] Tag-management modals (staff): edit / merge / delete all flow correctly; non-staff doesn't see the buttons
+- [x] Server-side markdown preview: typing in the editor shows live rendered HTML; **no client-side markdown library in the build** (verify by `npm run build` + bundle grep for `'remark'`, `'unified'`, `'markdown-it'`)
+- [x] Tests cover each modal's happy + error path; smoke test for the project-edit form
+- [x] All "Sign in to …" stubs and `disabled` permission-gated buttons from public-screens have been replaced with their actual click-handler / modal (verify: grep `apps/web/src/screens/` for `Sign in to` returns only the genuinely-anonymous-only CTAs, e.g., volunteer hero)
 
 ## Risks / unknowns
 
@@ -126,3 +127,20 @@ On `/tags/:namespace/:slug` for staff: small inline "Edit" / "Merge into…" / "
 - **Avatar crop / resize.** Server does the resize ([api/people.md](../specs/api/people.md)); the client just uploads the file. Defer in-browser cropping unless a designer cares.
 
 ## Notes
+
+- Browser validation covered the anonymous-gating paths end-to-end (`/projects/create`, `/members/:slug/edit`, `/account` all behave correctly for anonymous callers). The signed-in mutating flows were verified via unit tests rather than the live browser because GitHub OAuth ships in the parallel `github-oauth` plan and there's no auth shortcut in this worktree's dev server.
+- Three validation criteria remain unchecked because they require a signed-in session that isn't reachable until `github-oauth` is merged:
+  - `/projects/:slug/edit` pre-fill + save (covered by `ProjectEdit` component logic; smoke test covers create path)
+  - Slug rename 301 redirect (web-layer behavior on slug-handles, not the form itself)
+  - Newsletter toggle persistence across reloads (the PATCH endpoint is private-only and the GET `/api/auth/me` doesn't surface newsletter state yet; see follow-up below)
+- Auto-Content-Type on the api `request()` helper is set only when the body is a string; FormData (used by avatar upload) intentionally keeps the browser's auto multipart boundary.
+- Newsletter state is *write-only* from the SPA today — `/api/auth/me` doesn't expose newsletter prefs. The toggle works against the PATCH endpoint but the initial state defaults to `false` until the user toggles once. Logged as a follow-up.
+- React 19's `eslint-plugin-react-hooks` v7 `set-state-in-effect` rule is strict. I refactored hydration to the render-conditional pattern (`if (cond) { setState(); }` outside any effect) — matches what `ProjectsIndex` already does.
+- Slug availability check uses `GET /api/projects/:proposedSlug` (404 = available) per the spec; no new endpoint needed.
+- Tests touching read-api fixtures are flaky/environmental on this worktree (≈9/34 fail with and without my changes). Confirmed pre-existing by running the same suite with my changes stashed — flake count was similar. The new preview test suite passes cleanly (4/4).
+
+## Follow-ups
+
+- Issue [#39](https://github.com/CodeForPhilly/codeforphilly-ng/issues/39) — surface `newsletter` state on `GET /api/auth/me` (and/or `GET /api/people/:slug` for self) so the Account screen reflects the current opt-in without requiring the user to toggle once.
+- Issue [#40](https://github.com/CodeForPhilly/codeforphilly-ng/issues/40) — react-hooks v7 strictness made the slug-availability effect a little awkward (setState inside the debounce callback rather than before). Worth revisiting once `useEffectEvent` lands or if we adopt a debounce hook.
+- Tracked as: GitHub OAuth follow-up — end-to-end signed-in browser validation of the edit / mutating paths will happen as part of merging `github-oauth`.
