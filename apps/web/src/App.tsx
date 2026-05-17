@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router';
+import { Toaster } from 'sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppShell } from '@/components/AppShell';
 import { NetworkErrorProvider } from '@/components/NetworkErrorBanner';
@@ -7,8 +8,11 @@ import { ApiQueryClientProvider } from '@/lib/queryClient';
 import { Home } from '@/screens/Home';
 import { ProjectsIndex } from '@/screens/ProjectsIndex';
 import { ProjectDetail } from '@/screens/ProjectDetail';
+import { ProjectEdit } from '@/screens/ProjectEdit';
 import { PeopleIndex } from '@/screens/PeopleIndex';
 import { PersonDetail } from '@/screens/PersonDetail';
+import { ProfileEdit } from '@/screens/ProfileEdit';
+import { Account } from '@/screens/Account';
 import { HelpWantedIndex } from '@/screens/HelpWantedIndex';
 import { ProjectUpdatesFeed } from '@/screens/ProjectUpdatesFeed';
 import { ProjectBuzzFeed } from '@/screens/ProjectBuzzFeed';
@@ -27,9 +31,9 @@ const router = createBrowserRouter([
     children: [
       { path: '/', element: <Home /> },
       { path: '/projects', element: <ProjectsIndex /> },
-      { path: '/projects/create', element: <ComingSoon /> },
+      { path: '/projects/create', element: <ProjectEdit mode="create" /> },
       { path: '/projects/:slug', element: <ProjectDetail /> },
-      { path: '/projects/:slug/edit', element: <ComingSoon /> },
+      { path: '/projects/:slug/edit', element: <ProjectEdit mode="edit" /> },
       { path: '/projects/:slug/updates/:number', element: <ProjectDetail anchor="update" /> },
       { path: '/projects/:slug/buzz/:buzzSlug', element: <ProjectDetail anchor="buzz" /> },
       { path: '/projects/:slug/buzz/new', element: <ComingSoon /> },
@@ -37,7 +41,7 @@ const router = createBrowserRouter([
       { path: '/people', element: <Navigate to="/members" replace /> },
       { path: '/members', element: <PeopleIndex /> },
       { path: '/members/:slug', element: <PersonDetail /> },
-      { path: '/members/:slug/edit', element: <ComingSoon /> },
+      { path: '/members/:slug/edit', element: <ProfileEdit /> },
       { path: '/project-updates', element: <ProjectUpdatesFeed /> },
       { path: '/project-buzz', element: <ProjectBuzzFeed /> },
       { path: '/tags', element: <TagsOverview /> },
@@ -45,7 +49,7 @@ const router = createBrowserRouter([
       { path: '/tags/:namespace/:slug', element: <TagDetail /> },
       { path: '/volunteer', element: <Volunteer /> },
       { path: '/sponsor', element: <Sponsor /> },
-      { path: '/account', element: <ComingSoon /> },
+      { path: '/account', element: <Account /> },
       { path: '/search', element: <SearchRedirect /> },
       { path: '/pages/:slug', element: <ComingSoon /> },
       { path: '/contact', element: <ComingSoon /> },
@@ -68,6 +72,7 @@ export function App() {
         <ApiQueryClientProvider>
           <AuthProvider>
             <RouterProvider router={router} />
+            <Toaster richColors closeButton position="bottom-right" />
           </AuthProvider>
         </ApiQueryClientProvider>
       </NetworkErrorProvider>

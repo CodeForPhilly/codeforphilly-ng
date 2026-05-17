@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from 'react';
-import { Link, useParams } from 'react-router';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { MarkdownView } from '@/components/MarkdownView';
@@ -7,8 +7,14 @@ import { StageProgressBar, StageBadge } from '@/components/StageBadge';
 import { TagChip } from '@/components/TagChip';
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { ActivityCard, mergeActivity, type ActivityItem } from '@/components/ActivityCard';
+import { PostUpdateModal } from '@/components/modals/PostUpdateModal';
+import { PostHelpWantedModal } from '@/components/modals/PostHelpWantedModal';
+import { AddMemberModal } from '@/components/modals/AddMemberModal';
+import { ManageMembersModal } from '@/components/modals/ManageMembersModal';
+import { ExpressInterestModal } from '@/components/modals/ExpressInterestModal';
+import { FillRoleModal } from '@/components/modals/FillRoleModal';
 import { useAuth } from '@/hooks/useAuth';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, type HelpWantedRoleResponse } from '@/lib/api';
 import { formatRelativeTime, formatAbsoluteDate } from '@/lib/time';
 
 interface ProjectDetailProps {
@@ -27,6 +33,25 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
   const buzzSlug = params['buzzSlug'];
   const { person } = useAuth();
   const isSignedIn = person !== null;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [helpWantedModalOpen, setHelpWantedModalOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [manageMembersOpen, setManageMembersOpen] = useState(false);
+  const [interestRole, setInterestRole] = useState<HelpWantedRoleResponse | null>(null);
+  const [fillRole, setFillRole] = useState<HelpWantedRoleResponse | null>(null);
+
+  // Allow ?openModal=help-wanted (from /help-wanted "Post a role" picker).
+  // Use the state-sync pattern so we don't trigger a cascading re-render.
+  const [appliedOpenModal, setAppliedOpenModal] = useState(false);
+  const openModalParam = searchParams.get('openModal');
+  if (!appliedOpenModal && openModalParam === 'help-wanted') {
+    setAppliedOpenModal(true);
+    setHelpWantedModalOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('openModal');
+    setSearchParams(next, { replace: true });
+  }
 
   const projectQ = useQuery({
     queryKey: ['project', slug],
@@ -94,10 +119,20 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
       <div className="mb-6">
         <div className="flex items-start justify-between gap-4 mb-3">
           <h1 className="text-3xl md:text-4xl font-bold">{project.title}</h1>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex flex-wrap gap-2 shrink-0">
             {perms.canEdit && (
               <Button asChild variant="outline">
                 <Link to={`/projects/${slug}/edit`}>Edit Project</Link>
+              </Button>
+            )}
+            {perms.canManageMembers && (
+              <Button variant="outline" onClick={() => setAddMemberOpen(true)}>
+                Add Member
+              </Button>
+            )}
+            {perms.canManageMembers && (
+              <Button variant="outline" onClick={() => setManageMembersOpen(true)}>
+                Manage Members
               </Button>
             )}
             {!isSignedIn && (
@@ -127,8 +162,8 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">Help Wanted</h2>
                 {perms.canPostHelpWanted && (
-                  <Button asChild size="sm">
-                    <Link to={`/projects/${slug}/help-wanted/new`}>Post new role</Link>
+                  <Button size="sm" onClick={() => setHelpWantedModalOpen(true)}>
+                    Post new role
                   </Button>
                 )}
               </div>
@@ -149,14 +184,42 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                         {role.tags.tech.map((t) => <TagChip key={`tech.${t.slug}`} tag={t} />)}
                         {role.tags.topic.map((t) => <TagChip key={`topic.${t.slug}`} tag={t} />)}
                       </div>
-                      <div className="flex justify-end">
+                      <div className="flex items-center justify-end gap-2">
+                        {role.permissions.canFill && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setFillRole(role)}
+                          >
+                            Mark filled
+                          </Button>
+                        )}
+                        {role.permissions.canClose && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              if (!window.confirm(`Close "${role.title}" without filling?`)) return;
+                              api.helpWantedRole
+                                .close(slug, role.id)
+                                .then(() => helpWantedQ.refetch())
+                                .catch(() => undefined);
+                            }}
+                          >
+                            Close
+                          </Button>
+                        )}
                         {isSignedIn ? (
                           role.permissions.alreadyExpressedInterest ? (
                             <Button size="sm" variant="outline" disabled>
                               Interest Sent ✓
                             </Button>
                           ) : (
-                            <Button size="sm" disabled={!role.permissions.canExpressInterest}>
+                            <Button
+                              size="sm"
+                              disabled={!role.permissions.canExpressInterest}
+                              onClick={() => setInterestRole(role)}
+                            >
                               Express Interest
                             </Button>
                           )
@@ -181,7 +244,11 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
               <h2 className="text-xl font-semibold">Project Activity</h2>
               <div className="flex gap-2">
                 {perms.canPostUpdate && (
-                  <Button size="sm" variant="outline" disabled>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setUpdateModalOpen(true)}
+                  >
                     Post Update
                   </Button>
                 )}
@@ -252,9 +319,21 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           {/* Members */}
           {project.memberships.length > 0 && (
             <section>
-              <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
-                Members ({project.counts.members})
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                  Members ({project.counts.members})
+                </h3>
+                {perms.canManageMembers && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => setAddMemberOpen(true)}
+                  >
+                    + Add
+                  </Button>
+                )}
+              </div>
               <div className="flex flex-wrap gap-2">
                 {project.memberships.map((m) => (
                   <PersonAvatar
@@ -348,6 +427,45 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           </section>
         </aside>
       </div>
+
+      <PostUpdateModal
+        open={updateModalOpen}
+        onOpenChange={setUpdateModalOpen}
+        projectSlug={slug}
+      />
+      <PostHelpWantedModal
+        open={helpWantedModalOpen}
+        onOpenChange={setHelpWantedModalOpen}
+        projectSlug={slug}
+      />
+      <AddMemberModal
+        open={addMemberOpen}
+        onOpenChange={setAddMemberOpen}
+        projectSlug={slug}
+      />
+      <ManageMembersModal
+        open={manageMembersOpen}
+        onOpenChange={setManageMembersOpen}
+        project={project}
+      />
+      {interestRole && (
+        <ExpressInterestModal
+          open={!!interestRole}
+          onOpenChange={(o) => !o && setInterestRole(null)}
+          projectSlug={slug}
+          roleId={interestRole.id}
+          roleTitle={interestRole.title}
+        />
+      )}
+      {fillRole && (
+        <FillRoleModal
+          open={!!fillRole}
+          onOpenChange={(o) => !o && setFillRole(null)}
+          projectSlug={slug}
+          roleId={fillRole.id}
+          roleTitle={fillRole.title}
+        />
+      )}
     </div>
   );
 }

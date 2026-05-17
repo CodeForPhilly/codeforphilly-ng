@@ -306,13 +306,24 @@ function buildQuery(params: object): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...(init?.headers as Record<string, string> | undefined ?? {}),
+  };
+  // Send JSON content-type when we have a string/blob-less body and no explicit override
+  if (
+    init?.body !== undefined &&
+    init.body !== null &&
+    typeof init.body === 'string' &&
+    headers['Content-Type'] === undefined &&
+    headers['content-type'] === undefined
+  ) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(path, {
     credentials: 'include',
     ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   // 204 No Content
@@ -387,30 +398,246 @@ export interface FeedParams {
   tag?: string[];
 }
 
+export interface ProjectTagsInput {
+  topic?: string[];
+  tech?: string[];
+  event?: string[];
+}
+
+export interface PersonTagsInput {
+  topic?: string[];
+  tech?: string[];
+}
+
+export interface CreateProjectInput {
+  title: string;
+  slug?: string;
+  summary?: string | null;
+  overview?: string | null;
+  stage?: string;
+  usersUrl?: string | null;
+  developersUrl?: string | null;
+  chatChannel?: string | null;
+  tags?: ProjectTagsInput;
+  featured?: boolean;
+}
+
+export type UpdateProjectInput = Partial<CreateProjectInput>;
+
+export interface UpdatePersonInput {
+  fullName?: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  bio?: string | null;
+  slug?: string;
+  email?: string;
+  slackHandle?: string | null;
+  tags?: PersonTagsInput;
+}
+
+export interface CreateUpdateInput {
+  body: string;
+}
+
+export interface CreateBuzzInput {
+  headline: string;
+  url: string;
+  publishedAt: string;
+  summary?: string | null;
+}
+
+export interface CreateHelpWantedInput {
+  title: string;
+  description: string;
+  commitmentHoursPerWeek?: number | null;
+  tags?: { tech?: string[]; topic?: string[] };
+}
+
+export type UpdateHelpWantedInput = Partial<CreateHelpWantedInput>;
+
+export interface AddMemberInput {
+  personSlug: string;
+  role?: string | null;
+}
+
+export interface UpdateMembershipInput {
+  role?: string | null;
+}
+
+export interface ExpressInterestInput {
+  message?: string | null;
+}
+
+export interface SessionListItem {
+  jti: string;
+  userAgent: string;
+  ipAddress: string;
+  issuedAt: string;
+  expiresAt: string;
+  current: boolean;
+}
+
+export interface NewsletterState {
+  optedIn: boolean;
+  optedInAt: string | null;
+  optedOutAt: string | null;
+}
+
+export interface NewsletterResponse {
+  personId: string;
+  newsletter: NewsletterState | null;
+}
+
+export interface CreateTagInput {
+  namespace: 'topic' | 'tech' | 'event';
+  slug: string;
+  title: string;
+}
+
+export interface UpdateTagInput {
+  title?: string;
+  mergeInto?: string;
+}
+
 export const api = {
+  preview: (source: string): Promise<SuccessEnvelope<{ html: string }>> =>
+    request(`/api/_preview`, {
+      method: 'POST',
+      body: JSON.stringify({ source }),
+    }),
   projects: {
     list: (params: ProjectListParams = {}): Promise<PaginatedEnvelope<ProjectListItem>> =>
       request(`/api/projects${buildQuery(params)}`),
     get: (slug: string): Promise<SuccessEnvelope<ProjectDetail>> =>
       request(`/api/projects/${encodeURIComponent(slug)}`),
+    create: (input: CreateProjectInput): Promise<SuccessEnvelope<ProjectDetail>> =>
+      request(`/api/projects`, { method: 'POST', body: JSON.stringify(input) }),
+    update: (slug: string, input: UpdateProjectInput): Promise<SuccessEnvelope<ProjectDetail>> =>
+      request(`/api/projects/${encodeURIComponent(slug)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }),
+    delete: (slug: string): Promise<void> =>
+      request(`/api/projects/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
+    restore: (slug: string): Promise<SuccessEnvelope<ProjectDetail>> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/restore`, { method: 'POST' }),
+    changeMaintainer: (slug: string, personSlug: string): Promise<SuccessEnvelope<ProjectDetail>> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/change-maintainer`, {
+        method: 'POST',
+        body: JSON.stringify({ personSlug }),
+      }),
     updates: (slug: string, params: { page?: number; perPage?: number } = {}): Promise<PaginatedEnvelope<ProjectUpdateResponse>> =>
       request(`/api/projects/${encodeURIComponent(slug)}/updates${buildQuery(params)}`),
+    postUpdate: (slug: string, input: CreateUpdateInput): Promise<SuccessEnvelope<ProjectUpdateResponse>> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/updates`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
     buzz: (slug: string, params: { page?: number; perPage?: number } = {}): Promise<PaginatedEnvelope<ProjectBuzzResponse>> =>
       request(`/api/projects/${encodeURIComponent(slug)}/buzz${buildQuery(params)}`),
+    postBuzz: (slug: string, input: CreateBuzzInput): Promise<SuccessEnvelope<ProjectBuzzResponse>> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/buzz`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
     helpWanted: (slug: string, params: { status?: string; page?: number; perPage?: number } = {}): Promise<PaginatedEnvelope<HelpWantedRoleResponse>> =>
       request(`/api/projects/${encodeURIComponent(slug)}/help-wanted${buildQuery(params)}`),
+    postHelpWanted: (slug: string, input: CreateHelpWantedInput): Promise<SuccessEnvelope<HelpWantedRoleResponse>> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/help-wanted`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    addMember: (slug: string, input: AddMemberInput): Promise<SuccessEnvelope<ProjectMembershipResponse>> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/members`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    updateMember: (slug: string, personSlug: string, input: UpdateMembershipInput): Promise<SuccessEnvelope<ProjectMembershipResponse>> =>
+      request(
+        `/api/projects/${encodeURIComponent(slug)}/members/${encodeURIComponent(personSlug)}`,
+        { method: 'PATCH', body: JSON.stringify(input) },
+      ),
+    removeMember: (slug: string, personSlug: string): Promise<void> =>
+      request(
+        `/api/projects/${encodeURIComponent(slug)}/members/${encodeURIComponent(personSlug)}`,
+        { method: 'DELETE' },
+      ),
+  },
+  helpWantedRole: {
+    update: (
+      projectSlug: string,
+      roleId: string,
+      input: UpdateHelpWantedInput,
+    ): Promise<SuccessEnvelope<HelpWantedRoleResponse>> =>
+      request(
+        `/api/projects/${encodeURIComponent(projectSlug)}/help-wanted/${encodeURIComponent(roleId)}`,
+        { method: 'PATCH', body: JSON.stringify(input) },
+      ),
+    expressInterest: (
+      projectSlug: string,
+      roleId: string,
+      input: ExpressInterestInput,
+    ): Promise<SuccessEnvelope<{ delivered: boolean }>> =>
+      request(
+        `/api/projects/${encodeURIComponent(projectSlug)}/help-wanted/${encodeURIComponent(roleId)}/express-interest`,
+        { method: 'POST', body: JSON.stringify(input) },
+      ),
+    fill: (
+      projectSlug: string,
+      roleId: string,
+      filledBySlug?: string | null,
+    ): Promise<SuccessEnvelope<HelpWantedRoleResponse>> =>
+      request(
+        `/api/projects/${encodeURIComponent(projectSlug)}/help-wanted/${encodeURIComponent(roleId)}/fill`,
+        { method: 'POST', body: JSON.stringify({ filledBySlug: filledBySlug ?? null }) },
+      ),
+    close: (
+      projectSlug: string,
+      roleId: string,
+    ): Promise<SuccessEnvelope<HelpWantedRoleResponse>> =>
+      request(
+        `/api/projects/${encodeURIComponent(projectSlug)}/help-wanted/${encodeURIComponent(roleId)}/close`,
+        { method: 'POST' },
+      ),
+    reopen: (
+      projectSlug: string,
+      roleId: string,
+    ): Promise<SuccessEnvelope<HelpWantedRoleResponse>> =>
+      request(
+        `/api/projects/${encodeURIComponent(projectSlug)}/help-wanted/${encodeURIComponent(roleId)}/reopen`,
+        { method: 'POST' },
+      ),
   },
   people: {
     list: (params: PeopleListParams = {}): Promise<PaginatedEnvelope<PersonListItem>> =>
       request(`/api/people${buildQuery(params)}`),
     get: (slug: string): Promise<SuccessEnvelope<PersonDetail>> =>
       request(`/api/people/${encodeURIComponent(slug)}`),
+    update: (slug: string, input: UpdatePersonInput): Promise<SuccessEnvelope<PersonDetail>> =>
+      request(`/api/people/${encodeURIComponent(slug)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }),
+    setNewsletter: (slug: string, optedIn: boolean): Promise<SuccessEnvelope<NewsletterResponse>> =>
+      request(`/api/people/${encodeURIComponent(slug)}/newsletter`, {
+        method: 'PATCH',
+        body: JSON.stringify({ optedIn }),
+      }),
   },
   tags: {
     list: (params: TagListParams = {}): Promise<PaginatedEnvelope<TagResponse>> =>
       request(`/api/tags${buildQuery(params)}`),
     get: (handle: string): Promise<SuccessEnvelope<TagResponse>> =>
       request(`/api/tags/${encodeURIComponent(handle)}`),
+    create: (input: CreateTagInput): Promise<SuccessEnvelope<TagResponse>> =>
+      request(`/api/tags`, { method: 'POST', body: JSON.stringify(input) }),
+    update: (handle: string, input: UpdateTagInput): Promise<SuccessEnvelope<TagResponse>> =>
+      request(`/api/tags/${encodeURIComponent(handle)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }),
+    delete: (handle: string): Promise<void> =>
+      request(`/api/tags/${encodeURIComponent(handle)}`, { method: 'DELETE' }),
   },
   helpWanted: {
     list: (params: HelpWantedListParams = {}): Promise<PaginatedEnvelope<HelpWantedRoleResponse>> =>
@@ -423,5 +650,10 @@ export const api = {
   projectBuzz: {
     feed: (params: FeedParams = {}): Promise<PaginatedEnvelope<ProjectBuzzResponse>> =>
       request(`/api/project-buzz${buildQuery(params)}`),
+  },
+  auth: {
+    sessions: (): Promise<SuccessEnvelope<SessionListItem[]>> => request(`/api/auth/sessions`),
+    revokeSession: (jti: string): Promise<void> =>
+      request(`/api/auth/sessions/${encodeURIComponent(jti)}/revoke`, { method: 'POST' }),
   },
 };
