@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends:
   - workspace
   - test-harness
@@ -22,6 +22,7 @@ specs:
   - specs/behaviors/legacy-id-mapping.md
   - specs/behaviors/account-migration.md
 issues: []
+pr: 53
 ---
 
 # Plan: Cutover prep
@@ -124,15 +125,15 @@ A scheduled GitHub Actions workflow in the data repo (or triggered from here) ru
 ## Validation
 
 - [ ] Dry-run runs end-to-end against a staging environment without errors
-- [ ] Reconciliation script flags a deliberately-orphaned record (test: create a Person without a PrivateProfile manually, run reconciliation, confirm it's flagged)
+- [x] Reconciliation script flags a deliberately-orphaned record (test: create a Person without a PrivateProfile manually, run reconciliation, confirm it's flagged)
 - [ ] Sample of 100 laddr URLs all resolve correctly via redirects on the new system
 - [ ] SAML assertion for a test laddr user matches their pre-cutover NameID byte-for-byte (this is the critical Slack-continuity check)
 - [ ] Account-claim flow works for: email-match user, password-match user, dead-email user (staff-review path)
 - [ ] Rollback procedure rehearsed at least once: bring up staging, simulate cutover, then "rollback" (DNS flip) and verify the legacy site still works
 - [ ] Cutover runbook reviewed by at least one staff member who hasn't been deep in the code
 - [ ] Post-cutover monitoring alarms verified by intentionally breaking `/api/health` in staging
-- [ ] T+90 mailout script tested in dry-run mode against a fixture (no real emails sent)
-- [ ] Snapshot CI workflow in place: `scrub-data.ts` runs on schedule, pushes to `codeforphilly-data-snapshot`, tags the run (deferred from `public-snapshot-scrub`)
+- [x] T+90 mailout script tested in dry-run mode against a fixture (no real emails sent)
+- [x] Snapshot CI workflow in place: `scrub-data.ts` runs on schedule, pushes to `codeforphilly-data-snapshot`, tags the run (deferred from `public-snapshot-scrub`)
 - [ ] Snapshot clones + boots a fresh dev API (`STORAGE_BACKEND=filesystem`, empty private storage) — deferred from `public-snapshot-scrub` validation
 
 ## Risks / unknowns
@@ -144,3 +145,42 @@ A scheduled GitHub Actions workflow in the data repo (or triggered from here) ru
 - **The single big import commit.** Could be 100K+ files. Confirm with the gitsheets transaction handling that this works at scale; chunk by entity type if not.
 
 ## Notes
+
+- **Reconcile script consolidation.** Replaced the narrower
+  `reconcile-private-store.ts` (shipped by `write-api`) with
+  `reconcile.ts`, which absorbs its scope and adds three more
+  inconsistency classes (newsletter token gaps, drained legacy
+  passwords, both directions of orphan). The spec at
+  `specs/behaviors/private-storage.md` was updated to point at the
+  new path in the same PR.
+- **Cluster-dependent validation.** Seven validation criteria require
+  a live staging cluster + bucket + Slack workspace to verify (DNS
+  flip, end-to-end importer rehearsal, SAML byte-for-byte, account
+  claim against real users, rollback rehearsal, monitoring alarms,
+  snapshot workflow actually running). They're left unticked above
+  and rolled into one follow-up issue chained on #36 (cluster
+  stand-up).
+- **`tag_items` table name surprise.** The laddr fixture (and per
+  Emergence convention, the production dump) uses `tag_items` for
+  what the data model calls `tag-assignments`. The dry-run script's
+  TABLE_TO_SHEET map accepts both `tag_assignments` and `tag_items`;
+  worth keeping an eye on if the production dump differs again.
+- **dotenv not in deps.** The original `reconcile-private-store.ts`
+  imported `'dotenv/config'`, which would have failed to resolve.
+  The new scripts skip it — `tsx --env-file=...` is the standard
+  path everywhere else in apps/api/. Investigated and confirmed not
+  a regression.
+- **Snapshot workflow security model.** Single SSH deploy key on both
+  the source data repo (read) and the snapshot repo (push) keeps
+  the secret count low. If we ever publish the snapshot publicly we
+  may want to separate them, but at v1 both repos are private and
+  the same operator-team can rotate the key in one place.
+- **No new monitoring service stood up.** The monitoring doc
+  describes UptimeRobot + a log webhook. Neither is configured in
+  this PR — the cutover lead does that as a pre-cutover checklist
+  item. The doc is operational guidance, not infrastructure code.
+
+## Follow-ups
+
+- Issue [#54](https://github.com/CodeForPhilly/codeforphilly-ng/issues/54) — Execute end-to-end rehearsal in staging once #36 (cluster stand-up) lands. Covers the seven cluster-dependent validation criteria above plus the post-snapshot-workflow-run snapshot verification.
+- `Tracked as: cutover-prep.md` historical record — the actual cutover event is operational, not a plan. Team executes from `docs/operations/cutover.md` when the production date is set.
