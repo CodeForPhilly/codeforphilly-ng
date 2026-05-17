@@ -26,6 +26,7 @@ import { HelpWantedWriteService } from '../services/help-wanted.write.js';
 import { PersonWriteService } from '../services/person.write.js';
 import { TagWriteService } from '../services/tag.write.js';
 import { GitHubAccountService } from '../services/github-account.js';
+import { AccountClaimService } from '../services/account-claim.js';
 import { LoggingNotifier, type Notifier } from '../notify/index.js';
 
 declare module 'fastify' {
@@ -46,6 +47,7 @@ declare module 'fastify' {
       peopleWrite: PersonWriteService;
       tagsWrite: TagWriteService;
       githubAccount: GitHubAccountService;
+      accountClaim: AccountClaimService;
     };
     /** Shared in-memory state — write routes call StateApply.apply against this. */
     inMemoryState: InMemoryState;
@@ -67,6 +69,7 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
   fastify.decorate('fts', fts);
   fastify.decorate('notifier', notifier);
 
+  const githubAccount = new GitHubAccountService(state);
   fastify.decorate('services', {
     projects: new ProjectService(state, fts),
     people: new PersonService(state, fts),
@@ -81,7 +84,8 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
     helpWantedWrite: new HelpWantedWriteService(state),
     peopleWrite: new PersonWriteService(state, fastify.store.private),
     tagsWrite: new TagWriteService(state),
-    githubAccount: new GitHubAccountService(state),
+    githubAccount,
+    accountClaim: new AccountClaimService(state, fastify.store.private, githubAccount),
   });
 }
 

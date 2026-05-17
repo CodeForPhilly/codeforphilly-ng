@@ -1,5 +1,13 @@
-import { LegacyPasswordCredentialSchema, PrivateProfileSchema } from '@cfp/shared/schemas';
-import type { LegacyPasswordCredential, PrivateProfile } from '@cfp/shared/schemas';
+import {
+  AccountClaimRequestSchema,
+  LegacyPasswordCredentialSchema,
+  PrivateProfileSchema,
+} from '@cfp/shared/schemas';
+import type {
+  AccountClaimRequest,
+  LegacyPasswordCredential,
+  PrivateProfile,
+} from '@cfp/shared/schemas';
 import type { PrivateIndices, PrivateStore, PrivateStoreTx } from './interface.js';
 
 /**
@@ -11,6 +19,7 @@ import type { PrivateIndices, PrivateStore, PrivateStoreTx } from './interface.j
 export abstract class BasePrivateStore implements PrivateStore {
   protected profiles: Map<string, PrivateProfile> = new Map();
   protected legacyPasswords: Map<string, LegacyPasswordCredential> = new Map();
+  protected claimRequests: Map<string, AccountClaimRequest> = new Map();
 
   readonly indices: PrivateIndices = {
     byEmail: new Map(),
@@ -24,7 +33,11 @@ export abstract class BasePrivateStore implements PrivateStore {
   protected abstract writeRaw(key: string, content: string): Promise<void>;
 
   async load(): Promise<void> {
-    await Promise.all([this.loadProfiles(), this.loadLegacyPasswords()]);
+    await Promise.all([
+      this.loadProfiles(),
+      this.loadLegacyPasswords(),
+      this.loadClaimRequests(),
+    ]);
     this.rebuildIndices();
   }
 
@@ -40,6 +53,11 @@ export abstract class BasePrivateStore implements PrivateStore {
     // Update the indices reference since legacyPasswords Map is replaced
     (this.indices as { legacyPasswordByPersonId: Map<string, LegacyPasswordCredential> }).legacyPasswordByPersonId =
       this.legacyPasswords;
+  }
+
+  private async loadClaimRequests(): Promise<void> {
+    const raw = await this.readRaw('account-claim-requests.jsonl');
+    this.claimRequests = parseJsonl(raw, AccountClaimRequestSchema, 'id');
   }
 
   private rebuildIndices(): void {
@@ -95,6 +113,24 @@ export abstract class BasePrivateStore implements PrivateStore {
     return this.legacyPasswords.size;
   }
 
+  async getClaimRequest(requestId: string): Promise<AccountClaimRequest | null> {
+    return this.claimRequests.get(requestId) ?? null;
+  }
+
+  async putClaimRequest(req: AccountClaimRequest): Promise<void> {
+    const parsed = AccountClaimRequestSchema.parse(req);
+    this.claimRequests.set(parsed.id, parsed);
+    await this.flushClaimRequests();
+  }
+
+  async listOpenClaimRequests(): Promise<AccountClaimRequest[]> {
+    return [...this.claimRequests.values()].filter((r) => r.status === 'open');
+  }
+
+  async listAllClaimRequests(): Promise<AccountClaimRequest[]> {
+    return [...this.claimRequests.values()];
+  }
+
   async readBlob(key: string): Promise<string | null> {
     return this.readRaw(key);
   }
@@ -107,11 +143,13 @@ export abstract class BasePrivateStore implements PrivateStore {
     // Snapshot current state so we can roll back if the handler throws
     const profilesSnapshot = new Map(this.profiles);
     const legacySnapshot = new Map(this.legacyPasswords);
+    const claimRequestsSnapshot = new Map(this.claimRequests);
 
     // Staged mutations applied only in-memory during the handler
     const stagedProfilePuts: Map<string, PrivateProfile> = new Map();
     const stagedProfileDeletes: Set<string> = new Set();
     const stagedLegacyDeletes: Set<string> = new Set();
+    const stagedClaimRequestPuts: Map<string, AccountClaimRequest> = new Map();
 
     const tx: PrivateStoreTx = {
       putProfile: (profile) => {
@@ -126,6 +164,10 @@ export abstract class BasePrivateStore implements PrivateStore {
       deleteLegacyPassword: (personId) => {
         stagedLegacyDeletes.add(personId);
       },
+      putClaimRequest: (req) => {
+        const parsed = AccountClaimRequestSchema.parse(req);
+        stagedClaimRequestPuts.set(parsed.id, parsed);
+      },
     };
 
     let result: T;
@@ -135,6 +177,7 @@ export abstract class BasePrivateStore implements PrivateStore {
       // Handler threw: leave in-memory state unchanged
       this.profiles = profilesSnapshot;
       this.legacyPasswords = legacySnapshot;
+      this.claimRequests = claimRequestsSnapshot;
       this.rebuildIndices();
       throw err;
     }
@@ -149,6 +192,9 @@ export abstract class BasePrivateStore implements PrivateStore {
     for (const id of stagedLegacyDeletes) {
       this.legacyPasswords.delete(id);
     }
+    for (const [id, req] of stagedClaimRequestPuts) {
+      this.claimRequests.set(id, req);
+    }
     this.rebuildIndices();
 
     // Flush to backend
@@ -159,6 +205,9 @@ export abstract class BasePrivateStore implements PrivateStore {
     if (stagedLegacyDeletes.size > 0) {
       flushOps.push(this.flushLegacyPasswords());
     }
+    if (stagedClaimRequestPuts.size > 0) {
+      flushOps.push(this.flushClaimRequests());
+    }
 
     try {
       await Promise.all(flushOps);
@@ -167,6 +216,7 @@ export abstract class BasePrivateStore implements PrivateStore {
       // rebuild indices. Log loudly; a reconciliation script will fix state.
       this.profiles = profilesSnapshot;
       this.legacyPasswords = legacySnapshot;
+      this.claimRequests = claimRequestsSnapshot;
       this.rebuildIndices();
       throw new PrivateStoreError(
         'private_store_unavailable',
@@ -187,11 +237,17 @@ export abstract class BasePrivateStore implements PrivateStore {
     const lines = [...this.legacyPasswords.values()].map((p) => JSON.stringify(p)).join('\n');
     await this.writeRaw('legacy-passwords.jsonl', lines ? lines + '\n' : '');
   }
+
+  protected async flushClaimRequests(): Promise<void> {
+    const lines = [...this.claimRequests.values()].map((r) => JSON.stringify(r)).join('\n');
+    await this.writeRaw('account-claim-requests.jsonl', lines ? lines + '\n' : '');
+  }
 }
 
 function parseJsonl<T>(
   raw: string | null,
   schema: { parse: (input: unknown) => T },
+  keyField: 'personId' | 'id' = 'personId',
 ): Map<string, T> {
   const map = new Map<string, T>();
   if (!raw) return map;
@@ -199,9 +255,8 @@ function parseJsonl<T>(
     const trimmed = line.trim();
     if (!trimmed) continue;
     const record = schema.parse(JSON.parse(trimmed));
-    // Both PrivateProfile and LegacyPasswordCredential are keyed by personId
-    const keyed = record as { personId: string };
-    map.set(keyed.personId, record);
+    const keyed = record as Record<string, unknown>;
+    map.set(keyed[keyField] as string, record);
   }
   return map;
 }

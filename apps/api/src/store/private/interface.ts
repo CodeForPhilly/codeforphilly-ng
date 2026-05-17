@@ -1,4 +1,8 @@
-import type { LegacyPasswordCredential, PrivateProfile } from '@cfp/shared/schemas';
+import type {
+  AccountClaimRequest,
+  LegacyPasswordCredential,
+  PrivateProfile,
+} from '@cfp/shared/schemas';
 
 /** Secondary in-memory indices built from private store data. */
 export interface PrivateIndices {
@@ -19,6 +23,7 @@ export interface PrivateStoreTx {
   putProfile(profile: PrivateProfile): void;
   deleteProfile(personId: string): void;
   deleteLegacyPassword(personId: string): void;
+  putClaimRequest(req: AccountClaimRequest): void;
 }
 
 /**
@@ -46,6 +51,12 @@ export interface PrivateStore {
   getLegacyPassword(personId: string): Promise<LegacyPasswordCredential | null>;
   deleteLegacyPassword(personId: string): Promise<void>;
   countLegacyPasswords(): Promise<number>;
+
+  // --- Account-claim requests ---
+  getClaimRequest(requestId: string): Promise<AccountClaimRequest | null>;
+  putClaimRequest(req: AccountClaimRequest): Promise<void>;
+  listOpenClaimRequests(): Promise<AccountClaimRequest[]>;
+  listAllClaimRequests(): Promise<AccountClaimRequest[]>;
 
   /**
    * Run a handler with a transaction object. On success, flush updated

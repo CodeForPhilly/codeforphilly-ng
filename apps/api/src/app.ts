@@ -35,6 +35,7 @@ import sessionMiddlewarePlugin from './auth/middleware.js';
 import staticWebPlugin from './plugins/static-web.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
+import { accountClaimRoutes } from './routes/account-claim.js';
 import { projectRoutes } from './routes/projects.js';
 import { peopleRoutes } from './routes/people.js';
 import { tagRoutes } from './routes/tags.js';
@@ -141,6 +142,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // ----- 11. Routes -----
   await fastify.register(healthRoutes);
   await fastify.register(authRoutes);
+  await fastify.register(accountClaimRoutes);
   await fastify.register(projectRoutes);
   await fastify.register(peopleRoutes);
   await fastify.register(tagRoutes);
