@@ -50,7 +50,7 @@ store decorators are missing (broken boot), `/api/health/ready` will return
 
 ## 2. Kubernetes liveness + readiness probes
 
-These already exist in the Helm chart — see [deploy.md probes](deploy.md#probes).
+These already exist in `deploy/kustomize/base/deployment.yaml` — see [deploy.md probes](deploy.md#probes).
 They serve a different purpose than the external monitors: they make k8s
 **act** on a bad pod (restart it) rather than just notify us.
 
@@ -132,7 +132,7 @@ The cutover lead confirms before T-0:
 
 - [ ] UptimeRobot account exists; two monitors above are configured
 - [ ] UptimeRobot → `#alerts` Slack integration is fired by a test alarm
-- [ ] k8s liveness + readiness probes are present in the Helm chart
+- [ ] k8s liveness + readiness probes are present in `deploy/kustomize/base/deployment.yaml`
 - [ ] Log webhook → `#alerts` integration fires on a test `WARN` line
 - [ ] On-call rotation is set in PagerDuty / Slack handoff doc
 - [ ] At least one team member can reach `#alerts` outside business hours

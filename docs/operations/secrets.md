@@ -22,15 +22,18 @@ how it gets into the cluster, and how to rotate it.
 
 ## Where they live in the cluster
 
-The Helm chart consumes secrets from two places:
+The Deployment consumes secrets from two Secret objects, both materialized
+by the sealed-secrets controller from `SealedSecret` resources committed in
+the GitOps repo (`cfp-sandbox-cluster/codeforphilly-ng.secrets/`):
 
-| Secret name (default) | Mount mechanism | Holds |
-|-----------------------|-----------------|-------|
+| Secret name | Mount mechanism | Holds |
+|-------------|-----------------|-------|
 | `codeforphilly-secrets` | `envFrom: secretRef` (entire Secret becomes env) | All env-var secrets |
 | `codeforphilly-data-deploy-key` | Volume-mounted, one file | SSH private key for the data repo |
 
-Both names are overridable via Helm values (`secretEnvFrom[].name`,
-`deployKey.secretName`).
+The Secret names are referenced directly from
+`deploy/kustomize/base/deployment.yaml`; changing them means touching the
+manifest.
 
 ## Inventory
 
@@ -173,18 +176,12 @@ kubectl create secret generic codeforphilly-data-deploy-key \
   --dry-run=client -o yaml \
   | kubeseal --format yaml > deploy/secrets/staging-deploy-key.sealed.yaml
 
-# 4. Apply
-kubectl apply -f deploy/secrets/staging-secrets.sealed.yaml
-kubectl apply -f deploy/secrets/staging-deploy-key.sealed.yaml
+# 4. Commit the sealed YAMLs into the GitOps repo
+#    (cfp-sandbox-cluster/codeforphilly-ng.secrets/), open a PR.
+#    The deploy workflow applies them on merge.
 
 # 5. Wipe plaintext
 shred -u .secrets/*
-
-# 6. Helm install
-helm upgrade --install codeforphilly-staging deploy/charts/codeforphilly \
-  --namespace codeforphilly-staging \
-  -f deploy/charts/codeforphilly/values.staging.yaml \
-  --set image.tag=sha-<sha>
 ```
 
 The sealed `.yaml` files are safe to commit; they can only be decrypted by

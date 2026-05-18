@@ -122,10 +122,11 @@ fresh private-storage bucket.
    Every counter should be zero in the orphan + inconsistent categories.
    If anything is flagged, **stop** and investigate before T-0.
 
-9. Deploy the rewrite to production with `helm upgrade --install` per
-   [deploy.md](deploy.md). The pod will boot against the just-imported
-   data + bucket but receive no public traffic yet (ingress hostname not
-   pointed yet).
+9. Deploy the rewrite to production via the production GitOps repo (a
+   sibling to [`cfp-sandbox-cluster`](https://github.com/CodeForPhilly/cfp-sandbox-cluster)
+   — see [deploy.md](deploy.md)). The pod will boot against the
+   just-imported data + bucket but receive no public traffic yet (Gateway
+   hostname not pointed at the prod LoadBalancer yet).
 
 10. Smoke-test the production hostname through `/etc/hosts` or via direct
     cluster IP: hit `/api/health`, `/api/people/<known-slug>`,
