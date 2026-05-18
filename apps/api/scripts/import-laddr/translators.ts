@@ -1,25 +1,32 @@
 /**
- * Translators: laddr (MySQL/Emergence-PHP shape) → v1 (gitsheets/private)
+ * Translators: laddr `?format=json` shape → v1 (gitsheets/private)
  *
- * Each translator takes one laddr row + a context bag (id maps, ts.id
- * generator, warning sink) and returns the target record(s). UUIDs are
+ * Each translator takes one raw laddr JSON row + a context bag (id maps,
+ * warning sink, wall-clock) and returns the target record(s). UUIDs are
  * minted here and remembered in the context maps so subsequent translators
  * can resolve cross-table FKs.
  *
- * Schemas in `@cfp/shared/schemas` are the validation contract; this layer
- * is a pure mapping. Validation happens in the importer after the translator
- * returns, so warnings/errors surface with the row's legacyId attached.
+ * The JSON inputs validated by `json-fetcher.ts` already match the shape
+ * we read here. Schemas in `@cfp/shared/schemas` are the v1 validation
+ * contract; this layer is a pure mapping. Validation happens in the
+ * importer after the translator returns, so warnings/errors surface with
+ * the row's legacyId attached.
  *
  * Field-mapping source of truth: specs/data-model.md `Naming map: laddr →
  * rewrite` table.
+ *
+ * Important differences from the previous mysqldump-shape translators:
+ *   - Timestamps in JSON are unix epoch seconds (numbers), not
+ *     `YYYY-MM-DD HH:MM:SS` strings.
+ *   - Tags and memberships arrive embedded on the project record via
+ *     `?include=Tags,Memberships`; there is no separate `tag_items`
+ *     endpoint, so we synthesize TagAssignment records by iterating each
+ *     project's (and person's) embedded Tags array.
  */
 import { uuidv7 } from 'uuidv7';
 
-import type { Row, SqlValue } from './mysqldump-parser.js';
 import type {
-  LegacyPasswordCredential,
   Person,
-  PrivateProfile,
   Project,
   ProjectBuzz,
   ProjectMembership,
@@ -28,6 +35,15 @@ import type {
   TagAssignment,
 } from '@cfp/shared/schemas';
 
+import type {
+  RawMembership,
+  RawPerson,
+  RawProject,
+  RawProjectBuzz,
+  RawProjectUpdate,
+  RawTag,
+} from './json-fetcher.js';
+
 export interface Warnings {
   push(warning: string): void;
 }
@@ -35,14 +51,14 @@ export interface Warnings {
 export interface IdMaps {
   /** laddr Person.ID → v1 Person.id (uuid) */
   readonly personByLegacy: Map<number, string>;
+  /** laddr Person.ID → v1 Person.slug (for path-template fields on membership) */
+  readonly personSlugByLegacy: Map<number, string>;
   /** laddr Project.ID → v1 Project.id (uuid) */
   readonly projectByLegacy: Map<number, string>;
   /** laddr Project.ID → v1 Project.slug (for path-template fields) */
   readonly projectSlugByLegacy: Map<number, string>;
   /** laddr Tag.ID → v1 Tag.id (uuid) */
   readonly tagByLegacy: Map<number, string>;
-  /** v1 Person.id → v1 Person.slug (for path-template fields on membership) */
-  readonly personSlugById: Map<string, string>;
   /** v1 Project.id → number generator for ProjectUpdate.number */
   readonly nextUpdateNumberByProjectId: Map<string, number>;
   /** used slugs per entity sheet for dedupe (`'people' → Set<slug>`) */
@@ -52,10 +68,10 @@ export interface IdMaps {
 export function newIdMaps(): IdMaps {
   return {
     personByLegacy: new Map(),
+    personSlugByLegacy: new Map(),
     projectByLegacy: new Map(),
     projectSlugByLegacy: new Map(),
     tagByLegacy: new Map(),
-    personSlugById: new Map(),
     nextUpdateNumberByProjectId: new Map(),
     usedSlugs: new Map(),
   };
@@ -65,53 +81,25 @@ export function newIdMaps(): IdMaps {
 // Cell readers
 // ---------------------------------------------------------------------------
 
-function str(row: Row, key: string): string | null {
-  const v: SqlValue = row[key] ?? null;
-  if (v === null) return null;
-  return typeof v === 'string' ? v : String(v);
-}
-
-function nonEmptyStr(row: Row, key: string): string | null {
-  const s = str(row, key);
-  return s === null || s.length === 0 ? null : s;
-}
-
-function int(row: Row, key: string): number | null {
-  const v: SqlValue = row[key] ?? null;
-  if (v === null) return null;
-  if (typeof v === 'number') return Number.isInteger(v) ? v : Math.trunc(v);
-  const n = parseInt(v as string, 10);
-  return Number.isNaN(n) ? null : n;
-}
-
-function requireInt(row: Row, key: string): number {
-  const v = int(row, key);
-  if (v === null) throw new Error(`expected integer at column "${key}"`);
-  return v;
+function nonEmptyStr(v: string | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  const t = v.trim();
+  return t.length === 0 ? null : t;
 }
 
 /**
- * Parse a MySQL DATETIME/TIMESTAMP cell into ISO 8601 UTC.
- *
- * laddr dumps timestamps as `YYYY-MM-DD HH:MM:SS` in UTC (no tz suffix).
- * Numeric epoch-seconds also appear in some Emergence schemas.
+ * Convert a unix epoch seconds value (laddr's JSON timestamp shape) into
+ * an ISO 8601 UTC string. Returns null when input is null/undefined or
+ * obviously invalid.
  */
-function toIso(row: Row, key: string): string | null {
-  const v: SqlValue = row[key] ?? null;
-  if (v === null) return null;
-  if (typeof v === 'number') {
-    // Emergence sometimes stores Unix timestamps as INT — interpret as seconds
-    return new Date(v * 1000).toISOString();
-  }
-  const s = v as string;
-  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/.test(s)) {
-    return new Date(s.replace(' ', 'T') + 'Z').toISOString();
-  }
-  return null;
+function epochToIso(v: number | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return null;
+  return new Date(v * 1000).toISOString();
 }
 
-function toIsoOrDefault(row: Row, key: string, defaultIso: string): string {
-  return toIso(row, key) ?? defaultIso;
+function epochToIsoOr(v: number | null | undefined, fallback: string): string {
+  return epochToIso(v) ?? fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +189,11 @@ const VALID_STAGES = [
 ] as const;
 type Stage = (typeof VALID_STAGES)[number];
 
-function normalizeStage(raw: string | null, warnings: Warnings, legacyId: number): Stage {
+function normalizeStage(
+  raw: string | null,
+  warnings: Warnings,
+  legacyId: number,
+): Stage {
   if (raw === null) return 'commenting';
   const lower = raw.toLowerCase();
   if ((VALID_STAGES as readonly string[]).includes(lower)) {
@@ -220,135 +212,47 @@ function normalizeStage(raw: string | null, warnings: Warnings, legacyId: number
 const VALID_NAMESPACES = ['topic', 'tech', 'event'] as const;
 type Namespace = (typeof VALID_NAMESPACES)[number];
 
+/**
+ * Split a laddr tag handle (`topic.transit`) into our namespace + slug. The
+ * laddr JSON output occasionally returns handles with the period stripped
+ * (`topictransit`); when the source row has a `Title` like `topic.Transit`
+ * we recover the namespace from there. Both Handle and the slug component
+ * are lowercased; slug-shape normalization happens at the call site.
+ */
 export function splitTagHandle(
   handle: string,
+  title: string | null,
   warnings: Warnings,
   legacyId: number,
 ): { namespace: Namespace; slug: string } | null {
-  const dotIdx = handle.indexOf('.');
-  if (dotIdx === -1) {
-    warnings.push(`[tags] legacyId=${legacyId} handle "${handle}" has no namespace; skipped`);
-    return null;
-  }
-  const ns = handle.slice(0, dotIdx).toLowerCase();
-  const slug = handle.slice(dotIdx + 1).toLowerCase();
-  if (!(VALID_NAMESPACES as readonly string[]).includes(ns)) {
+  const tryFrom = (s: string): { namespace: Namespace; slug: string } | null => {
+    const dotIdx = s.indexOf('.');
+    if (dotIdx === -1) return null;
+    const ns = s.slice(0, dotIdx).toLowerCase();
+    const slug = s.slice(dotIdx + 1).toLowerCase();
+    if (!(VALID_NAMESPACES as readonly string[]).includes(ns)) return null;
+    if (slug.length === 0) return null;
+    return { namespace: ns as Namespace, slug };
+  };
+
+  const fromHandle = tryFrom(handle);
+  if (fromHandle) return fromHandle;
+  const fromTitle = title ? tryFrom(title) : null;
+  if (fromTitle) {
     warnings.push(
-      `[tags] legacyId=${legacyId} namespace "${ns}" not one of topic|tech|event; skipped`,
+      `[tags] legacyId=${legacyId} handle "${handle}" had no namespace; recovered "${fromTitle.namespace}.${fromTitle.slug}" from title`,
     );
-    return null;
+    return fromTitle;
   }
-  if (slug.length === 0) {
-    warnings.push(`[tags] legacyId=${legacyId} empty slug after namespace; skipped`);
-    return null;
-  }
-  return { namespace: ns as Namespace, slug };
-}
-
-// ---------------------------------------------------------------------------
-// Context taggable type mapping
-// ---------------------------------------------------------------------------
-
-/**
- * laddr `tag_items.ContextClass` → v1 `tag-assignments.taggableType`.
- * Returns null for context classes we drop in v1 (e.g. BlogPost).
- */
-export function mapContextClass(
-  contextClass: string,
-  warnings: Warnings,
-  legacyId: number,
-): 'project' | 'person' | null {
-  // Emergence/laddr uses PHP namespace-style class strings.
-  if (/Project$/.test(contextClass)) return 'project';
-  if (/Person$/.test(contextClass)) return 'person';
   warnings.push(
-    `[tag-assignments] legacyId=${legacyId} unsupported ContextClass "${contextClass}"; skipped`,
+    `[tags] legacyId=${legacyId} handle "${handle}" has no resolvable namespace; skipped`,
   );
   return null;
 }
 
 // ---------------------------------------------------------------------------
-// Translators
+// AccountLevel mapping
 // ---------------------------------------------------------------------------
-
-export interface PersonResult {
-  /** Public Person record (gitsheets) */
-  readonly person: Person;
-  /** Private profile (if the person has an email) */
-  readonly privateProfile: PrivateProfile | null;
-  /** Legacy bcrypt-style password hash (if present) */
-  readonly legacyPassword: LegacyPasswordCredential | null;
-}
-
-export function translatePerson(
-  row: Row,
-  ctx: { idMaps: IdMaps; warnings: Warnings; now: string },
-): PersonResult {
-  const legacyId = requireInt(row, 'ID');
-  const username = str(row, 'Username') ?? `legacy-${legacyId}`;
-  const slug = safeSlug(username, 'people', 50, false, {
-    idMaps: ctx.idMaps,
-    warnings: ctx.warnings,
-    legacyId,
-  });
-
-  const id = uuidv7();
-  ctx.idMaps.personByLegacy.set(legacyId, id);
-  ctx.idMaps.personSlugById.set(id, slug);
-
-  const firstName = nonEmptyStr(row, 'FirstName');
-  const lastName = nonEmptyStr(row, 'LastName');
-  const computedName =
-    [firstName, lastName].filter((s) => s !== null).join(' ').trim();
-  const fullName =
-    nonEmptyStr(row, 'FullName') ??
-    (computedName.length > 0 ? computedName : username);
-
-  const accountLevelRaw = nonEmptyStr(row, 'AccountLevel') ?? 'User';
-  const accountLevel = mapAccountLevel(accountLevelRaw);
-
-  const createdAt = toIsoOrDefault(row, 'Created', ctx.now);
-  const updatedAt = toIsoOrDefault(row, 'Modified', createdAt);
-
-  const person: Person = {
-    id,
-    legacyId,
-    slug,
-    fullName,
-    firstName: firstName ?? undefined,
-    lastName: lastName ?? undefined,
-    bio: nonEmptyStr(row, 'About') ?? undefined,
-    accountLevel,
-    slackSamlNameId: slug,
-    createdAt,
-    updatedAt,
-  };
-
-  const email = nonEmptyStr(row, 'Email');
-  let privateProfile: PrivateProfile | null = null;
-  if (email !== null) {
-    privateProfile = {
-      personId: id,
-      email: email.toLowerCase(),
-      emailRefreshedAt: ctx.now,
-      updatedAt: ctx.now,
-    };
-  } else {
-    ctx.warnings.push(`[people] legacyId=${legacyId} has no email; no PrivateProfile written`);
-  }
-
-  const passwordHash = nonEmptyStr(row, 'Password');
-  let legacyPassword: LegacyPasswordCredential | null = null;
-  if (passwordHash !== null) {
-    legacyPassword = {
-      personId: id,
-      passwordHash,
-      importedAt: ctx.now,
-    };
-  }
-
-  return { person, privateProfile, legacyPassword };
-}
 
 function mapAccountLevel(raw: string): 'user' | 'staff' | 'administrator' {
   const lower = raw.toLowerCase();
@@ -357,51 +261,9 @@ function mapAccountLevel(raw: string): 'user' | 'staff' | 'administrator' {
   return 'user';
 }
 
-export function translateProject(
-  row: Row,
-  ctx: { idMaps: IdMaps; warnings: Warnings; now: string },
-): Project {
-  const legacyId = requireInt(row, 'ID');
-  const handle = str(row, 'Handle') ?? `legacy-${legacyId}`;
-  const slug = safeSlug(handle, 'projects', 80, true, {
-    idMaps: ctx.idMaps,
-    warnings: ctx.warnings,
-    legacyId,
-  });
-
-  const id = uuidv7();
-  ctx.idMaps.projectByLegacy.set(legacyId, id);
-  ctx.idMaps.projectSlugByLegacy.set(legacyId, slug);
-
-  const createdAt = toIsoOrDefault(row, 'Created', ctx.now);
-  const updatedAt = toIsoOrDefault(row, 'Modified', createdAt);
-
-  const maintainerLegacy = int(row, 'MaintainerID');
-  const maintainerId =
-    maintainerLegacy !== null ? (ctx.idMaps.personByLegacy.get(maintainerLegacy) ?? null) : null;
-  if (maintainerLegacy !== null && maintainerId === null) {
-    ctx.warnings.push(
-      `[projects] legacyId=${legacyId} MaintainerID=${maintainerLegacy} not found among imported people`,
-    );
-  }
-
-  return {
-    id,
-    legacyId,
-    slug,
-    title: nonEmptyStr(row, 'Title') ?? slug,
-    summary: nonEmptyStr(row, 'Summary') ?? undefined,
-    overview: nonEmptyStr(row, 'README') ?? undefined,
-    stage: normalizeStage(str(row, 'Stage'), ctx.warnings, legacyId),
-    maintainerId: maintainerId ?? undefined,
-    usersUrl: validHttps(nonEmptyStr(row, 'UsersUrl')) ?? undefined,
-    developersUrl: validHttps(nonEmptyStr(row, 'DevelopersUrl')) ?? undefined,
-    chatChannel: nonEmptyStr(row, 'ChatChannel') ?? undefined,
-    featured: false,
-    createdAt,
-    updatedAt,
-  };
-}
+// ---------------------------------------------------------------------------
+// HTTPS-URL validator
+// ---------------------------------------------------------------------------
 
 function validHttps(s: string | null): string | null {
   if (s === null) return null;
@@ -413,38 +275,246 @@ function validHttps(s: string | null): string | null {
   }
 }
 
-export interface MembershipResult {
-  readonly membership: ProjectMembership;
-  /** Path-template fields the storage layer needs but the Zod schema doesn't expose. */
-  readonly pathFields: { projectSlug: string; personSlug: string };
+/**
+ * Coerce a freeform chat-channel string (laddr returns things like
+ * `Benefit-Decision-Toolkit` or `#general` or `food.access`) into the v1
+ * regex `^[a-z0-9][a-z0-9_-]{0,40}$`. Returns null if no usable form can be
+ * derived.
+ */
+function normalizeChatChannel(raw: string | null): string | null {
+  if (raw === null) return null;
+  const stripped = raw.replace(/^#+/, '').toLowerCase();
+  const cleaned = stripped.replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (cleaned.length === 0) return null;
+  if (!/^[a-z0-9]/.test(cleaned)) return null;
+  return cleaned.slice(0, 41); // schema bounds: head + up to 40 trailing chars
 }
 
+// ---------------------------------------------------------------------------
+// Translators
+// ---------------------------------------------------------------------------
+
+/**
+ * Existing UUIDs read from the previous snapshot, keyed by `<sheet>/<filename
+ * without .toml>`. The translator consults these so re-runs reuse the same
+ * `id` for each record, making consecutive snapshots idempotent when the
+ * source data hasn't changed.
+ */
+export interface ExistingIds {
+  /** `<sheet>/<filename>` → existing `id` field. */
+  readonly byFile: Map<string, string>;
+}
+
+export function newExistingIds(): ExistingIds {
+  return { byFile: new Map() };
+}
+
+export interface TranslateCtx {
+  readonly idMaps: IdMaps;
+  readonly warnings: Warnings;
+  /** Wall clock for `now`-style defaults — kept deterministic in tests. */
+  readonly now: string;
+  /** Carry-forward UUIDs from the previous snapshot. */
+  readonly existingIds: ExistingIds;
+}
+
+/** Mint a fresh UUIDv7 or reuse the one we already wrote for this file. */
+function idFor(ctx: TranslateCtx, filePath: string): string {
+  const existing = ctx.existingIds.byFile.get(filePath);
+  if (existing) return existing;
+  return uuidv7();
+}
+
+export function translatePerson(row: RawPerson, ctx: TranslateCtx): Person {
+  const legacyId = row.ID;
+  const username = nonEmptyStr(row.Username) ?? `legacy-${legacyId}`;
+  const slug = safeSlug(username, 'people', 50, false, {
+    idMaps: ctx.idMaps,
+    warnings: ctx.warnings,
+    legacyId,
+  });
+
+  const id = idFor(ctx, `people/${legacyId}`);
+  ctx.idMaps.personByLegacy.set(legacyId, id);
+  ctx.idMaps.personSlugByLegacy.set(legacyId, slug);
+
+  const firstName = nonEmptyStr(row.FirstName);
+  const lastName = nonEmptyStr(row.LastName);
+  const computedName = [firstName, lastName].filter((s) => s !== null).join(' ').trim();
+  const fullNameRaw =
+    nonEmptyStr(row.PreferredName) ??
+    (computedName.length > 0 ? computedName : username);
+  // Schema caps fullName at 120 chars — silently truncate longer names.
+  const fullName = fullNameRaw.length > 120 ? fullNameRaw.slice(0, 120) : fullNameRaw;
+  if (fullName !== fullNameRaw) {
+    ctx.warnings.push(
+      `[people] legacyId=${legacyId} fullName truncated from ${fullNameRaw.length} to 120 chars`,
+    );
+  }
+
+  const accountLevel = mapAccountLevel(nonEmptyStr(row.AccountLevel) ?? 'User');
+
+  const createdAt = epochToIsoOr(row.Created, ctx.now);
+  const updatedAt = epochToIsoOr(row.Modified, createdAt);
+
+  // Bio is capped at 10,000 chars in the Zod schema. Laddr's About is
+  // freeform and has been weaponized by spam accounts — silently truncate
+  // and surface a warning so the source row is traceable.
+  let bio: string | undefined;
+  const rawBio = nonEmptyStr(row.About);
+  if (rawBio !== null) {
+    if (rawBio.length > 10_000) {
+      ctx.warnings.push(
+        `[people] legacyId=${legacyId} bio truncated from ${rawBio.length} to 10000 chars`,
+      );
+      bio = rawBio.slice(0, 10_000);
+    } else {
+      bio = rawBio;
+    }
+  }
+
+  const person: Person = {
+    id,
+    legacyId,
+    slug,
+    fullName,
+    ...(firstName !== null ? { firstName } : {}),
+    ...(lastName !== null ? { lastName } : {}),
+    ...(bio !== undefined ? { bio } : {}),
+    accountLevel,
+    slackSamlNameId: slug,
+    createdAt,
+    updatedAt,
+  };
+
+  return person;
+}
+
+export function translateProject(row: RawProject, ctx: TranslateCtx): Project {
+  const legacyId = row.ID;
+  const handle = nonEmptyStr(row.Handle) ?? `legacy-${legacyId}`;
+  const slug = safeSlug(handle, 'projects', 80, true, {
+    idMaps: ctx.idMaps,
+    warnings: ctx.warnings,
+    legacyId,
+  });
+
+  const id = idFor(ctx, `projects/${legacyId}`);
+  ctx.idMaps.projectByLegacy.set(legacyId, id);
+  ctx.idMaps.projectSlugByLegacy.set(legacyId, slug);
+
+  const createdAt = epochToIsoOr(row.Created, ctx.now);
+  const updatedAt = epochToIsoOr(row.Modified, createdAt);
+
+  const maintainerLegacy =
+    typeof row.MaintainerID === 'number' ? row.MaintainerID : null;
+  const maintainerId =
+    maintainerLegacy !== null ? ctx.idMaps.personByLegacy.get(maintainerLegacy) ?? null : null;
+  if (maintainerLegacy !== null && maintainerId === null) {
+    ctx.warnings.push(
+      `[projects] legacyId=${legacyId} MaintainerID=${maintainerLegacy} not found among imported people`,
+    );
+  }
+
+  const titleRaw = nonEmptyStr(row.Title) ?? slug;
+  const title = titleRaw.length > 200 ? titleRaw.slice(0, 200) : titleRaw;
+  if (title !== titleRaw) {
+    ctx.warnings.push(
+      `[projects] legacyId=${legacyId} title truncated from ${titleRaw.length} to 200 chars`,
+    );
+  }
+
+  return {
+    id,
+    legacyId,
+    slug,
+    title,
+    overview: nonEmptyStr(row.README) ?? undefined,
+    stage: normalizeStage(nonEmptyStr(row.Stage), ctx.warnings, legacyId),
+    maintainerId: maintainerId ?? undefined,
+    usersUrl: validHttps(nonEmptyStr(row.UsersUrl)) ?? undefined,
+    developersUrl: validHttps(nonEmptyStr(row.DevelopersUrl)) ?? undefined,
+    chatChannel: normalizeChatChannel(nonEmptyStr(row.ChatChannel)) ?? undefined,
+    featured: false,
+    createdAt,
+    updatedAt,
+  };
+}
+
+export function translateTag(row: RawTag, ctx: TranslateCtx): Tag | null {
+  const legacyId = row.ID;
+  const handle = nonEmptyStr(row.Handle);
+  if (!handle) {
+    ctx.warnings.push(`[tags] legacyId=${legacyId} has empty handle; skipped`);
+    return null;
+  }
+  const split = splitTagHandle(handle, nonEmptyStr(row.Title), ctx.warnings, legacyId);
+  if (!split) return null;
+
+  // The slug component derived from a handle like `topic.urban_design` can
+  // contain underscores. Tag slugs only allow `[a-z0-9-]` — coerce, but
+  // don't dedupe (tags are uniqued by `(namespace, slug)` already; collisions
+  // surface as gitsheets-side write errors and are exceedingly rare).
+  const slug = split.slug.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (slug.length === 0) {
+    ctx.warnings.push(
+      `[tags] legacyId=${legacyId} slug "${split.slug}" reduced to empty after sanitization; skipped`,
+    );
+    return null;
+  }
+
+  const id = idFor(ctx, `tags/${legacyId}`);
+  ctx.idMaps.tagByLegacy.set(legacyId, id);
+
+  const createdAt = epochToIsoOr(row.Created, ctx.now);
+  // Tags in laddr have no Modified column; use Created.
+  const updatedAt = createdAt;
+
+  return {
+    id,
+    legacyId,
+    namespace: split.namespace,
+    slug,
+    title: nonEmptyStr(row.Title) ?? slug,
+    createdAt,
+    updatedAt,
+  };
+}
+
+export interface MembershipResult {
+  readonly membership: ProjectMembership;
+  /** legacyId pair for stable filename derivation on the legacy-import branch. */
+  readonly legacyIds: { projectLegacyId: number; personLegacyId: number };
+}
+
+/**
+ * Translate a project-membership row. `projectMaintainerLegacyId` is the
+ * project's `MaintainerID` so we can denormalize `isMaintainer` per the data
+ * model (`ProjectMembership.isMaintainer == (Project.maintainerId == personId)`).
+ */
 export function translateMembership(
-  row: Row,
-  ctx: { idMaps: IdMaps; warnings: Warnings; now: string },
+  row: RawMembership,
+  projectMaintainerLegacyId: number | null,
+  ctx: TranslateCtx,
 ): MembershipResult | null {
-  const projectLegacyId = requireInt(row, 'ProjectID');
-  const personLegacyId = requireInt(row, 'PersonID');
+  const projectLegacyId = row.ProjectID;
+  const personLegacyId = row.MemberID;
   const projectId = ctx.idMaps.projectByLegacy.get(projectLegacyId);
   const personId = ctx.idMaps.personByLegacy.get(personLegacyId);
-  const projectSlug = ctx.idMaps.projectSlugByLegacy.get(projectLegacyId);
-  const personSlug = personId ? ctx.idMaps.personSlugById.get(personId) : undefined;
-  if (!projectId || !personId || !projectSlug || !personSlug) {
+  if (!projectId || !personId) {
     ctx.warnings.push(
       `[project-memberships] project=${projectLegacyId} person=${personLegacyId} — unresolved FK; skipped`,
     );
     return null;
   }
 
-  const joinedAt = toIsoOrDefault(row, 'Joined', toIsoOrDefault(row, 'Created', ctx.now));
-  const role = nonEmptyStr(row, 'Role');
-  const isMaintainer =
-    (str(row, 'Role') ?? '').toLowerCase() === 'maintainer' ||
-    int(row, 'IsMaintainer') === 1;
+  const joinedAt = epochToIsoOr(row.Created, ctx.now);
+  const role = nonEmptyStr(row.Role);
+  const isMaintainer = projectMaintainerLegacyId === personLegacyId;
 
   return {
     membership: {
-      id: uuidv7(),
+      id: idFor(ctx, `project-memberships/${projectLegacyId}-${personLegacyId}`),
       projectId,
       personId,
       role: role ?? undefined,
@@ -453,66 +523,69 @@ export function translateMembership(
       createdAt: joinedAt,
       updatedAt: joinedAt,
     },
-    pathFields: { projectSlug, personSlug },
+    legacyIds: { projectLegacyId, personLegacyId },
   };
 }
 
 export interface UpdateResult {
   readonly update: ProjectUpdate;
-  readonly pathFields: { projectSlug: string };
+  readonly projectLegacyId: number;
 }
 
 export function translateUpdate(
-  row: Row,
-  ctx: { idMaps: IdMaps; warnings: Warnings; now: string },
+  row: RawProjectUpdate,
+  ctx: TranslateCtx,
 ): UpdateResult | null {
-  const legacyId = requireInt(row, 'ID');
-  const projectLegacyId = requireInt(row, 'ProjectID');
+  const legacyId = row.ID;
+  const projectLegacyId = row.ProjectID;
   const projectId = ctx.idMaps.projectByLegacy.get(projectLegacyId);
-  const projectSlug = ctx.idMaps.projectSlugByLegacy.get(projectLegacyId);
-  if (!projectId || !projectSlug) {
+  if (!projectId) {
     ctx.warnings.push(
       `[project-updates] legacyId=${legacyId} project=${projectLegacyId} — unresolved FK; skipped`,
     );
     return null;
   }
 
-  const authorLegacyId = int(row, 'AuthorID');
-  const authorId =
-    authorLegacyId !== null ? (ctx.idMaps.personByLegacy.get(authorLegacyId) ?? null) : null;
-
+  // Laddr provides a per-project Number directly; preserve it where present,
+  // otherwise fall back to a synthesized sequence (we still track our own
+  // counter in case Number is missing).
   const next = (ctx.idMaps.nextUpdateNumberByProjectId.get(projectId) ?? 0) + 1;
   ctx.idMaps.nextUpdateNumberByProjectId.set(projectId, next);
+  const number = typeof row.Number === 'number' && row.Number > 0 ? row.Number : next;
 
-  const createdAt = toIsoOrDefault(row, 'Created', ctx.now);
-  const updatedAt = toIsoOrDefault(row, 'Modified', createdAt);
+  const authorLegacyId = typeof row.CreatorID === 'number' ? row.CreatorID : null;
+  const authorId =
+    authorLegacyId !== null ? ctx.idMaps.personByLegacy.get(authorLegacyId) ?? null : null;
+
+  const createdAt = epochToIsoOr(row.Created, ctx.now);
+  const updatedAt = epochToIsoOr(row.Modified, createdAt);
 
   return {
     update: {
-      id: uuidv7(),
+      id: idFor(ctx, `project-updates/${legacyId}`),
       legacyId,
       projectId,
       authorId: authorId ?? undefined,
-      body: nonEmptyStr(row, 'Update') ?? nonEmptyStr(row, 'Body') ?? '(no body)',
-      number: next,
+      body: nonEmptyStr(row.Body) ?? '(no body)',
+      number,
       createdAt,
       updatedAt,
     },
-    pathFields: { projectSlug },
+    projectLegacyId,
   };
 }
 
 export interface BuzzResult {
   readonly buzz: ProjectBuzz;
-  readonly pathFields: { projectSlug: string };
+  readonly projectLegacyId: number;
 }
 
 export function translateBuzz(
-  row: Row,
-  ctx: { idMaps: IdMaps; warnings: Warnings; now: string },
+  row: RawProjectBuzz,
+  ctx: TranslateCtx,
 ): BuzzResult | null {
-  const legacyId = requireInt(row, 'ID');
-  const projectLegacyId = requireInt(row, 'ProjectID');
+  const legacyId = row.ID;
+  const projectLegacyId = row.ProjectID;
   const projectId = ctx.idMaps.projectByLegacy.get(projectLegacyId);
   const projectSlug = ctx.idMaps.projectSlugByLegacy.get(projectLegacyId);
   if (!projectId || !projectSlug) {
@@ -521,7 +594,7 @@ export function translateBuzz(
     );
     return null;
   }
-  const url = validHttps(nonEmptyStr(row, 'URL'));
+  const url = validHttps(nonEmptyStr(row.URL));
   if (!url) {
     ctx.warnings.push(
       `[project-buzz] legacyId=${legacyId} missing/invalid URL; skipped`,
@@ -529,27 +602,24 @@ export function translateBuzz(
     return null;
   }
 
-  const headline = nonEmptyStr(row, 'Headline') ?? `buzz-${legacyId}`;
+  const headline = nonEmptyStr(row.Headline) ?? `buzz-${legacyId}`;
   const slug = safeSlug(headline, `project-buzz:${projectSlug}`, 50, false, {
     idMaps: ctx.idMaps,
     warnings: ctx.warnings,
     legacyId,
   });
 
-  const postedByLegacy = int(row, 'PostedByID') ?? int(row, 'AuthorID');
+  const postedByLegacy = typeof row.CreatorID === 'number' ? row.CreatorID : null;
   const postedById =
-    postedByLegacy !== null ? (ctx.idMaps.personByLegacy.get(postedByLegacy) ?? null) : null;
+    postedByLegacy !== null ? ctx.idMaps.personByLegacy.get(postedByLegacy) ?? null : null;
 
-  const createdAt = toIsoOrDefault(row, 'Created', ctx.now);
-  const publishedAt =
-    toIso(row, 'Published') ??
-    toIso(row, 'PublishedDate') ??
-    createdAt;
-  const updatedAt = toIsoOrDefault(row, 'Modified', createdAt);
+  const createdAt = epochToIsoOr(row.Created, ctx.now);
+  const publishedAt = epochToIsoOr(row.Published, createdAt);
+  const updatedAt = epochToIsoOr(row.Modified, createdAt);
 
   return {
     buzz: {
-      id: uuidv7(),
+      id: idFor(ctx, `project-buzz/${legacyId}`),
       legacyId,
       projectId,
       postedById: postedById ?? undefined,
@@ -557,82 +627,68 @@ export function translateBuzz(
       headline,
       url,
       publishedAt,
-      summary: nonEmptyStr(row, 'Summary') ?? undefined,
+      summary: nonEmptyStr(row.Summary) ?? undefined,
       createdAt,
       updatedAt,
     },
-    pathFields: { projectSlug },
+    projectLegacyId,
   };
 }
 
-export function translateTag(
-  row: Row,
-  ctx: { idMaps: IdMaps; warnings: Warnings; now: string },
-): Tag | null {
-  const legacyId = requireInt(row, 'ID');
-  const handle = nonEmptyStr(row, 'Handle');
-  if (!handle) {
-    ctx.warnings.push(`[tags] legacyId=${legacyId} has empty handle; skipped`);
-    return null;
-  }
-  const split = splitTagHandle(handle, ctx.warnings, legacyId);
-  if (!split) return null;
-
-  const id = uuidv7();
-  ctx.idMaps.tagByLegacy.set(legacyId, id);
-
-  const createdAt = toIsoOrDefault(row, 'Created', ctx.now);
-  const updatedAt = toIsoOrDefault(row, 'Modified', createdAt);
-
-  return {
-    id,
-    legacyId,
-    namespace: split.namespace,
-    slug: split.slug,
-    title: nonEmptyStr(row, 'Title') ?? split.slug,
-    createdAt,
-    updatedAt,
-  };
+export interface TagAssignmentResult {
+  readonly assignment: TagAssignment;
+  /** Stable filename component (legacy tag id). */
+  readonly tagLegacyId: number;
+  /** Stable filename component (legacy taggable id). */
+  readonly taggableLegacyId: number;
 }
 
+/**
+ * Synthesize a TagAssignment from an embedded Tag (as returned by laddr's
+ * `?include=Tags`) attached to either a project or a person.
+ *
+ * Laddr's underlying `tag_items` table has its own ID, but the JSON output
+ * doesn't surface it — we mint a UUIDv7. The legacy-import branch's
+ * filename is derived from the (tagLegacyId, taggableType, taggableLegacyId)
+ * triple so re-runs overwrite the same path.
+ */
 export function translateTagAssignment(
-  row: Row,
-  ctx: { idMaps: IdMaps; warnings: Warnings; now: string },
-): TagAssignment | null {
-  const legacyId = requireInt(row, 'ID');
-  const tagLegacyId = requireInt(row, 'TagID');
+  rawTag: RawTag,
+  taggableLegacyId: number,
+  taggableType: 'project' | 'person',
+  ctx: TranslateCtx,
+): TagAssignmentResult | null {
+  const tagLegacyId = rawTag.ID;
   const tagId = ctx.idMaps.tagByLegacy.get(tagLegacyId);
   if (!tagId) {
     ctx.warnings.push(
-      `[tag-assignments] legacyId=${legacyId} TagID=${tagLegacyId} not imported; skipped`,
+      `[tag-assignments] tag legacyId=${tagLegacyId} not in tag map; skipped`,
     );
     return null;
   }
-  const contextClass = nonEmptyStr(row, 'ContextClass');
-  if (!contextClass) {
-    ctx.warnings.push(`[tag-assignments] legacyId=${legacyId} missing ContextClass; skipped`);
-    return null;
-  }
-  const taggableType = mapContextClass(contextClass, ctx.warnings, legacyId);
-  if (!taggableType) return null;
-
-  const contextLegacyId = requireInt(row, 'ContextID');
   const taggableId =
     taggableType === 'project'
-      ? ctx.idMaps.projectByLegacy.get(contextLegacyId)
-      : ctx.idMaps.personByLegacy.get(contextLegacyId);
+      ? ctx.idMaps.projectByLegacy.get(taggableLegacyId)
+      : ctx.idMaps.personByLegacy.get(taggableLegacyId);
   if (!taggableId) {
     ctx.warnings.push(
-      `[tag-assignments] legacyId=${legacyId} ${taggableType} ContextID=${contextLegacyId} not imported; skipped`,
+      `[tag-assignments] ${taggableType} legacyId=${taggableLegacyId} unresolved; skipped`,
     );
     return null;
   }
 
   return {
-    id: uuidv7(),
-    tagId,
-    taggableType,
-    taggableId,
-    createdAt: toIsoOrDefault(row, 'Created', ctx.now),
+    assignment: {
+      id: idFor(
+        ctx,
+        `tag-assignments/${tagLegacyId}-${taggableType}-${taggableLegacyId}`,
+      ),
+      tagId,
+      taggableType,
+      taggableId,
+      createdAt: epochToIsoOr(rawTag.Created, ctx.now),
+    },
+    tagLegacyId,
+    taggableLegacyId,
   };
 }

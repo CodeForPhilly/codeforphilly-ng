@@ -27,7 +27,7 @@ should be explicit in the cutover Slack post.
 |------|------|-------------|
 | T-7 days | Announce; freeze write workflow on legacy site | Yes |
 | T-3 days | Final staging-rehearsal `cutover-dry-run.ts` | Yes |
-| T-1 day | Production mysqldump; production import; verify counts | Yes |
+| T-1 day | Final import from live laddr JSON; verify counts | Yes |
 | T-0      | DNS flip, maintenance page comes down | **Point of no return** when first new sign-in lands |
 | T+1h     | Active monitoring; smoke-test public flows | Yes (rollback) |
 | T+24h    | Post-cutover all-clear in Slack | Yes (rollback) |
@@ -56,64 +56,62 @@ should be explicit in the cutover Slack post.
 The rehearsal must run end-to-end against `codeforphilly-rewrite-staging.k8s.phl.io`
 and produce a passing report.
 
-1. Grab a recent laddr mysqldump (`mysqldump -h ... laddr_production > /scratch/laddr-T3.sql`).
-2. Run the dry-run script:
+1. Run the dry-run script against the live laddr site:
 
    ```bash
    npm run -w apps/api script:cutover-dry-run -- \
-     --sql=/scratch/laddr-T3.sql \
+     --source-host=codeforphilly.org \
      --data-repo=/scratch/dry-run-data \
-     --private-store=/scratch/dry-run-private \
      --target=https://codeforphilly-rewrite-staging.k8s.phl.io \
      --json=/scratch/dry-run-T3.json
    ```
 
-3. Review the JSON report:
+2. Review the JSON report:
    - `stages.import` must be `true`.
-   - `stages.countDiff` must be `true` (every mapped table matches).
+   - `stages.countDiff` must be `true` (every sheet's imported count is within tolerance of the server's reported `total`).
    - `stages.smoke` must be `true` (all probes return 2xx/3xx).
-4. Manually verify Slack SAML continuity for a test laddr user.
+3. Manually verify Slack SAML continuity for a test laddr user.
    This is the highest-stakes single check. See
    [specs/api/saml.md](../../specs/api/saml.md): a user's `slackSamlNameId`
    must equal their pre-cutover Slack NameID byte-for-byte.
-5. File any anomalies, schedule a re-run before T-0 if anything fails.
+4. File any anomalies, schedule a re-run before T-0 if anything fails.
 
-If the dry-run reports any unmapped tables, **stop**. Either the dump shape
-drifted or the importer needs an update. Don't proceed to T-0 with unmapped
-data — those rows will silently not migrate.
+If the dry-run reports unexpectedly low imported counts for any sheet,
+**stop**. Either the laddr JSON shape drifted (a new field broke Zod
+validation) or the importer needs an update. Don't proceed to T-0 with
+silently-dropped data.
 
 ## T-1 day: production migration
 
-The production import is one big commit on a fresh data repo, plus PUTs to a
-fresh private-storage bucket.
+The production import is a snapshot commit on the `legacy-import` branch of
+the production data repo. Private data (emails, password hashes) is **not**
+populated by this importer — see the [account-claim flow](../../specs/behaviors/account-migration.md).
 
-1. Take the production mysqldump:
+1. Clone the production data repo locally:
 
    ```bash
-   mysqldump -h prod-db laddr_production > /scratch/laddr-T1.sql
-   sha256sum /scratch/laddr-T1.sql > /scratch/laddr-T1.sql.sha256
+   git clone git@github.com:CodeForPhilly/codeforphilly-data.git /scratch/codeforphilly-data
    ```
 
-2. Create empty production data repo (the GitHub remote at
-   `CodeForPhilly/codeforphilly-data`) with the sheet configs from
-   `apps/api/scripts/setup-dev-data.ts`. Push to GitHub.
-3. Run the importer against the production target — **with `--dry-run` first**:
+2. Run the importer against the production target — **with `--dry-run` first**:
 
    ```bash
    npm run -w apps/api script:import-laddr -- \
-     --sql=/scratch/laddr-T1.sql \
+     --source-host=codeforphilly.org \
      --data-repo=/scratch/codeforphilly-data \
-     --private-store=/scratch/private-storage \
+     --branch=legacy-import \
      --dry-run
    ```
 
-4. Review the dry-run report. Warnings about slug normalization are
-   expected; errors are not.
-5. Run the importer **without `--dry-run`**. This is one commit per entity
-   sheet on the data repo plus a private-storage write per Person.
-6. Push the data-repo commit(s) to the production GitHub remote.
-7. Upload the two `.jsonl` files to the production S3 bucket.
-8. Run reconciliation:
+3. Review the dry-run report. Warnings about slug normalization, missing tag
+   namespaces, and skipped HTTP-only buzz URLs are expected; zod errors are
+   not.
+4. Run the importer **without `--dry-run`**. This creates one snapshot
+   commit on the `legacy-import` branch.
+5. Push the `legacy-import` branch to the production GitHub remote.
+6. Merge `legacy-import` into `main` (operator step — review the diff in a
+   PR, resolve any path-template conflicts, then merge).
+7. Run reconciliation:
 
    ```bash
    npm run -w apps/api script:reconcile -- --json=/scratch/reconcile-T1.json
@@ -122,13 +120,13 @@ fresh private-storage bucket.
    Every counter should be zero in the orphan + inconsistent categories.
    If anything is flagged, **stop** and investigate before T-0.
 
-9. Deploy the rewrite to production via the production GitOps repo (a
+8. Deploy the rewrite to production via the production GitOps repo (a
    sibling to [`cfp-sandbox-cluster`](https://github.com/CodeForPhilly/cfp-sandbox-cluster)
    — see [deploy.md](deploy.md)). The pod will boot against the
    just-imported data + bucket but receive no public traffic yet (Gateway
    hostname not pointed at the prod LoadBalancer yet).
 
-10. Smoke-test the production hostname through `/etc/hosts` or via direct
+9. Smoke-test the production hostname through `/etc/hosts` or via direct
     cluster IP: hit `/api/health`, `/api/people/<known-slug>`,
     `/api/projects/<known-slug>`. Don't yet flip DNS.
 
@@ -140,9 +138,10 @@ engineering second has the runbook open and reads checks back.
 1. **0:00 — maintenance page.** Put a static maintenance page on
    the legacy `codeforphilly.org`. (Legacy site can stay up under
    the hood; we just don't want users hitting a half-state.)
-2. **0:01 — final delta.** Re-run the importer with the same data-repo
-   path against a **new** mysqldump taken just now. Idempotency on
-   `legacyId` means only new/changed records are committed since T-1.
+2. **0:01 — final delta.** Re-run the importer against the live laddr site
+   into the same data-repo path. UUIDs are read-forward from the previous
+   snapshot's tree, so the diff between this commit and the T-1 commit is
+   exactly the records that changed upstream since T-1.
 3. **0:05 — DNS flip.** Update the `codeforphilly.org` A/CNAME to point
    at the rewrite's ingress. TTL was lowered to 60s a week ago, so
    propagation completes in under two minutes for most resolvers.

@@ -1,31 +1,44 @@
 /**
- * Orchestrator: one-shot laddr → v1 migration.
+ * Orchestrator: laddr (live JSON) → v1 snapshot commit on `legacy-import`.
  *
- * Public side: one gitsheets commit per entity type (7 commits), all under
- * a single pseudonymous author per specs/behaviors/storage.md. Idempotence
- * comes from a pre-pass that builds `byLegacyId.<entity>` from any existing
- * records in the data repo; subsequent rows with the same `legacyId` are
- * skipped (insert-if-absent semantics rather than always-overwrite, because
- * re-running an import is only meant to backfill rows added since).
+ * Each run produces one new commit whose tree fully replaces the previous
+ * one. Consecutive commits diff cleanly to show what changed upstream on
+ * the live laddr site between runs.
  *
- * Private side: PrivateProfile + LegacyPasswordCredential land in the
- * private store via a single transact() at the end of the people pass.
+ * Branch model:
+ *   - On first run, `legacy-import` is created from the `empty` branch (which
+ *     carries only `.gitsheets/` configs, no records).
+ *   - On subsequent runs, the importer resets a working ref to the current
+ *     `legacy-import` HEAD, removes every importer-owned directory, writes
+ *     fresh files, and commits.
+ *   - Records use `<sheet>/<legacyId>.toml` paths (composite for memberships
+ *     and tag-assignments) so re-runs overwrite stable filenames. The
+ *     legacy-import branch is parallel history — the runtime spec's slug-
+ *     based path templates apply once data is merged into `main`, which is
+ *     an operator step outside this importer's scope.
  *
- * All writes are gated by `--dry-run`. In dry-run mode the script counts
- * and validates everything but never touches the git repo or private store.
+ * Author identity on every commit: the pseudonymous Code for Philly API
+ * user (see plans/laddr-import-via-json.md). The agent's git config is
+ * never used.
+ *
+ * Side effects:
+ *   - Writes/removes files in the data repo's working tree
+ *   - Creates one commit on the local `legacy-import` branch
+ *   - Does NOT push to origin (operator's call)
+ *
+ * Private-store side: out of scope for this importer. The JSON endpoints
+ * expose only public fields; private data (emails, password hashes,
+ * newsletter prefs) will be imported separately on a future plan.
  */
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-import { openRepo } from 'gitsheets';
-
 const exec = promisify(execFile);
+
 import {
-  LegacyPasswordCredentialSchema,
   PersonSchema,
-  PrivateProfileSchema,
   ProjectBuzzSchema,
   ProjectMembershipSchema,
   ProjectSchema,
@@ -34,9 +47,7 @@ import {
   TagSchema,
 } from '@cfp/shared/schemas';
 import type {
-  LegacyPasswordCredential,
   Person,
-  PrivateProfile,
   Project,
   ProjectBuzz,
   ProjectMembership,
@@ -45,9 +56,22 @@ import type {
   TagAssignment,
 } from '@cfp/shared/schemas';
 
-import type { PrivateStore } from '../../src/store/private/interface.js';
-import { streamRows, type Row } from './mysqldump-parser.js';
 import {
+  fetchAllPages,
+  RawPersonSchema,
+  RawProjectBuzzSchema,
+  RawProjectSchema,
+  RawProjectUpdateSchema,
+  RawTagSchema,
+  type FetchOptions,
+  type RawPerson,
+  type RawProject,
+  type RawProjectBuzz,
+  type RawProjectUpdate,
+  type RawTag,
+} from './json-fetcher.js';
+import {
+  newExistingIds,
   newIdMaps,
   translateBuzz,
   translateMembership,
@@ -56,447 +80,701 @@ import {
   translateTag,
   translateTagAssignment,
   translateUpdate,
+  type ExistingIds,
   type IdMaps,
+  type TranslateCtx,
   type Warnings,
 } from './translators.js';
 
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
 export interface ImportOptions {
-  readonly sql: string;
+  /** Source host (e.g. `codeforphilly.org`). */
+  readonly sourceHost: string;
+  /** Path to a local clone of the `codeforphilly-data` repo. */
   readonly dataRepo: string;
-  readonly privateStore: PrivateStore;
+  /** Branch to write the snapshot on; default `legacy-import`. */
+  readonly branch?: string;
+  /** Ref to fall back to as the parent when `branch` doesn't exist yet; default `origin/empty`. */
+  readonly initialParent?: string;
+  /** If true, fetch + translate + report but do not write to the repo. */
   readonly dryRun?: boolean;
-  readonly verbose?: boolean;
-  /** Per-table truncation: stop after N rows of each table. */
+  /** If true, write files + stage but do not commit. */
+  readonly noCommit?: boolean;
+  /** Truncate each fetched resource to N rows (for dev loops). */
   readonly limit?: number;
-  /** Override the import wall clock for deterministic tests. */
+  /** Increase logging verbosity. */
+  readonly verbose?: boolean;
+  /** Override the wall clock; deterministic in tests. */
   readonly now?: string;
+  /** Override `fetch` for testing. */
+  readonly fetchImpl?: typeof fetch;
+  /** Polite per-page delay. */
+  readonly delayMs?: number;
+  /** Per-page count. */
+  readonly pageSize?: number;
 }
 
-export interface EntityReport {
-  input: number;
+export interface EntityCounts {
+  /** Records validated and queued for write. */
   imported: number;
+  /** Records dropped at translation (unresolved FKs, invalid slugs, etc.). */
   skipped: number;
+  /** Records that threw at Zod validation. */
   errors: number;
 }
 
 export interface ImportReport {
-  readonly sourceSha256: string;
   readonly runAt: string;
-  readonly entities: Record<string, EntityReport>;
+  readonly sourceHost: string;
+  readonly branch: string;
+  readonly counts: Record<string, EntityCounts>;
   readonly warnings: string[];
-  /** Commit hashes produced (in order), or [] in dry-run. */
-  readonly commits: string[];
+  /** Commit hash produced, or null in `--dry-run` / `--no-commit` / no-changes. */
+  readonly commitHash: string | null;
+  /** True when the working tree after staging matches HEAD (so no commit was made). */
+  readonly noChanges: boolean;
 }
 
 const AUTHOR_NAME = 'Code for Philly API';
 const AUTHOR_EMAIL = 'api@users.noreply.codeforphilly.org';
 
-interface RunState {
-  readonly idMaps: IdMaps;
-  readonly warnings: Warnings;
-  readonly entities: Record<string, EntityReport>;
-  readonly opts: ImportOptions;
-  readonly now: string;
-  readonly sourceSha256: string;
-  readonly commits: string[];
-  readonly existing: ExistingLegacyIds;
-}
+const IMPORTER_OWNED_DIRS = [
+  'people',
+  'projects',
+  'tags',
+  'project-memberships',
+  'project-updates',
+  'project-buzz',
+  'tag-assignments',
+] as const;
 
-interface ExistingLegacyIds {
-  /** legacyId → { id, slug } */
-  readonly people: Map<number, { id: string; slug: string }>;
-  readonly projects: Map<number, { id: string; slug: string }>;
-  readonly tags: Map<number, string>;
-  readonly projectUpdates: Set<number>;
-  readonly projectBuzz: Set<number>;
-  /**
-   * Membership composite keys (`projectSlug/personSlug`) already committed —
-   * memberships have no legacyId of their own to dedupe on, so path-presence
-   * is the truth.
-   */
-  readonly membershipPaths: Set<string>;
-  /** Tag-assignment composite keys (`tagId/type/taggableId`) already committed. */
-  readonly tagAssignmentPaths: Set<string>;
-}
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
-export async function importLaddr(opts: ImportOptions): Promise<ImportReport> {
-  const warnings: string[] = [];
-  const sink: Warnings = {
+export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportReport> {
+  const runAt = opts.now ?? new Date().toISOString();
+  const branch = opts.branch ?? 'legacy-import';
+  const initialParent = opts.initialParent ?? 'origin/empty';
+  const log = opts.verbose ? (msg: string) => console.log(msg) : (): void => {};
+
+  const warningsList: string[] = [];
+  const warnings: Warnings = {
     push: (w) => {
-      warnings.push(w);
+      warningsList.push(w);
       if (opts.verbose) console.warn(w);
     },
   };
 
-  const sourceSha256 = await hashFile(opts.sql);
-  const now = opts.now ?? new Date().toISOString();
-
-  const entities: Record<string, EntityReport> = {
+  const counts: Record<string, EntityCounts> = {
+    tags: blank(),
     people: blank(),
     projects: blank(),
     'project-memberships': blank(),
     'project-updates': blank(),
     'project-buzz': blank(),
-    tags: blank(),
     'tag-assignments': blank(),
   };
 
-  const existing = await collectExistingLegacyIds(opts.dataRepo);
+  const idMaps = newIdMaps();
 
-  const state: RunState = {
-    idMaps: newIdMaps(),
-    warnings: sink,
-    entities,
-    opts,
-    now,
-    sourceSha256,
-    commits: [],
-    existing,
+  // -------------------------------------------------------------------------
+  // 0. Pre-pass — read existing UUIDs from the target branch so re-runs
+  //    are idempotent. Without this, every run mints fresh UUIDs and
+  //    every commit diffs against the last even when nothing changed
+  //    upstream.
+  // -------------------------------------------------------------------------
+  const existingIds = opts.dryRun
+    ? newExistingIds()
+    : await collectExistingIds(opts.dataRepo, branch, initialParent);
+  const ctx: TranslateCtx = { idMaps, warnings, now: runAt, existingIds };
+
+  // -------------------------------------------------------------------------
+  // 1. Fetch + translate everything in FK order. We accumulate in memory —
+  //    laddr's full snapshot is ~30k rows total which fits comfortably.
+  // -------------------------------------------------------------------------
+  const fetchOpts: FetchOptions = {
+    host: opts.sourceHost,
+    userAgent: 'cfp-importer/dev',
+    pageSize: opts.pageSize ?? 200,
+    limit: opts.limit,
+    delayMs: opts.delayMs ?? 250,
+    fetchImpl: opts.fetchImpl,
+    log,
   };
 
-  // Order matters — FK resolution depends on earlier passes filling the id
-  // maps. Each pass yields rows lazily via streamRows; on dry-run nothing
-  // is written but counts/warnings still tally correctly.
-  await importTags(state);
-  await importPeople(state);
-  await importProjects(state);
-  await importMemberships(state);
-  await importProjectUpdates(state);
-  await importProjectBuzz(state);
-  await importTagAssignments(state);
+  log(`[import] fetching tags from ${opts.sourceHost}`);
+  const tags: Tag[] = [];
+  for await (const row of fetchAllPages<RawTag>(
+    '/tags',
+    RawTagSchema,
+    {},
+    fetchOpts,
+  )) {
+    const translated = translateTag(row, ctx);
+    if (translated === null) {
+      counts.tags!.skipped++;
+      continue;
+    }
+    const parsed = parseOrSkip('tags', () => TagSchema.parse(translated), counts, warnings);
+    if (parsed) {
+      tags.push(parsed);
+      counts.tags!.imported++;
+    }
+  }
+
+  log(`[import] fetching people from ${opts.sourceHost} (this is the large one)`);
+  const people: Person[] = [];
+  const tagAssignments: TagAssignment[] = [];
+  const tagAssignmentLegacyTuples: Array<{ tagLegacyId: number; taggableLegacyId: number; taggableType: 'project' | 'person' }> = [];
+  for await (const row of fetchAllPages<RawPerson>(
+    '/people',
+    RawPersonSchema,
+    { include: 'Tags' },
+    fetchOpts,
+  )) {
+    let translated: Person;
+    try {
+      translated = translatePerson(row, ctx);
+    } catch (err) {
+      counts.people!.skipped++;
+      warnings.push(`[people] legacyId=${row.ID} translator threw: ${describe(err)}`);
+      continue;
+    }
+    const parsed = parseOrSkip('people', () => PersonSchema.parse(translated), counts, warnings);
+    if (parsed) {
+      people.push(parsed);
+      counts.people!.imported++;
+      for (const rawTag of row.Tags ?? []) {
+        const ta = translateTagAssignment(rawTag, row.ID, 'person', ctx);
+        if (ta === null) {
+          counts['tag-assignments']!.skipped++;
+          continue;
+        }
+        const parsedTa = parseOrSkip(
+          'tag-assignments',
+          () => TagAssignmentSchema.parse(ta.assignment),
+          counts,
+          warnings,
+        );
+        if (parsedTa) {
+          tagAssignments.push(parsedTa);
+          tagAssignmentLegacyTuples.push({
+            tagLegacyId: ta.tagLegacyId,
+            taggableLegacyId: ta.taggableLegacyId,
+            taggableType: 'person',
+          });
+          counts['tag-assignments']!.imported++;
+        }
+      }
+    }
+  }
+
+  log(`[import] fetching projects from ${opts.sourceHost} (with Tags + Memberships)`);
+  const projects: Project[] = [];
+  const memberships: Array<{
+    record: ProjectMembership;
+    legacyIds: { projectLegacyId: number; personLegacyId: number };
+  }> = [];
+  for await (const row of fetchAllPages<RawProject>(
+    '/projects',
+    RawProjectSchema,
+    { include: 'Tags,Memberships' },
+    fetchOpts,
+  )) {
+    let translated: Project;
+    try {
+      translated = translateProject(row, ctx);
+    } catch (err) {
+      counts.projects!.skipped++;
+      warnings.push(`[projects] legacyId=${row.ID} translator threw: ${describe(err)}`);
+      continue;
+    }
+    const parsed = parseOrSkip(
+      'projects',
+      () => ProjectSchema.parse(translated),
+      counts,
+      warnings,
+    );
+    if (parsed) {
+      projects.push(parsed);
+      counts.projects!.imported++;
+
+      for (const rawTag of row.Tags ?? []) {
+        const ta = translateTagAssignment(rawTag, row.ID, 'project', ctx);
+        if (ta === null) {
+          counts['tag-assignments']!.skipped++;
+          continue;
+        }
+        const parsedTa = parseOrSkip(
+          'tag-assignments',
+          () => TagAssignmentSchema.parse(ta.assignment),
+          counts,
+          warnings,
+        );
+        if (parsedTa) {
+          tagAssignments.push(parsedTa);
+          tagAssignmentLegacyTuples.push({
+            tagLegacyId: ta.tagLegacyId,
+            taggableLegacyId: ta.taggableLegacyId,
+            taggableType: 'project',
+          });
+          counts['tag-assignments']!.imported++;
+        }
+      }
+
+      const maintainerLegacyId =
+        typeof row.MaintainerID === 'number' ? row.MaintainerID : null;
+      for (const rawMem of row.Memberships ?? []) {
+        const m = translateMembership(rawMem, maintainerLegacyId, ctx);
+        if (m === null) {
+          counts['project-memberships']!.skipped++;
+          continue;
+        }
+        const parsedMem = parseOrSkip(
+          'project-memberships',
+          () => ProjectMembershipSchema.parse(m.membership),
+          counts,
+          warnings,
+        );
+        if (parsedMem) {
+          memberships.push({ record: parsedMem, legacyIds: m.legacyIds });
+          counts['project-memberships']!.imported++;
+        }
+      }
+    }
+  }
+
+  log(`[import] fetching project-updates from ${opts.sourceHost}`);
+  const updates: Array<{ record: ProjectUpdate; projectLegacyId: number }> = [];
+  for await (const row of fetchAllPages<RawProjectUpdate>(
+    '/project-updates',
+    RawProjectUpdateSchema,
+    {},
+    fetchOpts,
+  )) {
+    const u = translateUpdate(row, ctx);
+    if (u === null) {
+      counts['project-updates']!.skipped++;
+      continue;
+    }
+    const parsedU = parseOrSkip(
+      'project-updates',
+      () => ProjectUpdateSchema.parse(u.update),
+      counts,
+      warnings,
+    );
+    if (parsedU) {
+      updates.push({ record: parsedU, projectLegacyId: u.projectLegacyId });
+      counts['project-updates']!.imported++;
+    }
+  }
+
+  log(`[import] fetching project-buzz from ${opts.sourceHost}`);
+  const buzz: Array<{ record: ProjectBuzz; projectLegacyId: number }> = [];
+  for await (const row of fetchAllPages<RawProjectBuzz>(
+    '/project-buzz',
+    RawProjectBuzzSchema,
+    {},
+    fetchOpts,
+  )) {
+    const b = translateBuzz(row, ctx);
+    if (b === null) {
+      counts['project-buzz']!.skipped++;
+      continue;
+    }
+    const parsedB = parseOrSkip(
+      'project-buzz',
+      () => ProjectBuzzSchema.parse(b.buzz),
+      counts,
+      warnings,
+    );
+    if (parsedB) {
+      buzz.push({ record: parsedB, projectLegacyId: b.projectLegacyId });
+      counts['project-buzz']!.imported++;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 2. Dry-run: report and return without touching the repo.
+  // -------------------------------------------------------------------------
+  if (opts.dryRun) {
+    return {
+      runAt,
+      sourceHost: opts.sourceHost,
+      branch,
+      counts,
+      warnings: warningsList,
+      commitHash: null,
+      noChanges: false,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // 3. Stage tree in the data repo's working dir.
+  //    - Reset branch ref to current legacy-import HEAD (or initialParent if
+  //      the branch doesn't exist locally yet).
+  //    - Wipe every importer-owned directory.
+  //    - Write fresh files.
+  //    - `git add -A <owned-dirs>` and create commit.
+  // -------------------------------------------------------------------------
+  const repo = resolve(opts.dataRepo);
+  await ensureGitRepo(repo);
+  const parent = await ensureBranch(repo, branch, initialParent);
+  await checkoutBranch(repo, branch, parent);
+  await wipeOwnedDirectories(repo);
+
+  const filesWritten = await writeAllRecords(repo, {
+    tags,
+    people,
+    projects,
+    memberships,
+    updates,
+    buzz,
+    tagAssignments,
+    tagAssignmentLegacyTuples,
+    idMaps,
+    warnings,
+  });
+
+  log(`[import] wrote ${filesWritten} files`);
+
+  // -------------------------------------------------------------------------
+  // 4. Stage and check for changes.
+  // -------------------------------------------------------------------------
+  for (const dir of IMPORTER_OWNED_DIRS) {
+    await git(repo, 'add', '-A', '--', dir);
+  }
+
+  if (opts.noCommit) {
+    return {
+      runAt,
+      sourceHost: opts.sourceHost,
+      branch,
+      counts,
+      warnings: warningsList,
+      commitHash: null,
+      noChanges: false,
+    };
+  }
+
+  // Compare the tree we built to the parent's tree — when nothing changed
+  // upstream, we want to exit cleanly without creating an empty commit.
+  const { stdout: porcelain } = await git(repo, 'status', '--porcelain');
+  if (porcelain.trim() === '') {
+    log('[import] no changes from parent commit — nothing to commit');
+    return {
+      runAt,
+      sourceHost: opts.sourceHost,
+      branch,
+      counts,
+      warnings: warningsList,
+      commitHash: null,
+      noChanges: true,
+    };
+  }
+
+  const commitHash = await createImportCommit(repo, {
+    branch,
+    runAt,
+    sourceHost: opts.sourceHost,
+    counts,
+  });
 
   return {
-    sourceSha256,
-    runAt: now,
-    entities,
-    warnings,
-    commits: state.commits,
+    runAt,
+    sourceHost: opts.sourceHost,
+    branch,
+    counts,
+    warnings: warningsList,
+    commitHash,
+    noChanges: false,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Per-entity passes
+// Filesystem writers
 // ---------------------------------------------------------------------------
 
-async function importTags(state: RunState): Promise<void> {
-  const records: Tag[] = [];
-  for await (const row of takeRows(state, 'tags')) {
-    const legacyId = numericId(row, 'ID');
-    if (legacyId !== null && state.existing.tags.has(legacyId)) {
-      state.entities.tags!.skipped++;
-      state.idMaps.tagByLegacy.set(legacyId, state.existing.tags.get(legacyId)!);
-      continue;
-    }
-    const r = safeRun(state, 'tags', () => translateTag(row, ctxFor(state)));
-    if (!r) continue;
-    const parsed = parseOrSkip(state, 'tags', () => TagSchema.parse(r));
-    if (parsed) {
-      records.push(parsed);
-      state.entities.tags!.imported++;
-    }
-  }
-
-  await commit(state, 'tags', `${records.length} tags`, async (tx) => {
-    const sheet = tx.sheet('tags');
-    for (const r of records) await sheet.upsert(r as unknown as Record<string, unknown>);
-  });
+interface WriteBundle {
+  readonly tags: readonly Tag[];
+  readonly people: readonly Person[];
+  readonly projects: readonly Project[];
+  readonly memberships: readonly {
+    record: ProjectMembership;
+    legacyIds: { projectLegacyId: number; personLegacyId: number };
+  }[];
+  readonly updates: readonly {
+    record: ProjectUpdate;
+    projectLegacyId: number;
+  }[];
+  readonly buzz: readonly {
+    record: ProjectBuzz;
+    projectLegacyId: number;
+  }[];
+  readonly tagAssignments: readonly TagAssignment[];
+  readonly tagAssignmentLegacyTuples: readonly {
+    tagLegacyId: number;
+    taggableLegacyId: number;
+    taggableType: 'project' | 'person';
+  }[];
+  readonly idMaps: IdMaps;
+  readonly warnings: Warnings;
 }
 
-async function importPeople(state: RunState): Promise<void> {
-  const people: Person[] = [];
-  const profiles: PrivateProfile[] = [];
-  const legacyPasswords: LegacyPasswordCredential[] = [];
+async function writeAllRecords(repo: string, b: WriteBundle): Promise<number> {
+  let count = 0;
 
-  for await (const row of takeRows(state, 'people')) {
-    const legacyId = numericId(row, 'ID');
-    if (legacyId !== null && state.existing.people.has(legacyId)) {
-      state.entities.people!.skipped++;
-      const existing = state.existing.people.get(legacyId)!;
-      state.idMaps.personByLegacy.set(legacyId, existing.id);
-      state.idMaps.personSlugById.set(existing.id, existing.slug);
-      const used = state.idMaps.usedSlugs.get('people') ?? new Set<string>();
-      used.add(existing.slug);
-      state.idMaps.usedSlugs.set('people', used);
-      continue;
-    }
-    const r = safeRun(state, 'people', () => translatePerson(row, ctxFor(state)));
-    if (!r) continue;
-
-    const parsedPerson = parseOrSkip(state, 'people', () => PersonSchema.parse(r.person));
-    if (!parsedPerson) continue;
-    people.push(parsedPerson);
-    state.entities.people!.imported++;
-
-    if (r.privateProfile) {
-      const parsedProfile = parseOrSkip(
-        state,
-        'private-profiles',
-        () => PrivateProfileSchema.parse(r.privateProfile),
-      );
-      if (parsedProfile) profiles.push(parsedProfile);
-    }
-    if (r.legacyPassword) {
-      const parsedLp = parseOrSkip(
-        state,
-        'legacy-passwords',
-        () => LegacyPasswordCredentialSchema.parse(r.legacyPassword),
-      );
-      if (parsedLp) legacyPasswords.push(parsedLp);
-    }
+  // people/<legacyId>.toml
+  for (const r of b.people) {
+    if (r.legacyId === undefined) continue;
+    await writeRecord(repo, ['people', `${r.legacyId}.toml`], r);
+    count++;
   }
-
-  await commit(state, 'people', `${people.length} people`, async (tx) => {
-    const sheet = tx.sheet('people');
-    for (const r of people) await sheet.upsert(r as unknown as Record<string, unknown>);
-  });
-
-  if (state.opts.dryRun) return;
-
-  if (profiles.length > 0) {
-    await state.opts.privateStore.transact(async (privTx) => {
-      for (const p of profiles) privTx.putProfile(p);
-    });
+  // projects/<legacyId>.toml
+  for (const r of b.projects) {
+    if (r.legacyId === undefined) continue;
+    await writeRecord(repo, ['projects', `${r.legacyId}.toml`], r);
+    count++;
   }
-  if (legacyPasswords.length > 0) {
-    await writeLegacyPasswords(state.opts.privateStore, legacyPasswords);
+  // tags/<legacyId>.toml
+  for (const r of b.tags) {
+    if (r.legacyId === undefined) continue;
+    await writeRecord(repo, ['tags', `${r.legacyId}.toml`], r);
+    count++;
   }
-}
-
-async function importProjects(state: RunState): Promise<void> {
-  const records: Project[] = [];
-  for await (const row of takeRows(state, 'projects')) {
-    const legacyId = numericId(row, 'ID');
-    if (legacyId !== null && state.existing.projects.has(legacyId)) {
-      state.entities.projects!.skipped++;
-      const existing = state.existing.projects.get(legacyId)!;
-      state.idMaps.projectByLegacy.set(legacyId, existing.id);
-      state.idMaps.projectSlugByLegacy.set(legacyId, existing.slug);
-      const used = state.idMaps.usedSlugs.get('projects') ?? new Set<string>();
-      used.add(existing.slug);
-      state.idMaps.usedSlugs.set('projects', used);
-      continue;
-    }
-    const r = safeRun(state, 'projects', () => translateProject(row, ctxFor(state)));
-    if (!r) continue;
-    const parsed = parseOrSkip(state, 'projects', () => ProjectSchema.parse(r));
-    if (parsed) {
-      records.push(parsed);
-      state.entities.projects!.imported++;
-    }
-  }
-
-  await commit(state, 'projects', `${records.length} projects`, async (tx) => {
-    const sheet = tx.sheet('projects');
-    for (const r of records) await sheet.upsert(r as unknown as Record<string, unknown>);
-  });
-}
-
-interface MembershipWritable {
-  readonly record: ProjectMembership;
-  readonly pathFields: { projectSlug: string; personSlug: string };
-}
-
-async function importMemberships(state: RunState): Promise<void> {
-  const records: MembershipWritable[] = [];
-  for await (const row of takeRows(state, 'project_members')) {
-    const r = safeRun(state, 'project-memberships', () =>
-      translateMembership(row, ctxFor(state)),
+  // project-memberships/<projectLegacyId>-<personLegacyId>.toml
+  for (const { record, legacyIds } of b.memberships) {
+    await writeRecord(
+      repo,
+      ['project-memberships', `${legacyIds.projectLegacyId}-${legacyIds.personLegacyId}.toml`],
+      record,
     );
-    if (!r) continue;
-    const compositeKey = `${r.pathFields.projectSlug}/${r.pathFields.personSlug}`;
-    if (state.existing.membershipPaths.has(compositeKey)) {
-      state.entities['project-memberships']!.skipped++;
-      continue;
-    }
-    const parsed = parseOrSkip(state, 'project-memberships', () =>
-      ProjectMembershipSchema.parse(r.membership),
+    count++;
+  }
+  // project-updates/<legacyId>.toml
+  for (const { record } of b.updates) {
+    if (record.legacyId === undefined) continue;
+    await writeRecord(repo, ['project-updates', `${record.legacyId}.toml`], record);
+    count++;
+  }
+  // project-buzz/<legacyId>.toml
+  for (const { record } of b.buzz) {
+    if (record.legacyId === undefined) continue;
+    await writeRecord(repo, ['project-buzz', `${record.legacyId}.toml`], record);
+    count++;
+  }
+  // tag-assignments/<tagLegacyId>-<taggableType>-<taggableLegacyId>.toml
+  for (let i = 0; i < b.tagAssignments.length; i++) {
+    const record = b.tagAssignments[i]!;
+    const legacy = b.tagAssignmentLegacyTuples[i]!;
+    await writeRecord(
+      repo,
+      [
+        'tag-assignments',
+        `${legacy.tagLegacyId}-${legacy.taggableType}-${legacy.taggableLegacyId}.toml`,
+      ],
+      record,
     );
-    if (parsed) {
-      records.push({ record: parsed, pathFields: r.pathFields });
-      state.entities['project-memberships']!.imported++;
-    }
+    count++;
   }
 
-  await commit(
-    state,
-    'project-memberships',
-    `${records.length} project-memberships`,
-    async (tx) => {
-      const sheet = tx.sheet('project-memberships');
-      for (const { record, pathFields } of records) {
-        await sheet.upsert({ ...record, ...pathFields } as unknown as Record<string, unknown>);
+  return count;
+}
+
+async function writeRecord(
+  repo: string,
+  pathParts: readonly string[],
+  record: Record<string, unknown>,
+): Promise<void> {
+  const full = join(repo, ...pathParts);
+  await mkdir(join(full, '..'), { recursive: true });
+  await writeFile(full, toToml(record), 'utf8');
+}
+
+// ---------------------------------------------------------------------------
+// TOML serialization (flat records; same shape as scripts/scrub-data.ts).
+// Records are written with keys in a stable alphabetical order so consecutive
+// snapshots produce stable diffs even if the in-memory object key order
+// drifts.
+// ---------------------------------------------------------------------------
+
+export function toToml(record: Record<string, unknown>): string {
+  const keys = Object.keys(record).sort();
+  const lines: string[] = [];
+  for (const key of keys) {
+    const value = record[key];
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'string') {
+      if (value.includes('\n')) {
+        // Use TOML's basic-multiline-string form; escape the rare embedded
+        // triple-quote sequence and any backslashes.
+        const escaped = value.replace(/\\/g, '\\\\').replace(/"""/g, '\\"""');
+        lines.push(`${key} = """\n${escaped}\n"""`);
+      } else {
+        const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        lines.push(`${key} = "${escaped}"`);
       }
-    },
-  );
-}
-
-interface UpdateWritable {
-  readonly record: ProjectUpdate;
-  readonly pathFields: { projectSlug: string };
-}
-
-async function importProjectUpdates(state: RunState): Promise<void> {
-  const records: UpdateWritable[] = [];
-  for await (const row of takeRows(state, 'project_updates')) {
-    const legacyId = numericId(row, 'ID');
-    if (legacyId !== null && state.existing.projectUpdates.has(legacyId)) {
-      state.entities['project-updates']!.skipped++;
-      continue;
+    } else if (typeof value === 'number') {
+      lines.push(`${key} = ${value}`);
+    } else if (typeof value === 'boolean') {
+      lines.push(`${key} = ${value}`);
     }
-    const r = safeRun(state, 'project-updates', () => translateUpdate(row, ctxFor(state)));
-    if (!r) continue;
-    const parsed = parseOrSkip(state, 'project-updates', () =>
-      ProjectUpdateSchema.parse(r.update),
+    // Arrays/objects intentionally not handled — all current v1 record fields
+    // are scalar at the top level.
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+// ---------------------------------------------------------------------------
+// Git helpers
+// ---------------------------------------------------------------------------
+
+function git(
+  cwd: string,
+  ...args: string[]
+): Promise<{ stdout: string; stderr: string }> {
+  return exec('git', args, { cwd, maxBuffer: 256 * 1024 * 1024 });
+}
+
+async function ensureGitRepo(repo: string): Promise<void> {
+  try {
+    await git(repo, 'rev-parse', '--git-dir');
+  } catch (err) {
+    throw new Error(
+      `[import-laddr] ${repo} is not a git working directory: ${describe(err)}`,
+      { cause: err },
     );
-    if (parsed) {
-      records.push({ record: parsed, pathFields: r.pathFields });
-      state.entities['project-updates']!.imported++;
-    }
   }
-
-  await commit(
-    state,
-    'project-updates',
-    `${records.length} project-updates`,
-    async (tx) => {
-      const sheet = tx.sheet('project-updates');
-      for (const { record, pathFields } of records) {
-        await sheet.upsert({ ...record, ...pathFields } as unknown as Record<string, unknown>);
-      }
-    },
-  );
 }
 
-interface BuzzWritable {
-  readonly record: ProjectBuzz;
-  readonly pathFields: { projectSlug: string };
+/**
+ * Make sure the named branch exists locally. Returns the parent commit hash
+ * we should use as the snapshot's parent — current branch tip if it exists,
+ * else `initialParent`'s commit hash.
+ */
+async function ensureBranch(
+  repo: string,
+  branch: string,
+  initialParent: string,
+): Promise<string> {
+  try {
+    const { stdout } = await git(repo, 'rev-parse', '--verify', `refs/heads/${branch}`);
+    return stdout.trim();
+  } catch {
+    // No local branch. Try `origin/<branch>` first; fall back to initialParent.
+    try {
+      const { stdout } = await git(repo, 'rev-parse', '--verify', `refs/remotes/origin/${branch}`);
+      return stdout.trim();
+    } catch {
+      // ignore — fall through
+    }
+    const { stdout } = await git(repo, 'rev-parse', '--verify', initialParent);
+    return stdout.trim();
+  }
 }
 
-async function importProjectBuzz(state: RunState): Promise<void> {
-  const records: BuzzWritable[] = [];
-  for await (const row of takeRows(state, 'project_buzz')) {
-    const legacyId = numericId(row, 'ID');
-    if (legacyId !== null && state.existing.projectBuzz.has(legacyId)) {
-      state.entities['project-buzz']!.skipped++;
-      continue;
-    }
-    const r = safeRun(state, 'project-buzz', () => translateBuzz(row, ctxFor(state)));
-    if (!r) continue;
-    const parsed = parseOrSkip(state, 'project-buzz', () => ProjectBuzzSchema.parse(r.buzz));
-    if (parsed) {
-      records.push({ record: parsed, pathFields: r.pathFields });
-      state.entities['project-buzz']!.imported++;
-    }
-  }
+async function checkoutBranch(
+  repo: string,
+  branch: string,
+  parent: string,
+): Promise<void> {
+  // Force-reset working tree to the desired parent under the named branch.
+  await git(repo, 'checkout', '-B', branch, parent);
+}
 
-  await commit(state, 'project-buzz', `${records.length} project-buzz`, async (tx) => {
-    const sheet = tx.sheet('project-buzz');
-    for (const { record, pathFields } of records) {
-      await sheet.upsert({ ...record, ...pathFields } as unknown as Record<string, unknown>);
+async function wipeOwnedDirectories(repo: string): Promise<void> {
+  for (const dir of IMPORTER_OWNED_DIRS) {
+    const full = join(repo, dir);
+    // `git rm -rf -- <dir>` removes both the index entries and the working
+    // tree files in one shot. The first run on a fresh branch has nothing
+    // to remove, so swallow ENOENT-style failures.
+    try {
+      await git(repo, 'rm', '-rf', '--ignore-unmatch', '--', dir);
+    } catch {
+      // ignore — directory not present
     }
+    // Defensively remove any leftover working-tree files (covers untracked
+    // detritus from a previous --no-commit run).
+    await rm(full, { recursive: true, force: true });
+  }
+}
+
+interface CommitParams {
+  readonly branch: string;
+  readonly runAt: string;
+  readonly sourceHost: string;
+  readonly counts: Record<string, EntityCounts>;
+}
+
+async function createImportCommit(
+  repo: string,
+  p: CommitParams,
+): Promise<string> {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: AUTHOR_NAME,
+    GIT_AUTHOR_EMAIL: AUTHOR_EMAIL,
+    GIT_COMMITTER_NAME: AUTHOR_NAME,
+    GIT_COMMITTER_EMAIL: AUTHOR_EMAIL,
+    GIT_AUTHOR_DATE: p.runAt,
+    GIT_COMMITTER_DATE: p.runAt,
+  };
+
+  const message = buildCommitMessage(p);
+  const messageFile = join(repo, '.git', 'IMPORT_LADDR_MSG');
+  await writeFile(messageFile, message, 'utf8');
+
+  // Use `--quiet` to keep `git commit`'s stdout small (the create-mode list
+  // for a 40k-file snapshot otherwise exceeds the default execFile buffer).
+  await exec('git', ['commit', '--quiet', '-F', messageFile], {
+    cwd: repo,
+    env,
+    maxBuffer: 256 * 1024 * 1024,
   });
+
+  const { stdout: shaRaw } = await git(repo, 'rev-parse', 'HEAD');
+  return shaRaw.trim();
 }
 
-async function importTagAssignments(state: RunState): Promise<void> {
-  const records: TagAssignment[] = [];
-  for await (const row of takeRows(state, 'tag_items')) {
-    const r = safeRun(state, 'tag-assignments', () =>
-      translateTagAssignment(row, ctxFor(state)),
-    );
-    if (!r) continue;
-    const compositeKey = `${r.tagId}/${r.taggableType}/${r.taggableId}`;
-    if (state.existing.tagAssignmentPaths.has(compositeKey)) {
-      state.entities['tag-assignments']!.skipped++;
-      continue;
-    }
-    const parsed = parseOrSkip(state, 'tag-assignments', () =>
-      TagAssignmentSchema.parse(r),
-    );
-    if (parsed) {
-      records.push(parsed);
-      state.entities['tag-assignments']!.imported++;
-    }
-  }
+function buildCommitMessage(p: CommitParams): string {
+  const c = p.counts;
+  const subject = `import: snapshot from ${p.sourceHost} (${p.runAt})`;
+  const summary = [
+    `${c['people']!.imported} people`,
+    `${c['projects']!.imported} projects`,
+    `${c['project-memberships']!.imported} project-memberships`,
+    `${c['project-updates']!.imported} project-updates`,
+    `${c['project-buzz']!.imported} project-buzz`,
+    `${c['tags']!.imported} tags`,
+    `${c['tag-assignments']!.imported} tag-assignments`,
+  ].join(', ');
 
-  await commit(
-    state,
-    'tag-assignments',
-    `${records.length} tag-assignments`,
-    async (tx) => {
-      const sheet = tx.sheet('tag-assignments');
-      for (const r of records) await sheet.upsert(r as unknown as Record<string, unknown>);
-    },
-  );
+  return `${subject}\n\n${summary}.\n\nAction: import.laddr.json\nSource-Host: ${p.sourceHost}\nRun-At: ${p.runAt}\n`;
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Misc helpers
 // ---------------------------------------------------------------------------
 
-function blank(): EntityReport {
-  return { input: 0, imported: 0, skipped: 0, errors: 0 };
+function blank(): EntityCounts {
+  return { imported: 0, skipped: 0, errors: 0 };
 }
 
-function ctxFor(state: RunState): {
-  idMaps: IdMaps;
-  warnings: Warnings;
-  now: string;
-} {
-  return { idMaps: state.idMaps, warnings: state.warnings, now: state.now };
-}
-
-async function* takeRows(state: RunState, table: string): AsyncGenerator<Row> {
-  const limit = state.opts.limit ?? Infinity;
-  let yielded = 0;
-  for await (const row of streamRows(state.opts.sql, table)) {
-    // The "input" tally counts rows seen pre-limit so dry-run reports
-    // reflect dump size accurately, not just what was imported.
-    state.entities[sheetNameForTable(table)]!.input++;
-    if (yielded >= limit) continue;
-    yielded++;
-    yield row;
-  }
-}
-
-function sheetNameForTable(table: string): string {
-  switch (table) {
-    case 'people': return 'people';
-    case 'projects': return 'projects';
-    case 'project_members': return 'project-memberships';
-    case 'project_updates': return 'project-updates';
-    case 'project_buzz': return 'project-buzz';
-    case 'tags': return 'tags';
-    case 'tag_items': return 'tag-assignments';
-    default: throw new Error(`unhandled table ${table}`);
-  }
-}
-
-function numericId(row: Row, key: string): number | null {
-  const v = row[key];
-  if (typeof v === 'number') return v;
-  if (typeof v === 'string') {
-    const n = parseInt(v, 10);
-    return Number.isNaN(n) ? null : n;
-  }
-  return null;
-}
-
-function safeRun<T>(state: RunState, sheet: string, fn: () => T): T | null {
+function parseOrSkip<T>(
+  sheet: string,
+  fn: () => T,
+  counts: Record<string, EntityCounts>,
+  warnings: Warnings,
+): T | null {
   try {
     return fn();
   } catch (err) {
-    state.entities[sheet]!.errors++;
-    state.warnings.push(`[${sheet}] translator threw: ${describe(err)}`);
-    return null;
-  }
-}
-
-function parseOrSkip<T>(state: RunState, sheet: string, fn: () => T): T | null {
-  try {
-    return fn();
-  } catch (err) {
-    state.entities[sheet]!.errors++;
-    state.warnings.push(`[${sheet}] zod validation failed: ${describe(err)}`);
+    counts[sheet]!.errors++;
+    warnings.push(`[${sheet}] zod validation failed: ${describe(err)}`);
     return null;
   }
 }
@@ -506,157 +784,206 @@ function describe(err: unknown): string {
   return String(err);
 }
 
-async function commit(
-  state: RunState,
-  sheet: string,
-  summary: string,
-  // The transaction tx type is opaque here so this module doesn't take on a
-  // gitsheets-Transaction generic; the upsert calls are routed through the
-  // sheet getter the same way seed-fixtures.ts does.
-  fn: (tx: { sheet: (name: string) => { upsert: (r: Record<string, unknown>) => Promise<unknown> } }) => Promise<void>,
-): Promise<void> {
-  if (state.opts.dryRun) return;
-  const repo = await openRepo({
-    gitDir: `${state.opts.dataRepo}/.git`,
-    workTree: state.opts.dataRepo,
-  });
-  const result = await repo.transact(
-    {
-      message: `import: from laddr mysqldump (${sheet})\n\n${summary} imported.`,
-      author: { name: AUTHOR_NAME, email: AUTHOR_EMAIL },
-      trailers: {
-        Action: 'import.laddr',
-        'Source-Dump': state.sourceSha256,
-        'Run-At': state.now,
-      },
-    },
-    async (tx) => fn(tx as unknown as Parameters<typeof fn>[0]),
-  );
-  if (result.commitHash) state.commits.push(result.commitHash);
-}
+/**
+ * Read each importer-owned `.toml` file from the latest snapshot tip and
+ * extract the record's `id` field. Used to keep UUIDs stable across re-runs
+ * so an unchanged source produces an unchanged tree (idempotence).
+ *
+ * Reads from `refs/heads/<branch>` if it exists, then `refs/remotes/origin/
+ * <branch>`, then the configured fallback. Returns an empty map if no parent
+ * exists yet (first run).
+ *
+ * Implementation note: `git cat-file --batch` is used to stream blob contents
+ * in a single subprocess rather than fork+exec per-file. Snapshots can have
+ * 40k+ files; per-file `git show` calls take many minutes.
+ */
+async function collectExistingIds(
+  repo: string,
+  branch: string,
+  initialParent: string,
+): Promise<ExistingIds> {
+  const ids = newExistingIds();
+  let ref: string | null = null;
+  for (const candidate of [
+    `refs/heads/${branch}`,
+    `refs/remotes/origin/${branch}`,
+    initialParent,
+  ]) {
+    try {
+      await git(repo, 'rev-parse', '--verify', candidate);
+      ref = candidate;
+      break;
+    } catch {
+      // try next
+    }
+  }
+  if (ref === null) return ids;
 
-async function hashFile(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const h = createHash('sha256');
-    const s = createReadStream(filePath);
-    s.on('data', (chunk) => h.update(chunk));
-    s.on('end', () => resolve(h.digest('hex')));
-    s.on('error', reject);
-  });
-}
-
-async function collectExistingLegacyIds(dataRepo: string): Promise<ExistingLegacyIds> {
-  const out: ExistingLegacyIds = {
-    people: new Map(),
-    projects: new Map(),
-    tags: new Map(),
-    projectUpdates: new Set(),
-    projectBuzz: new Set(),
-    membershipPaths: new Set(),
-    tagAssignmentPaths: new Set(),
-  };
-
-  // Fresh repo with no HEAD or pre-import HEAD: ls-tree returns empty.
-  // Walking git's tree rather than the working dir (gitsheets only updates
-  // refs, no checkout) keeps the read aligned with what was committed.
+  // `ls-tree -r` gives us mode + sha + filename for every file under the
+  // commit's tree. We need both blob sha (for cat-file --batch lookup) and
+  // path (so we know which sheet the record belongs to).
   let listing: string;
   try {
-    const { stdout } = await exec('git', ['ls-tree', '-r', '--name-only', 'HEAD'], {
-      cwd: dataRepo,
-    });
+    const { stdout } = await git(repo, 'ls-tree', '-r', ref);
     listing = stdout;
   } catch {
-    return out;
+    return ids;
   }
 
-  for (const path of listing.split('\n').filter((p) => p.endsWith('.toml'))) {
-    // Memberships + tag-assignments live solely by path; cheap to dedupe
-    // on path-presence so the second-run skip is trivial.
-    if (path.startsWith('project-memberships/')) {
-      const stripped = path.slice('project-memberships/'.length, -'.toml'.length);
-      out.membershipPaths.add(stripped);
-      continue;
+  interface Entry {
+    readonly sha: string;
+    readonly path: string;
+  }
+  const entries: Entry[] = [];
+  for (const line of listing.split('\n')) {
+    // Format: `<mode> <type> <sha>\t<path>`
+    const tabIdx = line.indexOf('\t');
+    if (tabIdx === -1) continue;
+    const meta = line.slice(0, tabIdx).split(/\s+/);
+    const path = line.slice(tabIdx + 1);
+    if (meta.length < 3) continue;
+    if (!path.endsWith('.toml')) continue;
+    let owned = false;
+    for (const dir of IMPORTER_OWNED_DIRS) {
+      if (path.startsWith(`${dir}/`)) {
+        owned = true;
+        break;
+      }
     }
-    if (path.startsWith('tag-assignments/')) {
-      const stripped = path.slice('tag-assignments/'.length, -'.toml'.length);
-      out.tagAssignmentPaths.add(stripped);
-      continue;
-    }
+    if (!owned) continue;
+    entries.push({ sha: meta[2]!, path });
+  }
 
-    let mapTarget: { sheet: 'people' | 'projects' | 'tags' | 'updates' | 'buzz' } | null = null;
-    if (path.startsWith('people/')) mapTarget = { sheet: 'people' };
-    else if (path.startsWith('projects/')) mapTarget = { sheet: 'projects' };
-    else if (path.startsWith('tags/')) mapTarget = { sheet: 'tags' };
-    else if (path.startsWith('project-updates/')) mapTarget = { sheet: 'updates' };
-    else if (path.startsWith('project-buzz/')) mapTarget = { sheet: 'buzz' };
-    if (!mapTarget) continue;
+  if (entries.length === 0) return ids;
 
-    let content: string;
-    try {
-      content = (
-        await exec('git', ['show', `HEAD:${path}`], { cwd: dataRepo })
-      ).stdout;
-    } catch {
-      continue;
-    }
-    const id = matchToml(content, 'id');
-    const slug = matchToml(content, 'slug');
-    const legacyIdRaw = matchToml(content, 'legacyId');
-    const legacyId = legacyIdRaw !== null ? parseInt(legacyIdRaw, 10) : null;
-    if (legacyId === null || Number.isNaN(legacyId)) continue;
-
-    switch (mapTarget.sheet) {
-      case 'people':
-        if (id && slug) out.people.set(legacyId, { id, slug });
-        break;
-      case 'projects':
-        if (id && slug) out.projects.set(legacyId, { id, slug });
-        break;
-      case 'tags':
-        if (id) out.tags.set(legacyId, id);
-        break;
-      case 'updates':
-        out.projectUpdates.add(legacyId);
-        break;
-      case 'buzz':
-        out.projectBuzz.add(legacyId);
-        break;
+  // Spawn `git cat-file --batch` once; feed it newline-separated SHAs on stdin,
+  // parse the streamed `<sha> blob <size>\n<content>\n` responses.
+  const blobs = await batchCatFile(repo, entries.map((e) => e.sha));
+  for (let i = 0; i < entries.length; i++) {
+    const content = blobs[i] ?? '';
+    const id = extractTomlString(content, 'id');
+    if (id) {
+      const key = entries[i]!.path.replace(/\.toml$/, '');
+      ids.byFile.set(key, id);
     }
   }
-  return out;
-}
-
-function matchToml(content: string, key: string): string | null {
-  const re = new RegExp(`^${key}\\s*=\\s*(.+)$`, 'm');
-  const m = content.match(re);
-  if (!m) return null;
-  const raw = m[1]!.trim();
-  if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1);
-  if (raw.startsWith("'") && raw.endsWith("'")) return raw.slice(1, -1);
-  return raw;
+  return ids;
 }
 
 /**
- * Write legacy-password records to the private store.
+ * Stream blob contents via a single `git cat-file --batch` invocation. Each
+ * input SHA produces one entry in the returned array, in the same order.
  *
- * The PrivateStoreTx interface only exposes profile mutations and legacy-
- * password *deletes* (the runtime only ever drains them, never adds). For
- * the one-shot import we reach past the interface via a duck-typed cast
- * onto the BasePrivateStore's internal `legacyPasswords` Map + flush, the
- * same shape exercised in the store's own tests.
+ * The protocol: emit one SHA per line on stdin; for each, git emits a header
+ * line `<sha> <type> <size>\n` followed by `<size>` bytes of content and a
+ * trailing `\n`. On `missing` (unknown SHA), git emits `<sha> missing\n` and
+ * no content. We treat missing as empty.
  */
-async function writeLegacyPasswords(
-  store: PrivateStore,
-  records: readonly LegacyPasswordCredential[],
-): Promise<void> {
-  const internal = store as unknown as {
-    legacyPasswords: Map<string, LegacyPasswordCredential>;
-    flushLegacyPasswords: () => Promise<void>;
-    indices: { legacyPasswordByPersonId: Map<string, LegacyPasswordCredential> };
-  };
-  for (const r of records) {
-    internal.legacyPasswords.set(r.personId, r);
+async function batchCatFile(repo: string, shas: readonly string[]): Promise<string[]> {
+  if (shas.length === 0) return [];
+  const { spawn } = await import('node:child_process');
+  return await new Promise<string[]>((resolve, reject) => {
+    const child = spawn('git', ['cat-file', '--batch'], {
+      cwd: repo,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const results: string[] = [];
+    let stderrAcc = '';
+    let buf = Buffer.alloc(0);
+    let mode: 'header' | 'content' = 'header';
+    let expected = 0;
+
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      stderrAcc += chunk;
+    });
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      buf = Buffer.concat([buf, chunk]);
+      while (true) {
+        if (mode === 'header') {
+          const nl = buf.indexOf(0x0a);
+          if (nl === -1) return;
+          const header = buf.slice(0, nl).toString('utf8');
+          buf = buf.slice(nl + 1);
+          // header is `<sha> <type> <size>` or `<sha> missing`
+          const parts = header.split(' ');
+          if (parts.length === 3 && parts[1] !== 'missing') {
+            expected = parseInt(parts[2]!, 10);
+            mode = 'content';
+          } else {
+            // missing — no content body
+            results.push('');
+            if (results.length === shas.length) {
+              try {
+                child.stdin.end();
+              } catch {
+                // ignore
+              }
+            }
+          }
+        } else {
+          // content mode: wait for `expected` bytes + the trailing newline
+          if (buf.length < expected + 1) return;
+          const content = buf.slice(0, expected).toString('utf8');
+          buf = buf.slice(expected + 1); // skip trailing newline
+          results.push(content);
+          mode = 'header';
+          if (results.length === shas.length) {
+            try {
+              child.stdin.end();
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0 && results.length !== shas.length) {
+        reject(new Error(`git cat-file --batch exited ${code}: ${stderrAcc}`));
+      } else {
+        resolve(results);
+      }
+    });
+    child.on('error', reject);
+
+    // Feed SHAs as a single write — git's batch mode reads to EOL.
+    const payload = shas.join('\n') + '\n';
+    child.stdin.write(payload);
+    // Don't end stdin yet — close it when all entries have been read so the
+    // batch process drains cleanly. (Closing early on a slow consumer would
+    // truncate output.)
+  });
+}
+
+function extractTomlString(content: string, key: string): string | null {
+  const re = new RegExp(`^${key}\\s*=\\s*"(.*)"$`, 'm');
+  const m = content.match(re);
+  if (m === null) return null;
+  // Reverse the simple TOML escapes used by our writer.
+  return (m[1] ?? '').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+}
+
+// Exposed for direct invocation in tests that walk the tree.
+export { IMPORTER_OWNED_DIRS };
+
+// Used by tests that want to introspect the unused-but-imported readdir helper.
+export async function listOwnedToml(repo: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const dir of IMPORTER_OWNED_DIRS) {
+    const full = join(repo, dir);
+    try {
+      for (const entry of await readdir(full, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith('.toml')) {
+          out.push(`${dir}/${entry.name}`);
+        }
+      }
+    } catch {
+      // dir not present
+    }
   }
-  internal.indices.legacyPasswordByPersonId = internal.legacyPasswords;
-  await internal.flushLegacyPasswords();
+  return out;
 }

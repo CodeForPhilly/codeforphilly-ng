@@ -1,34 +1,40 @@
 /**
- * import-laddr.ts — One-shot migration from a laddr mysqldump
+ * import-laddr.ts — Re-runnable import from the live laddr site at
+ * codeforphilly.org into the public `codeforphilly-data` repo.
  *
- * Reads a mysqldump (`--sql`), translates each row to the v1 data model
- * (Zod-validated against `@cfp/shared/schemas`), and writes records into:
- *
- *   - the public gitsheets data repo (`--data-repo`)
- *   - the private filesystem store (`--private-store`)
- *
- * Idempotent on `legacyId`: re-running against the same dump + target
- * skips rows already present. See specs/behaviors/legacy-id-mapping.md.
+ * Each run produces one new commit on the `legacy-import` branch whose tree
+ * is a complete replacement of the previous snapshot. Consecutive commits
+ * diff cleanly to show what changed upstream between runs.
  *
  * Usage:
  *   npm run -w apps/api script:import-laddr -- \
- *     --sql=./scratch/laddr.sql \
- *     --data-repo=./codeforphilly-data \
- *     --private-store=./scratch/private-storage \
- *     [--dry-run] [--verbose] [--limit=N]
+ *     --source-host=codeforphilly.org \
+ *     --data-repo=/path/to/codeforphilly-data \
+ *     --branch=legacy-import \
+ *     [--dry-run] [--no-commit] [--limit=N] [--verbose] [--page-size=N] [--delay-ms=N]
+ *
+ * Defaults:
+ *   --source-host  codeforphilly.org
+ *   --data-repo    $CFP_DATA_REPO_PATH (required if flag not given)
+ *   --branch       legacy-import
+ *
+ * See plans/laddr-import-via-json.md for the design and
+ * specs/behaviors/legacy-id-mapping.md for the contract.
  */
 import { resolve } from 'node:path';
 
-import { FilesystemPrivateStore } from '../src/store/private/filesystem.js';
-import { importLaddr, type ImportReport } from './import-laddr/importer.js';
+import { importLaddrFromJson, type ImportReport } from './import-laddr/importer.js';
 
 interface CliArgs {
-  readonly sql: string;
+  readonly sourceHost: string;
   readonly dataRepo: string;
-  readonly privateStore: string;
+  readonly branch: string;
   readonly dryRun: boolean;
-  readonly verbose: boolean;
+  readonly noCommit: boolean;
   readonly limit: number | undefined;
+  readonly verbose: boolean;
+  readonly pageSize: number | undefined;
+  readonly delayMs: number | undefined;
 }
 
 function parseArgs(argv: readonly string[]): CliArgs {
@@ -39,61 +45,79 @@ function parseArgs(argv: readonly string[]): CliArgs {
     if (eq === -1) opts[a.slice(2)] = true;
     else opts[a.slice(2, eq)] = a.slice(eq + 1);
   }
-  const need = (k: string): string => {
-    const v = opts[k];
-    if (typeof v !== 'string' || !v) {
-      process.stderr.write(`missing --${k}=<path>\n`);
-      process.exit(2);
-    }
-    return v;
-  };
+
+  const envRepo = process.env['CFP_DATA_REPO_PATH'];
+  const dataRepoRaw =
+    typeof opts['data-repo'] === 'string' && opts['data-repo'] !== ''
+      ? (opts['data-repo'] as string)
+      : envRepo;
+  if (!dataRepoRaw) {
+    process.stderr.write(
+      'missing --data-repo=<path> (or set CFP_DATA_REPO_PATH)\n',
+    );
+    process.exit(2);
+  }
+
   const limitRaw = opts['limit'];
-  const limit =
-    typeof limitRaw === 'string' ? Number.parseInt(limitRaw, 10) : undefined;
+  const limit = typeof limitRaw === 'string' ? Number.parseInt(limitRaw, 10) : undefined;
+  const pageSizeRaw = opts['page-size'];
+  const pageSize = typeof pageSizeRaw === 'string' ? Number.parseInt(pageSizeRaw, 10) : undefined;
+  const delayMsRaw = opts['delay-ms'];
+  const delayMs = typeof delayMsRaw === 'string' ? Number.parseInt(delayMsRaw, 10) : undefined;
 
   return {
-    sql: resolve(need('sql')),
-    dataRepo: resolve(need('data-repo')),
-    privateStore: resolve(need('private-store')),
+    sourceHost:
+      typeof opts['source-host'] === 'string' && opts['source-host'] !== ''
+        ? (opts['source-host'] as string)
+        : 'codeforphilly.org',
+    dataRepo: resolve(dataRepoRaw),
+    branch:
+      typeof opts['branch'] === 'string' && opts['branch'] !== ''
+        ? (opts['branch'] as string)
+        : 'legacy-import',
     dryRun: opts['dry-run'] === true,
+    noCommit: opts['no-commit'] === true,
+    limit: typeof limit === 'number' && Number.isFinite(limit) ? limit : undefined,
     verbose: opts['verbose'] === true,
-    limit: Number.isFinite(limit ?? NaN) ? limit : undefined,
+    pageSize: typeof pageSize === 'number' && Number.isFinite(pageSize) ? pageSize : undefined,
+    delayMs: typeof delayMs === 'number' && Number.isFinite(delayMs) ? delayMs : undefined,
   };
 }
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  const privateStore = new FilesystemPrivateStore({
-    CFP_PRIVATE_STORAGE_PATH: args.privateStore,
-  });
-  await privateStore.load();
-
-  console.log(`[import-laddr] sql=${args.sql}`);
+  console.log(`[import-laddr] source-host=${args.sourceHost}`);
   console.log(`[import-laddr] data-repo=${args.dataRepo}`);
-  console.log(`[import-laddr] private-store=${args.privateStore}`);
-  console.log(`[import-laddr] dry-run=${args.dryRun} limit=${args.limit ?? 'none'}`);
+  console.log(`[import-laddr] branch=${args.branch}`);
+  console.log(
+    `[import-laddr] dry-run=${args.dryRun} no-commit=${args.noCommit} limit=${args.limit ?? 'none'}`,
+  );
 
-  const report = await importLaddr({
-    sql: args.sql,
+  const report = await importLaddrFromJson({
+    sourceHost: args.sourceHost,
     dataRepo: args.dataRepo,
-    privateStore,
+    branch: args.branch,
     dryRun: args.dryRun,
-    verbose: args.verbose,
+    noCommit: args.noCommit,
     limit: args.limit,
+    verbose: args.verbose,
+    pageSize: args.pageSize,
+    delayMs: args.delayMs,
   });
 
-  printReport(report, args.dryRun);
+  printReport(report, args);
 }
 
-function printReport(report: ImportReport, dryRun: boolean): void {
+function printReport(report: ImportReport, args: CliArgs): void {
   const lines: string[] = [];
   lines.push(`\n=== import-laddr report ===`);
-  lines.push(`runAt:        ${report.runAt}`);
-  lines.push(`sourceSha256: ${report.sourceSha256}`);
-  for (const [sheet, r] of Object.entries(report.entities)) {
+  lines.push(`runAt:       ${report.runAt}`);
+  lines.push(`sourceHost:  ${report.sourceHost}`);
+  lines.push(`branch:      ${report.branch}`);
+  for (const [sheet, c] of Object.entries(report.counts)) {
     lines.push(
-      `  ${sheet.padEnd(22)} input=${r.input} imported=${r.imported} skipped=${r.skipped} errors=${r.errors}`,
+      `  ${sheet.padEnd(22)} imported=${c.imported} skipped=${c.skipped} errors=${c.errors}`,
     );
   }
   lines.push(`warnings: ${report.warnings.length}`);
@@ -101,25 +125,16 @@ function printReport(report: ImportReport, dryRun: boolean): void {
   if (report.warnings.length > 25) {
     lines.push(`  ... (${report.warnings.length - 25} more)`);
   }
-  if (dryRun) {
+  if (args.dryRun) {
     lines.push(`(dry-run: no writes performed)`);
-  } else {
-    lines.push(`commits: ${report.commits.length}`);
-    for (const c of report.commits) lines.push(`  ${c}`);
+  } else if (args.noCommit) {
+    lines.push(`(no-commit: files staged, no commit made)`);
+  } else if (report.noChanges) {
+    lines.push(`(no changes from parent commit — branch unchanged)`);
+  } else if (report.commitHash) {
+    lines.push(`commit: ${report.commitHash} on ${report.branch}`);
   }
   console.log(lines.join('\n'));
-
-  process.stdout.write(`\n${JSON.stringify(reportToJson(report), null, 2)}\n`);
-}
-
-function reportToJson(report: ImportReport): unknown {
-  return {
-    runAt: report.runAt,
-    sourceSha256: report.sourceSha256,
-    entities: report.entities,
-    warnings: report.warnings,
-    commits: report.commits,
-  };
 }
 
 const isMain =

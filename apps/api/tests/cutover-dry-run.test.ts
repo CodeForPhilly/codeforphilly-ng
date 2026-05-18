@@ -1,9 +1,10 @@
 /**
  * Tests for apps/api/scripts/cutover-dry-run.ts
  *
- * Exercises the orchestration end-to-end against the laddr fixture mysqldump:
+ * Exercises the orchestration end-to-end against an in-memory JSON mock of
+ * laddr's `?format=json` endpoints:
  *   - importer runs and produces records
- *   - per-table row counts match per-sheet imported counts
+ *   - per-list-endpoint server `total` matches per-sheet imported counts
  *   - smoke checks fire only when a target URL is provided
  *
  * The smoke-check leg is exercised against a stub fetch by injecting it as
@@ -11,35 +12,24 @@
  * api-skeleton.test.ts and read-api.test.ts).
  */
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  countRowsByTable,
   deterministicSample,
   runDryRun,
   runSmokeChecks,
 } from '../scripts/cutover-dry-run.js';
 
 const exec = promisify(execFile);
-const FIXTURE_SQL = resolve(__dirname, '../scripts/fixtures/laddr-fixture.sql');
 
 const SHEET_CONFIGS: ReadonlyArray<{ name: string; path: string }> = [
   { name: 'people', path: '${{ slug }}' },
   { name: 'projects', path: '${{ slug }}' },
-  { name: 'project-memberships', path: '${{ projectSlug }}/${{ personSlug }}' },
-  { name: 'project-updates', path: '${{ projectSlug }}/${{ number }}' },
-  { name: 'project-buzz', path: '${{ projectSlug }}/${{ slug }}' },
-  { name: 'help-wanted-roles', path: '${{ projectSlug }}/${{ id }}' },
-  { name: 'help-wanted-interest', path: '${{ roleId }}/${{ personSlug }}' },
-  { name: 'tags', path: '${{ namespace }}/${{ slug }}' },
-  { name: 'tag-assignments', path: '${{ tagId }}/${{ taggableType }}/${{ taggableId }}' },
-  { name: 'slug-history', path: '${{ entityType }}/${{ oldSlug }}' },
-  { name: 'revocations', path: '${{ jti }}' },
 ];
 
 async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> }> {
@@ -62,37 +52,107 @@ async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> 
   return { path: dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
 }
 
-async function makePrivate(): Promise<{ path: string; cleanup: () => Promise<void> }> {
-  const dir = await mkdtemp(join(tmpdir(), 'cfp-dryrun-priv-'));
-  return { path: dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+function envelope(rows: unknown[], total: number, limit: number, offset: number) {
+  return {
+    success: true,
+    total,
+    limit,
+    offset: offset === 0 ? false : offset,
+    data: rows,
+  };
 }
 
-describe('countRowsByTable', () => {
-  it('counts rows across multiple statements per table', () => {
-    const sql = [
-      "INSERT INTO `People` (`ID`, `Username`) VALUES (1,'alice'),(2,'bob');",
-      "INSERT INTO `People` (`ID`, `Username`) VALUES (3,'carol');",
-      "INSERT INTO `Projects` (`ID`, `Title`) VALUES (1,'A'),(2,'B'),(3,'C');",
-    ].join('\n');
-    const counts = countRowsByTable(sql);
-    expect(counts.get('People')).toBe(3);
-    expect(counts.get('Projects')).toBe(3);
-  });
-
-  it('ignores parentheses inside quoted strings', () => {
-    const sql = "INSERT INTO `People` (`ID`, `Note`) VALUES (1, 'hello (world)'), (2, 'fun()');";
-    expect(countRowsByTable(sql).get('People')).toBe(2);
-  });
-
-  it('handles the laddr fixture', async () => {
-    const sql = await readFile(FIXTURE_SQL, 'utf8');
-    const counts = countRowsByTable(sql);
-    // The fixture has 4 people, 2 projects, etc — match against the same
-    // expectations as import-laddr.test.ts so they evolve together.
-    expect(counts.get('people')).toBe(4);
-    expect(counts.get('projects')).toBe(2);
-  });
-});
+/**
+ * In-memory mock of laddr's JSON endpoints. Returns a 2-person, 1-project
+ * snapshot; the dry-run report should observe matching counts for each
+ * endpoint's reported `total`.
+ */
+function makeMockFetch(): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    const url = new URL(input.toString());
+    const key = `${url.pathname}?${url.searchParams.get('format')}`;
+    switch (url.pathname) {
+      case '/tags':
+        return new Response(
+          JSON.stringify(
+            envelope(
+              [{ ID: 1, Class: 'Tag', Handle: 'topic.transit', Title: 'Transit', Created: 1377126953 }],
+              1,
+              200,
+              0,
+            ),
+          ),
+          { status: 200 },
+        );
+      case '/people':
+        return new Response(
+          JSON.stringify(
+            envelope(
+              [
+                {
+                  ID: 10,
+                  Class: 'Emergence\\People\\User',
+                  Username: 'alice',
+                  FirstName: 'Alice',
+                  LastName: 'A',
+                  AccountLevel: 'User',
+                  Created: 1377126953,
+                },
+                {
+                  ID: 20,
+                  Class: 'Emergence\\People\\User',
+                  Username: 'bob',
+                  FirstName: 'Bob',
+                  LastName: 'B',
+                  AccountLevel: 'User',
+                  Created: 1377126953,
+                },
+              ],
+              2,
+              200,
+              0,
+            ),
+          ),
+          { status: 200 },
+        );
+      case '/projects':
+        return new Response(
+          JSON.stringify(
+            envelope(
+              [
+                {
+                  ID: 100,
+                  Class: 'Laddr\\Project',
+                  Handle: 'transit-app',
+                  Title: 'Transit App',
+                  MaintainerID: 10,
+                  Stage: 'Prototyping',
+                  Created: 1377126953,
+                  Modified: 1377126953,
+                },
+              ],
+              1,
+              200,
+              0,
+            ),
+          ),
+          { status: 200 },
+        );
+      case '/project-updates':
+        return new Response(
+          JSON.stringify(envelope([], 0, 200, 0)),
+          { status: 200 },
+        );
+      case '/project-buzz':
+        return new Response(
+          JSON.stringify(envelope([], 0, 200, 0)),
+          { status: 200 },
+        );
+      default:
+        return new Response(`Not found: ${key}`, { status: 404 });
+    }
+  }) as typeof fetch;
+}
 
 describe('deterministicSample', () => {
   it('returns all items when n >= length', () => {
@@ -118,25 +178,28 @@ describe('deterministicSample', () => {
 describe('runDryRun (no target)', () => {
   it('runs the importer and emits a count diff per sheet', async () => {
     const repo = await makeRepo();
-    const priv = await makePrivate();
     try {
       const report = await runDryRun({
-        sql: FIXTURE_SQL,
+        sourceHost: 'example.test',
         dataRepo: repo.path,
-        privateStore: priv.path,
         target: null,
         sampleSize: 10,
-        now: '2026-05-16T00:00:00.000Z',
+        now: '2026-05-18T00:00:00.000Z',
+        fetchImpl: makeMockFetch(),
       });
 
       expect(report.target).toBeNull();
       expect(report.smokeChecks).toEqual([]);
-      expect(report.importReport.entities['people']!.imported).toBeGreaterThan(0);
+      expect(report.importReport.counts['people']!.imported).toBe(2);
 
       const peopleDiff = report.countDiffs.find((d) => d.sheet === 'people');
-      expect(peopleDiff?.sourceRows).toBe(4);
-      expect(peopleDiff?.importedRecords).toBe(4);
+      expect(peopleDiff?.sourceTotal).toBe(2);
+      expect(peopleDiff?.importedRecords).toBe(2);
       expect(peopleDiff?.matched).toBe(true);
+
+      const projectsDiff = report.countDiffs.find((d) => d.sheet === 'projects');
+      expect(projectsDiff?.sourceTotal).toBe(1);
+      expect(projectsDiff?.importedRecords).toBe(1);
 
       expect(report.stages.import).toBe(true);
       expect(report.stages.countDiff).toBe(true);
@@ -144,7 +207,6 @@ describe('runDryRun (no target)', () => {
       expect(report.passed).toBe(true);
     } finally {
       await repo.cleanup();
-      await priv.cleanup();
     }
   }, 120_000);
 });

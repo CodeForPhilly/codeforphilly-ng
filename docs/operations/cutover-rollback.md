@@ -59,8 +59,8 @@ from a fresh resolver.
 ### 2. Re-enable legacy writes
 
 If you flipped the legacy site to read-only at T-7, undo that flag now.
-The legacy DB has not been touched during the migration window (we only
-ran `mysqldump`, which is read-only). Writes resume from the same state
+The legacy DB has not been touched during the migration window (the importer
+only reads from `?format=json` endpoints). Writes resume from the same state
 as just-before-freeze.
 
 ### 3. Take down the rewrite ingress
