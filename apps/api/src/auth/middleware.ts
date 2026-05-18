@@ -104,11 +104,15 @@ async function sessionMiddlewarePlugin(fastify: FastifyInstance): Promise<void> 
         return;
       }
 
-      // Look up person from public store
-      const person = await fastify.store.public.people.queryFirst({ id: claims.sub } as Record<string, unknown>);
+      // Look up person from the in-memory state map (keyed by id). Other
+      // routes use the same path (`fastify.inMemoryState.people.get(personId)`)
+      // for id→Person resolution; this is the canonical fast index. The
+      // sheet-level `queryFirst({ id })` previously used here doesn't reflect
+      // in-process writes between commit and the next refresh.
+      const person = fastify.inMemoryState.people.get(claims.sub) ?? null;
 
       request.session = {
-        person: person ?? null,
+        person,
         accountLevel: claims.accountLevel,
         personId: claims.sub,
         jti: claims.jti,
