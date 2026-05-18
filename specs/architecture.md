@@ -185,7 +185,9 @@ On pod start the entrypoint:
 
 On every public-side commit the API pushes asynchronously to `CFP_DATA_REMOTE`. On every private-side mutation the API PUTs the relevant `.jsonl` to the bucket synchronously. See the dual-write coordination notes in [behaviors/private-storage.md](behaviors/private-storage.md).
 
-The k8s manifests live in `deploy/` and follow the same Helm conventions as the legacy site; cluster targeting and secret management are unchanged from the legacy stack (see `docs/operations/migrate-to-k8s.md` in the laddr repo for context).
+The k8s manifests live in `deploy/kustomize/` as a Kustomize base plus per-environment overlays (`base/`, `overlays/staging/`, `overlays/production/`). Apply with `kubectl apply -k deploy/kustomize/overlays/<env>`. Cluster targeting and secret management are unchanged from the legacy stack — sealed-secrets via [`bitnami-labs/sealed-secrets`](https://github.com/bitnami-labs/sealed-secrets), kubeconfig-per-environment in GitHub Environment secrets. See `docs/operations/migrate-to-k8s.md` in the laddr repo for the cluster-level context.
+
+We deliberately do **not** use Helm. The chart-template indirection is unnecessary for our scope; the variation between environments is small (image tag, ingress host, private-storage backend, secret references) and overlays handle it more legibly than `{{ if }}` blocks in templates. Plain YAML + overlays also matches every other layer of this stack's preference for explicit composition over template substitution.
 
 ## Data migration
 
