@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 
 import { openRepo } from 'gitsheets';
 import { reconcile } from '../scripts/reconcile.js';
-import { openPublicStore } from '../src/store/public.js';
+import { openPublicStore, type PublicStore } from '../src/store/public.js';
 import { FilesystemPrivateStore } from '../src/store/private/filesystem.js';
 import { createFullDataRepo, createPrivateStorageDir } from './helpers/test-full-repo.js';
 
@@ -29,7 +29,7 @@ function uuid(n: number): string {
 interface Fixture {
   repo: Awaited<ReturnType<typeof createFullDataRepo>>;
   priv: Awaited<ReturnType<typeof createPrivateStorageDir>>;
-  publicStore: Awaited<ReturnType<typeof openPublicStore>>;
+  publicStore: PublicStore;
   privateStore: FilesystemPrivateStore;
 }
 
@@ -40,7 +40,7 @@ async function bootFixture(): Promise<Fixture> {
     CFP_PRIVATE_STORAGE_PATH: priv.path,
   });
   await privateStore.load();
-  const publicStore = await openPublicStore(repo.path);
+  const { store: publicStore } = await openPublicStore(repo.path);
   return { repo, priv, publicStore, privateStore };
 }
 
@@ -77,7 +77,7 @@ describe('reconcile', () => {
       const personId = uuid(1);
       await seedPerson(f.repo.path, { id: personId, slug: 'alice' });
       // Re-open the store so it sees the new commit.
-      const publicStore = await openPublicStore(f.repo.path);
+      const { store: publicStore } = await openPublicStore(f.repo.path);
 
       const report = await reconcile({
         publicStore,
@@ -125,7 +125,7 @@ describe('reconcile', () => {
     try {
       const personId = uuid(3);
       await seedPerson(f.repo.path, { id: personId, slug: 'bob' });
-      const publicStore = await openPublicStore(f.repo.path);
+      const { store: publicStore } = await openPublicStore(f.repo.path);
       await f.privateStore.putProfile({
         personId,
         email: 'bob@example.com',
@@ -168,7 +168,7 @@ describe('reconcile', () => {
         slug: 'carol',
         githubUserId: 99001,
       });
-      const publicStore = await openPublicStore(f.repo.path);
+      const { store: publicStore } = await openPublicStore(f.repo.path);
       await f.privateStore.putProfile({
         personId,
         email: 'carol@example.com',

@@ -15,6 +15,8 @@ export const EnvSchema = z.object({
   CFP_DATA_REPO_PATH: z.string(),
   /** Git remote URL to push public data commits to (optional in dev). */
   CFP_DATA_REMOTE: z.string().optional(),
+  /** Branch the push daemon pushes to. Defaults to the repo's current HEAD. */
+  CFP_DATA_BRANCH: z.string().optional(),
   /** Which private-storage backend to use. */
   STORAGE_BACKEND: z.enum(['s3', 'filesystem']),
   /** Filesystem backend: absolute path to the private-storage directory. */
@@ -70,6 +72,7 @@ export const envJsonSchema = {
     },
     CFP_DATA_REPO_PATH: { type: 'string' },
     CFP_DATA_REMOTE: { type: 'string' },
+    CFP_DATA_BRANCH: { type: 'string' },
     STORAGE_BACKEND: { type: 'string', enum: ['s3', 'filesystem'] },
     CFP_PRIVATE_STORAGE_PATH: { type: 'string' },
     S3_ENDPOINT: { type: 'string' },

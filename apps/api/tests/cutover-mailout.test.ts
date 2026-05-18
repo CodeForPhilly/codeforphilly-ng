@@ -62,7 +62,7 @@ describe('cutover-mailout', () => {
       await seedPerson(repo.path, { id: danId, slug: 'dan' });
       await seedPerson(repo.path, { id: eveId, slug: 'eve', deletedAt: NOW });
 
-      const publicStore = await openPublicStore(repo.path);
+      const { store: publicStore } = await openPublicStore(repo.path);
 
       await privateStore.putProfile({
         personId: aliceId,
@@ -138,7 +138,7 @@ describe('cutover-mailout', () => {
 
       const personId = uuid(7);
       await seedPerson(repo.path, { id: personId, slug: 'frank' });
-      const publicStore = await openPublicStore(repo.path);
+      const { store: publicStore } = await openPublicStore(repo.path);
       await privateStore.putProfile({
         personId,
         email: 'frank@example.com',
@@ -177,7 +177,7 @@ describe('cutover-mailout', () => {
 
       const personId = uuid(8);
       await seedPerson(repo.path, { id: personId, slug: 'gail' });
-      const publicStore = await openPublicStore(repo.path);
+      const { store: publicStore } = await openPublicStore(repo.path);
       await privateStore.putProfile({
         personId,
         email: 'gail@example.com',

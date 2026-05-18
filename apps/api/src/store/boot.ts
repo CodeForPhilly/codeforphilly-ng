@@ -1,3 +1,4 @@
+import type { Repository } from 'gitsheets';
 import { FilesystemPrivateStore } from './private/filesystem.js';
 import { S3PrivateStore } from './private/s3.js';
 import { openPublicStore } from './public.js';
@@ -21,7 +22,9 @@ export interface Env {
 }
 
 /**
- * Boot both stores and return a combined Store.
+ * Boot both stores and return a combined Store + the underlying public-repo
+ * handle. The repo handle is consumed by the push-daemon plugin to push
+ * commits to origin; everything else only needs `store`.
  *
  * Fails loudly (throws) if either store is unreachable. The API must not
  * serve traffic until this resolves — private profiles are required for login.
@@ -31,8 +34,8 @@ export interface Env {
  *   2. Private store data
  *   3. (FTS index is built by the caller from the loaded public data)
  */
-export async function bootStores(env: Env): Promise<Store> {
-  const publicStore = await openPublicStore(env.CFP_DATA_REPO_PATH).catch((err) => {
+export async function bootStores(env: Env): Promise<{ store: Store; publicRepo: Repository }> {
+  const { store: publicStore, repo: publicRepo } = await openPublicStore(env.CFP_DATA_REPO_PATH).catch((err) => {
     throw new Error(`Failed to open public gitsheets store at ${env.CFP_DATA_REPO_PATH}: ${String(err)}`, { cause: err });
   });
 
@@ -46,7 +49,7 @@ export async function bootStores(env: Env): Promise<Store> {
     throw new Error(`Failed to load private store (${env.STORAGE_BACKEND}): ${String(err)}`, { cause: err });
   });
 
-  return new Store(publicStore, privateStore);
+  return { store: new Store(publicStore, privateStore), publicRepo };
 }
 
 function buildPrivateStore(env: Env): FilesystemPrivateStore | S3PrivateStore {

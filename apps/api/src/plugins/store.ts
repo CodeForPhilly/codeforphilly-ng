@@ -9,17 +9,20 @@
  */
 import type { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
+import type { Repository } from 'gitsheets';
 import { bootStores } from '../store/boot.js';
 import type { Store } from '../store/store.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
     store: Store;
+    /** Underlying gitsheets repo for the public data store — used by the push-daemon plugin. */
+    publicRepo: Repository;
   }
 }
 
 async function storePlugin(fastify: FastifyInstance): Promise<void> {
-  const store = await bootStores({
+  const { store, publicRepo } = await bootStores({
     CFP_DATA_REPO_PATH: fastify.config.CFP_DATA_REPO_PATH,
     STORAGE_BACKEND: fastify.config.STORAGE_BACKEND,
     CFP_PRIVATE_STORAGE_PATH: fastify.config.CFP_PRIVATE_STORAGE_PATH,
@@ -31,6 +34,7 @@ async function storePlugin(fastify: FastifyInstance): Promise<void> {
   });
 
   fastify.decorate('store', store);
+  fastify.decorate('publicRepo', publicRepo);
 }
 
 export default fp(storePlugin, {

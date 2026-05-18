@@ -22,7 +22,7 @@
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { openPublicStore } from '../src/store/public.js';
+import { openPublicStore, type PublicStore } from '../src/store/public.js';
 import {
   FilesystemPrivateStore,
   S3PrivateStore,
@@ -50,7 +50,7 @@ export interface MailoutReport {
 }
 
 export interface MailoutOptions {
-  readonly publicStore: Awaited<ReturnType<typeof openPublicStore>>;
+  readonly publicStore: PublicStore;
   readonly privateStore: PrivateStore;
   readonly mode: 'dry-run' | 'send';
   readonly from?: string;
@@ -64,7 +64,7 @@ export interface MailoutOptions {
 // ---------------------------------------------------------------------------
 
 export async function collectRecipients(
-  publicStore: Awaited<ReturnType<typeof openPublicStore>>,
+  publicStore: PublicStore,
   privateStore: PrivateStore,
 ): Promise<{ recipients: MailoutRecipient[]; skipped: Array<{ personId: string; reason: string }> }> {
   const people = await publicStore.people.queryAll();
@@ -289,7 +289,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const publicStore = await openPublicStore(requireEnv('CFP_DATA_REPO_PATH'));
+  const { store: publicStore } = await openPublicStore(requireEnv('CFP_DATA_REPO_PATH'));
   const privateStore = buildPrivateStore();
   await privateStore.load();
 

@@ -327,7 +327,7 @@ export async function runDryRun(opts: DryRunOptions): Promise<DryRunReport> {
 
   let smokeChecks: SmokeCheckResult[] = [];
   if (opts.target) {
-    const publicStore = await openPublicStore(opts.dataRepo);
+    const { store: publicStore } = await openPublicStore(opts.dataRepo);
     const people = await publicStore.people.queryAll();
     const projects = await publicStore.projects.queryAll();
     const liveProjects = projects.filter((p) => !p.deletedAt);
