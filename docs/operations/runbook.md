@@ -21,11 +21,11 @@ Look for one of the four common boot failures:
 
 | Log line excerpt | Cause | Fix |
 |------------------|-------|-----|
-| `[entrypoint] ERROR: CFP_DATA_REMOTE is unset` | The PVC was wiped and the chart isn't providing the remote URL. | Check ConfigMap `<release>-env`; ensure `publicEnv.CFP_DATA_REMOTE` is set in the active values file. |
+| `[entrypoint] ERROR: CFP_DATA_REMOTE is unset` | The Secret containing `CFP_DATA_REMOTE` isn't reaching the pod. | Check `kubectl get secret codeforphilly-secrets -o yaml`; verify the SealedSecret in the GitOps repo decrypted successfully (look at the sealed-secrets controller logs). |
 | `fatal: could not read Username for 'https://...'` or `Permission denied (publickey)` | Bad/missing data-repo credentials. | Verify the `codeforphilly-data-deploy-key` Secret holds a valid `id_ed25519` whose public key has push access to the data repo. See [secrets.md](secrets.md#data-repo-deploy-key). |
-| `Failed to open public gitsheets store` | Working tree corrupt or missing `.gitsheets/` configs. | Exec into the pod, inspect `/app/data/.gitsheets/`. Recovery: wipe the PVC and let the entrypoint re-clone (`kubectl delete pvc <release>-data` → recreate via `helm upgrade`). |
+| `Failed to open public gitsheets store` | Working tree corrupt or missing `.gitsheets/` configs. | Exec into the pod, inspect `/app/data/.gitsheets/`. Recovery: `kubectl delete pvc codeforphilly-data -n <ns>`, then trigger a rollout — the entrypoint re-clones from `CFP_DATA_REMOTE`. |
 | `Failed to load private store (s3)` | Bucket creds wrong, bucket gone, or network ACL blocks egress. | Confirm `S3_*` env in the ConfigMap + Secret. From the pod, `curl $S3_ENDPOINT` to confirm reachability. |
-| `environment variable ... is required` | A required env (`CFP_DATA_REPO_PATH`, `STORAGE_BACKEND`, `CFP_JWT_SIGNING_KEY`) is missing. | Helm values regression. Compare against `values.production.yaml`. |
+| `environment variable ... is required` | A required env (`CFP_DATA_REPO_PATH`, `STORAGE_BACKEND`, `CFP_JWT_SIGNING_KEY`) is missing. | Manifest regression. Compare against `deploy/kustomize/base/configmap.yaml` + the GitOps repo's SealedSecret. |
 
 ### 2. Drop into the pod (if it stays up long enough)
 
@@ -56,15 +56,19 @@ git ls-remote "$CFP_DATA_REMOTE" 2>&1 | head
 If the cluster state is unrecoverable but the data remote is intact:
 
 ```bash
-# Roll back to the last-known-good Helm release
-helm -n codeforphilly history codeforphilly
-helm -n codeforphilly rollback codeforphilly <revision>
+# Revert the most recent GitOps deploy (the cluster repo's deploy PR is a
+# normal merge commit on `deploys/k8s-manifests`)
+gh -R CodeForPhilly/cfp-sandbox-cluster pr list --base deploys/k8s-manifests --state merged
+git -C ~/Repositories/cfp-sandbox-cluster revert <merge-sha> --mainline 1
+git -C ~/Repositories/cfp-sandbox-cluster push origin deploys/k8s-manifests
 
-# Or pin to a previous image
-helm upgrade codeforphilly deploy/charts/codeforphilly \
-  --namespace codeforphilly \
-  --reuse-values \
-  --set image.tag=<known-good-tag>
+# Or pin to a previous image by editing the GitOps repo's
+# .holo/branches/k8s-manifests/codeforphilly-ng/app/manifests.toml's image
+# tag, committing on a hotfix branch, and merging through the deploy PR.
+
+# Out-of-band hotfix (bypasses GitOps — fix the repo afterward):
+kubectl -n codeforphilly-rewrite-sandbox set image \
+  deploy/codeforphilly codeforphilly=ghcr.io/codeforphilly/codeforphilly-ng:<known-good-tag>
 ```
 
 Data is **not** in the PVC long-term; it's in the git remote. Deleting the
@@ -99,8 +103,8 @@ push the backlog.
 # Watch a deploy
 kubectl -n codeforphilly rollout status deploy/codeforphilly
 
-# Last 10 Helm releases
-helm -n codeforphilly history codeforphilly
+# Last 10 GitOps deploys (merge commits on deploys/k8s-manifests)
+gh -R CodeForPhilly/cfp-sandbox-cluster pr list --base deploys/k8s-manifests --state merged --limit 10
 
 # Pod resource use
 kubectl -n codeforphilly top pod
