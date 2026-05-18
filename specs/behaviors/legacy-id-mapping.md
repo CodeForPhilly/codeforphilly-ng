@@ -2,18 +2,18 @@
 
 ## Rule
 
-The rewrite migrates rows from the laddr MySQL database into gitsheets while preserving every URL that resolves to a public resource. The bridge is a `legacyId` field on each migrated record that holds the laddr auto-increment primary key.
+The rewrite migrates records from the live laddr site at `codeforphilly.org` into gitsheets while preserving every URL that resolves to a public resource. The bridge is a `legacyId` field on each migrated record that holds the laddr auto-increment primary key.
 
 ## Applies To
 
 - [data-model.md](../data-model.md) — `legacyId` field on `people`, `projects`, `project-updates`, `project-buzz`, `tags` (the migrated sheets where laddr's auto-increment IDs were ever referenced externally; `project-memberships` is *not* in this list — laddr's `project_members.ID` never escaped to URLs)
-- The one-shot importer (`apps/api/scripts/import-laddr.ts` — implementation, not spec)
+- The re-runnable importer (`apps/api/scripts/import-laddr.ts` — implementation, not spec) which pulls the public dataset via laddr's `?format=json` endpoints
 - The web layer's legacy-URL redirect handler (described below)
-- [behaviors/storage.md](storage.md) — the import is a single big commit on the data repo
+- [behaviors/storage.md](storage.md) — the import lands as snapshot commits on a `legacy-import` branch, which the operator merges into `main` to integrate updates
 
 ## What `legacyId` is for
 
-1. **Migration idempotence** — running the importer twice doesn't create duplicates. The importer upserts on `legacyId`.
+1. **Migration idempotence** — running the importer twice doesn't create duplicates. Files on the `legacy-import` branch are keyed by `legacyId`, so a fresh snapshot overwrites the same paths; consecutive commits diff cleanly to show what changed upstream.
 2. **Legacy URL redirects** — laddr URLs sometimes referenced numeric IDs (in `?MemberID=42` query strings, in RSS GUIDs). The rewrite resolves those to the modern slug-based URL by `legacyId` lookup.
 3. **Cutover validation** — staff can spot-check that row counts and individual records match between the two systems.
 
@@ -47,14 +47,10 @@ Patterns not listed (e.g., `/checkin`, `/bigscreen`) return 410 Gone with an exp
 
 ## When the importer runs
 
-The importer is **not** a production-runtime concern. It's run:
+The importer is **not** a production-runtime concern, but it *is* re-runnable. While the legacy site is still the source of truth (pre-cutover and through the cutover window), the importer can be run any time to catch `legacy-import` up with the live data — each run produces a single new commit whose tree fully replaces the previous one, so consecutive commits diff cleanly to show what changed upstream. The operator merges `legacy-import` into `main` to integrate those updates.
 
-1. Once during initial development (against a dev copy of the laddr DB) to validate the schema mapping.
-2. Once during the staging cutover dry-run.
-3. Once for real at cutover.
-
-After that, `legacyId` is read-only data.
+After cutover, `legacyId` is read-only data and the importer is no longer run.
 
 ## Spec coverage of migration mechanics
 
-This file specifies the *contract* — that `legacyId` exists and is unique-where-present, and what URL patterns we resolve through it. The mapping table from each laddr column to each gitsheets field is in [data-model.md#naming-map](../data-model.md#naming-map-laddr--rewrite). The actual import script's behavior (error handling, ordering, batch size, choice of one-big-commit vs. one-commit-per-record) is implementation detail and lives in code, not spec.
+This file specifies the *contract* — that `legacyId` exists and is unique-where-present, and what URL patterns we resolve through it. The mapping table from each laddr column to each gitsheets field is in [data-model.md#naming-map](../data-model.md#naming-map-laddr--rewrite). The actual import script's behavior (endpoint discovery, pagination, full-tree-replace mechanics, file-naming on the `legacy-import` branch, `--dry-run` UX) is implementation detail and lives in code, not spec.
