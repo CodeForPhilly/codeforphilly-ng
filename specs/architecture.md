@@ -77,7 +77,7 @@ codeforphilly-rewrite/
 │       │   ├── app.ts
 │       │   └── index.ts
 │       └── scripts/
-│           ├── import-laddr.ts            # one-shot mysqldump → gitsheets
+│           ├── import-laddr.ts            # re-runnable laddr JSON → gitsheets snapshot
 │           ├── scrub-data.ts              # produce public anonymized snapshot
 │           └── migrations/<timestamp>-*.ts  # schema migration scripts
 ├── packages/
@@ -191,11 +191,11 @@ We deliberately do **not** use Helm. The chart-template indirection is unnecessa
 
 ## Data migration
 
-A one-shot migration script (`apps/api/scripts/import-laddr.ts`) reads from a mysqldump of the production laddr database and writes records into a fresh gitsheets repo. Each record gets a `legacyId` field populated with the laddr auto-increment `ID`, so URLs like `/projects/squadquest` resolve in both systems against the same slug.
+A re-runnable migration script (`apps/api/scripts/import-laddr.ts`) fetches the public laddr dataset from `codeforphilly.org`'s `?format=json` endpoints and writes records as a full-tree snapshot commit on the `legacy-import` branch in the public data repo. Each record gets a `legacyId` field populated with the laddr auto-increment `ID`, so URLs like `/projects/squadquest` resolve in both systems against the same slug. See [behaviors/legacy-id-mapping.md](behaviors/legacy-id-mapping.md).
 
-The migration is one big commit ("import from laddr `<mysqldump-date>`"). Reviewable, revertable, reusable for staging-cutover dry runs.
+Each run produces one new commit whose tree fully **replaces** the previous one — consecutive commits diff cleanly to show what changed upstream on laddr between runs. The operator merges `legacy-import` into `main` in a separate, deliberate step to integrate updates into runtime data.
 
-The migration is not run in production until the spec for each migrated sheet is accepted. It's a tool for cutover, not a long-term integration.
+The importer pulls only public fields. Private data (emails, password hashes, newsletter prefs) is handled separately at cutover via the [account-claim flow](behaviors/account-migration.md).
 
 ## Authorization model
 
