@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [laddr-import]
 specs:
   - specs/behaviors/legacy-id-mapping.md
