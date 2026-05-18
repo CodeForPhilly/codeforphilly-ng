@@ -3,8 +3,10 @@ kind: Ingress
 metadata:
   name: codeforphilly
   annotations:
-    # cert-manager will provision a TLS cert. Override the issuer per-overlay.
-    cert-manager.io/cluster-issuer: letsencrypt-staging
+    # cert-manager will provision a TLS cert via Let's Encrypt prod.
+    # Per-overlay can override to letsencrypt-staging for high-churn iteration
+    # (prod rate-limits to 50 certs/week per registered domain).
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
   tls:
