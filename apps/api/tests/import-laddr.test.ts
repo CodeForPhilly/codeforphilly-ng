@@ -17,8 +17,6 @@ import { describe, expect, it } from 'vitest';
 import { importLaddrFromJson } from '../scripts/import-laddr/importer.js';
 import {
   fetchAllPages,
-  RawPersonSchema,
-  RawProjectSchema,
   RawTagSchema,
   type RawPerson,
   type RawProject,
@@ -168,7 +166,8 @@ describe('fetchAllPages', () => {
       { host: 'example.test', pageSize: 2, delayMs: 0, fetchImpl: makeFetch(routes) },
     );
     await expect((async () => {
-      for await (const _ of it_) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _row of it_) {
         // intentionally empty
       }
     })()).rejects.toThrow();

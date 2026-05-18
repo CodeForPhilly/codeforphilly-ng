@@ -213,7 +213,7 @@ export async function runDryRun(opts: DryRunOptions): Promise<DryRunReport> {
   // but flag them in the report so they're visible.
   const countDiffs: CountDiff[] = [];
   for (const { path, sheet } of ENDPOINT_TO_SHEET) {
-    let sourceTotal = 0;
+    let sourceTotal: number;
     try {
       sourceTotal = await fetchTotal(path, {
         host: opts.sourceHost,

@@ -159,7 +159,7 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   const runAt = opts.now ?? new Date().toISOString();
   const branch = opts.branch ?? 'legacy-import';
   const initialParent = opts.initialParent ?? 'origin/empty';
-  const log = opts.verbose ? (msg: string) => console.log(msg) : (_msg: string) => {};
+  const log = opts.verbose ? (msg: string) => console.log(msg) : (): void => {};
 
   const warningsList: string[] = [];
   const warnings: Warnings = {
@@ -646,6 +646,7 @@ async function ensureGitRepo(repo: string): Promise<void> {
   } catch (err) {
     throw new Error(
       `[import-laddr] ${repo} is not a git working directory: ${describe(err)}`,
+      { cause: err },
     );
   }
 }
