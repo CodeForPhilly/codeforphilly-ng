@@ -27,6 +27,12 @@ log() {
 
 DATA_BRANCH="${CFP_DATA_BRANCH:-main}"
 
+# Trust the data-repo working tree regardless of file ownership. PVCs survive
+# pod restarts and may carry files owned by a different uid than this pod's
+# runAsUser (e.g., an earlier iteration ran as root). Without this, git
+# refuses every operation with "detected dubious ownership".
+git config --global --add safe.directory "$CFP_DATA_REPO_PATH"
+
 if [ -z "${CFP_DATA_REMOTE:-}" ]; then
   if [ -d "$CFP_DATA_REPO_PATH/.git" ]; then
     log "CFP_DATA_REMOTE unset; using existing working tree at $CFP_DATA_REPO_PATH"
@@ -48,6 +54,14 @@ else
     git reset --hard "origin/$DATA_BRANCH"
     cd - >/dev/null
   else
+    # PVC may carry residue from a previous pod that bailed mid-clone or from
+    # an earlier iteration of the entrypoint. `git clone` refuses to clone into
+    # a non-empty directory, so wipe it first. Safe because the data repo is
+    # always re-cloneable from CFP_DATA_REMOTE.
+    if [ -n "$(ls -A "$CFP_DATA_REPO_PATH" 2>/dev/null)" ]; then
+      log "$CFP_DATA_REPO_PATH non-empty but lacks .git — wiping before clone"
+      find "$CFP_DATA_REPO_PATH" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    fi
     log "cloning $CFP_DATA_REMOTE into $CFP_DATA_REPO_PATH (branch=$DATA_BRANCH)"
     # --depth=1 keeps the PVC footprint small; the push daemon will deepen as
     # needed when it next pushes (or we accept periodic re-clones).

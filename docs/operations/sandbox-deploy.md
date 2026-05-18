@@ -27,11 +27,13 @@ The app reads its gitsheets data from a private GitHub repo cloned at boot:
 export KUBECONFIG=~/.kube/cfp-sandbox-cluster-kubeconfig.yaml
 
 # 1. Build + push the image
-docker build -t ghcr.io/codeforphilly/codeforphilly-rewrite:sandbox .
+# --platform=linux/amd64 is required when building on Apple Silicon — the
+# Linode LKE nodes are amd64 and won't pull an arm64-only manifest.
+docker build --platform=linux/amd64 -t ghcr.io/codeforphilly/codeforphilly-ng:sandbox .
 # NOTE: requires `write:packages` scope on your GitHub token.
 # If `docker push` says "token does not match expected scopes":
 #   gh auth refresh -s write:packages
-docker push ghcr.io/codeforphilly/codeforphilly-rewrite:sandbox
+docker push ghcr.io/codeforphilly/codeforphilly-ng:sandbox
 
 # 2. Apply manifests (creates namespace, sealed-secrets, PVCs, deployment, service, ingress)
 kubectl apply -k deploy/kustomize/overlays/sandbox
@@ -47,9 +49,9 @@ After the first successful rollout, the app is live at:
 
 ## Image visibility
 
-The Docker image is built from this repo and pushed to `ghcr.io/codeforphilly/codeforphilly-rewrite`. For the cluster to pull without an `imagePullSecret`, the package must be **public** on GHCR. After the first push:
+The Docker image is built from this repo and pushed to `ghcr.io/codeforphilly/codeforphilly-ng`. For the cluster to pull without an `imagePullSecret`, the package must be **public** on GHCR. After the first push:
 
-1. Visit <https://github.com/orgs/CodeForPhilly/packages/container/codeforphilly-rewrite/settings>
+1. Visit <https://github.com/orgs/CodeForPhilly/packages/container/codeforphilly-ng/settings>
 2. Under "Danger Zone" → "Change package visibility" → Public
 
 Until that's done, the deployment will sit in `ImagePullBackOff` with `403 Forbidden`.
