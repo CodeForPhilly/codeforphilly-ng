@@ -18,7 +18,7 @@ the runbook that implements it.
            | docker build / push
            v
 +----------------------+
-|  GHCR image          |     ghcr.io/codeforphilly/codeforphilly-rewrite:<sha>
+|  GHCR image          |     ghcr.io/codeforphilly/codeforphilly-ng:<sha>
 +----------+-----------+
            | helm upgrade --install
            v
@@ -42,7 +42,7 @@ container. The single replica is a hard architectural constraint
 ### Build
 
 ```bash
-docker build -t ghcr.io/codeforphilly/codeforphilly-rewrite:dev .
+docker build -t ghcr.io/codeforphilly/codeforphilly-ng:dev .
 ```
 
 Three stages — `deps` (full install), `build` (compile both workspaces, prune
@@ -59,7 +59,7 @@ docker run --rm -p 3001:3001 \
   -e CFP_JWT_SIGNING_KEY="$(openssl rand -base64 48)" \
   -e GITHUB_OAUTH_CLIENT_ID=local \
   -e GITHUB_OAUTH_CLIENT_SECRET=local \
-  ghcr.io/codeforphilly/codeforphilly-rewrite:dev
+  ghcr.io/codeforphilly/codeforphilly-ng:dev
 
 curl http://localhost:3001/api/health        # liveness
 curl http://localhost:3001/api/health/ready  # readiness

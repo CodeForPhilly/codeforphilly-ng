@@ -21,7 +21,7 @@ resources:
 # Image tag override is set by build/push pipelines; the base defaults to
 # `sandbox` which matches the CI workflow for this overlay.
 images:
-  - name: ghcr.io/codeforphilly/codeforphilly-rewrite
+  - name: ghcr.io/codeforphilly/codeforphilly-ng
     newTag: sandbox
 
 # Per-environment patches that aren't expressible as a simple value swap.
