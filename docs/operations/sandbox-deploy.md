@@ -5,10 +5,10 @@ This is the manual procedure for iterating on a deploy to the **CfP sandbox clus
 ## Cluster
 
 - **Kubeconfig:** `~/.kube/cfp-sandbox-cluster-kubeconfig.yaml`
-- **Ingress:** nginx, wildcard DNS for `*.codeforphilly.sandbox.k8s.phl.io` → `45.79.246.168`
+- **Gateway:** Envoy Gateway (`gatewayClassName: eg`), wildcard DNS for `*.sandbox.k8s.phl.io` → `139.144.241.4`. The sandbox app is reachable at `next-v2.codeforphilly.org` via a CNAME to `sandbox.k8s.phl.io`.
 - **Storage class:** `linode-block-storage-retain` (default)
 - **Sealed-secrets:** controller in `sealed-secrets` namespace
-- **cert-manager:** `letsencrypt-staging` + `letsencrypt-prod` ClusterIssuers (staging used here for fast iteration; flip to prod when ready)
+- **cert-manager:** `letsencrypt-staging` + `letsencrypt-prod` ClusterIssuers. Sandbox uses prod; per-overlay can override to staging for high-churn iteration (prod rate-limits to 50 certs/week per registered domain).
 
 ## Data repo
 
@@ -45,7 +45,7 @@ kubectl -n codeforphilly-rewrite-sandbox logs -f deploy/codeforphilly
 
 After the first successful rollout, the app is live at:
 
-- <https://codeforphilly-rewrite.codeforphilly.sandbox.k8s.phl.io>
+- <https://next-v2.codeforphilly.org>
 
 ## Image visibility
 

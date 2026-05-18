@@ -18,7 +18,8 @@ resources:
   - pvc-private.yaml
   - service.yaml
   - deployment.yaml
-  - ingress.yaml
+  - gateway.yaml
+  - httproute.yaml
 
 images:
   - name: ghcr.io/codeforphilly/codeforphilly-ng

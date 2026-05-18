@@ -1,8 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Sandbox overlay — codeforphilly.sandbox.k8s.phl.io subdomain, filesystem
-# private storage, letsencrypt-staging cert. Apply with:
+# Sandbox overlay — next-v2.codeforphilly.org (CNAME → sandbox.k8s.phl.io),
+# filesystem private storage, letsencrypt-prod cert via cert-manager.
+# Apply with:
 #   kubectl apply -k deploy/kustomize/overlays/sandbox
 
 namespace: codeforphilly-rewrite-sandbox
@@ -26,14 +27,22 @@ images:
 
 # Per-environment patches that aren't expressible as a simple value swap.
 patches:
-  # Wire the real hostname into the ingress.
+  # Wire the real hostname into the Gateway listener and HTTPRoute.
   - target:
-      kind: Ingress
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: Gateway
       name: codeforphilly
     patch: |
       - op: replace
-        path: /spec/tls/0/hosts/0
-        value: codeforphilly-rewrite.codeforphilly.sandbox.k8s.phl.io
+        path: /spec/listeners/0/hostname
+        value: next-v2.codeforphilly.org
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+      name: codeforphilly
+    patch: |
       - op: replace
-        path: /spec/rules/0/host
-        value: codeforphilly-rewrite.codeforphilly.sandbox.k8s.phl.io
+        path: /spec/hostnames/0
+        value: next-v2.codeforphilly.org
