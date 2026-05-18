@@ -1,5 +1,5 @@
 import { openRepo, openStore } from 'gitsheets';
-import type { StandardSchemaV1, Store, StoreTx, ValidatorMap } from 'gitsheets';
+import type { Repository, StandardSchemaV1, Store, StoreTx, ValidatorMap } from 'gitsheets';
 import {
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
@@ -63,8 +63,13 @@ export type PublicStoreTx = StoreTx<PublicValidators>;
  * Reads `.gitsheets/<sheet>.toml` for each declared sheet in `repoPath`.
  * In-memory secondary indices are built by the caller (boot.ts) after this
  * returns, since they require iterating over all records.
+ *
+ * Returns both the typed store and the underlying Repository handle — the
+ * latter is needed by the push-daemon plugin to push commits to origin.
  */
-export async function openPublicStore(repoPath: string): Promise<PublicStore> {
+export async function openPublicStore(
+  repoPath: string,
+): Promise<{ store: PublicStore; repo: Repository }> {
   const repo = await openRepo({ gitDir: `${repoPath}/.git`, workTree: repoPath });
   repo.requireExplicitTransactions();
 
@@ -82,5 +87,6 @@ export async function openPublicStore(repoPath: string): Promise<PublicStore> {
     revocations: asValidator<Revocation>(RevocationSchema),
   };
 
-  return openStore(repo, { validators }) as Promise<PublicStore>;
+  const store = (await openStore(repo, { validators })) as PublicStore;
+  return { store, repo };
 }

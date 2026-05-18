@@ -1,0 +1,48 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Sandbox overlay — next-v2.codeforphilly.org (CNAME → sandbox.k8s.phl.io),
+# filesystem private storage, letsencrypt-prod cert via cert-manager.
+# Apply with:
+#   kubectl apply -k deploy/kustomize/overlays/sandbox
+
+namespace: codeforphilly-rewrite-sandbox
+
+# No namePrefix — namespace already isolates these resources. namePrefix
+# would also rename Secrets that the SealedSecret CRD expands into, but
+# kustomize can't rewrite Secret-style refs through the SealedSecret kind,
+# so the Deployment's envFrom/volume references would silently break.
+
+resources:
+  - ../../base
+  - namespace.yaml
+  - sealed-secret-env.yaml
+  - sealed-secret-deploy-key.yaml
+
+# Image tag override is set by build/push pipelines; the base defaults to
+# `sandbox` which matches the CI workflow for this overlay.
+images:
+  - name: ghcr.io/codeforphilly/codeforphilly-ng
+    newTag: sandbox
+
+# Per-environment patches that aren't expressible as a simple value swap.
+patches:
+  # Wire the real hostname into the Gateway listener and HTTPRoute.
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: Gateway
+      name: codeforphilly
+    patch: |
+      - op: replace
+        path: /spec/listeners/0/hostname
+        value: next-v2.codeforphilly.org
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+      name: codeforphilly
+    patch: |
+      - op: replace
+        path: /spec/hostnames/0
+        value: next-v2.codeforphilly.org

@@ -227,9 +227,7 @@ async function loadPersonAndProfile(
   fastify: FastifyInstance,
   personId: string,
 ): Promise<{ person: Person; profile: PrivateProfile }> {
-  const person = (await fastify.store.public.people.queryFirst({ id: personId })) as
-    | Person
-    | undefined;
+  const person = fastify.inMemoryState.people.get(personId);
   if (!person) {
     throw new UnauthenticatedError('Person not found', 'unauthenticated');
   }

@@ -288,7 +288,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         throw new UnauthenticatedError('Refresh token revoked', 'refresh_token_revoked');
       }
 
-      const person = await fastify.store.public.people.queryFirst({ id: claims.sub });
+      const person = fastify.inMemoryState.people.get(claims.sub);
       if (!person) {
         throw new UnauthenticatedError('Person not found', 'refresh_token_revoked');
       }

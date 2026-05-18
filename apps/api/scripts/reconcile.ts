@@ -41,7 +41,7 @@ import {
   PrivateProfileSchema,
   type PrivateProfile,
 } from '@cfp/shared/schemas';
-import { openPublicStore } from '../src/store/public.js';
+import { openPublicStore, type PublicStore } from '../src/store/public.js';
 import {
   FilesystemPrivateStore,
   S3PrivateStore,
@@ -118,7 +118,7 @@ function buildPrivateStore(): PrivateStore {
 // ---------------------------------------------------------------------------
 
 export interface ReconcileOptions {
-  readonly publicStore: Awaited<ReturnType<typeof openPublicStore>>;
+  readonly publicStore: PublicStore;
   readonly privateStore: PrivateStore;
   readonly fix?: boolean;
   readonly now?: string;
@@ -305,7 +305,7 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   const repoPath = requireEnv('CFP_DATA_REPO_PATH');
-  const publicStore = await openPublicStore(repoPath);
+  const { store: publicStore } = await openPublicStore(repoPath);
   const privateStore = buildPrivateStore();
   await privateStore.load();
 

@@ -29,6 +29,7 @@ import { envJsonSchema, type Env } from './env.js';
 import { mapError } from './lib/errors.js';
 import traceIdPlugin from './plugins/trace-id.js';
 import storePlugin from './plugins/store.js';
+import pushDaemonPlugin from './plugins/push-daemon.js';
 import servicesPlugin from './plugins/services.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import idempotencyPlugin from './plugins/idempotency.js';
@@ -109,6 +110,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // ----- 6. Store (boots gitsheets + private-store) -----
   await fastify.register(storePlugin);
+
+  // ----- 6a. Push daemon (pushes public-store commits to CFP_DATA_REMOTE) -----
+  await fastify.register(pushDaemonPlugin);
 
   // ----- 6b. Services (loads in-memory state + FTS, boots after store) -----
   await fastify.register(servicesPlugin);
