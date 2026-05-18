@@ -659,4 +659,52 @@ describe('importLaddrFromJson — orchestrator', () => {
       await cleanup();
     }
   });
+
+  it('a modified single record produces a commit whose diff is that one record', async () => {
+    const { path: repo, cleanup } = await makeRepo();
+    try {
+      // First run with baseline data
+      const first = await importLaddrFromJson({
+        sourceHost: 'example.test',
+        dataRepo: repo,
+        branch: 'legacy-import',
+        initialParent: 'empty',
+        now: '2026-05-18T00:00:00.000Z',
+        delayMs: 0,
+        pageSize: 200,
+        fetchImpl: makeFetch(mockRoutes()),
+      });
+      expect(first.commitHash).not.toBeNull();
+
+      // Second run with a single tweak: the transit-app project's Title
+      // changed. Everything else (including UUIDs, since they're carried
+      // forward from the first commit's tree) stays identical.
+      const tweaked = mockRoutes();
+      // Walk the queue and overwrite the projects response with a Title change.
+      const projectsKey = '/projects?format=json&include=Tags%2CMemberships&limit=200&offset=0';
+      const projectsResp = tweaked.responses.get(projectsKey)![0] as { data: Array<{ Title: string }> };
+      projectsResp.data[0]!.Title = 'Transit App — Renamed';
+
+      const second = await importLaddrFromJson({
+        sourceHost: 'example.test',
+        dataRepo: repo,
+        branch: 'legacy-import',
+        initialParent: 'empty',
+        now: '2026-05-18T00:00:00.000Z',
+        delayMs: 0,
+        pageSize: 200,
+        fetchImpl: makeFetch(tweaked),
+      });
+      expect(second.commitHash).not.toBeNull();
+      expect(second.noChanges).toBe(false);
+
+      // The diff between the two commits should touch exactly one file:
+      // projects/100.toml.
+      const diff = await exec('git', ['diff', '--name-only', `${first.commitHash}..${second.commitHash}`], { cwd: repo });
+      const changed = diff.stdout.split('\n').filter(Boolean);
+      expect(changed).toEqual(['projects/100.toml']);
+    } finally {
+      await cleanup();
+    }
+  });
 });

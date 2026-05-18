@@ -791,6 +791,10 @@ function describe(err: unknown): string {
  * Reads from `refs/heads/<branch>` if it exists, then `refs/remotes/origin/
  * <branch>`, then the configured fallback. Returns an empty map if no parent
  * exists yet (first run).
+ *
+ * Implementation note: `git cat-file --batch` is used to stream blob contents
+ * in a single subprocess rather than fork+exec per-file. Snapshots can have
+ * 40k+ files; per-file `git show` calls take many minutes.
  */
 async function collectExistingIds(
   repo: string,
@@ -814,44 +818,144 @@ async function collectExistingIds(
   }
   if (ref === null) return ids;
 
+  // `ls-tree -r` gives us mode + sha + filename for every file under the
+  // commit's tree. We need both blob sha (for cat-file --batch lookup) and
+  // path (so we know which sheet the record belongs to).
   let listing: string;
   try {
-    const { stdout } = await git(repo, 'ls-tree', '-r', '--name-only', ref);
+    const { stdout } = await git(repo, 'ls-tree', '-r', ref);
     listing = stdout;
   } catch {
     return ids;
   }
 
-  const paths = listing.split('\n').filter((p) => {
-    if (!p.endsWith('.toml')) return false;
+  interface Entry {
+    readonly sha: string;
+    readonly path: string;
+  }
+  const entries: Entry[] = [];
+  for (const line of listing.split('\n')) {
+    // Format: `<mode> <type> <sha>\t<path>`
+    const tabIdx = line.indexOf('\t');
+    if (tabIdx === -1) continue;
+    const meta = line.slice(0, tabIdx).split(/\s+/);
+    const path = line.slice(tabIdx + 1);
+    if (meta.length < 3) continue;
+    if (!path.endsWith('.toml')) continue;
+    let owned = false;
     for (const dir of IMPORTER_OWNED_DIRS) {
-      if (p.startsWith(`${dir}/`)) return true;
+      if (path.startsWith(`${dir}/`)) {
+        owned = true;
+        break;
+      }
     }
-    return false;
-  });
+    if (!owned) continue;
+    entries.push({ sha: meta[2]!, path });
+  }
 
-  for (const path of paths) {
-    const content = await readFileFromRef(repo, ref, path);
+  if (entries.length === 0) return ids;
+
+  // Spawn `git cat-file --batch` once; feed it newline-separated SHAs on stdin,
+  // parse the streamed `<sha> blob <size>\n<content>\n` responses.
+  const blobs = await batchCatFile(repo, entries.map((e) => e.sha));
+  for (let i = 0; i < entries.length; i++) {
+    const content = blobs[i] ?? '';
     const id = extractTomlString(content, 'id');
     if (id) {
-      const key = path.replace(/\.toml$/, '');
+      const key = entries[i]!.path.replace(/\.toml$/, '');
       ids.byFile.set(key, id);
     }
   }
   return ids;
 }
 
-async function readFileFromRef(
-  repo: string,
-  ref: string,
-  path: string,
-): Promise<string> {
-  try {
-    const { stdout } = await git(repo, 'show', `${ref}:${path}`);
-    return stdout;
-  } catch {
-    return '';
-  }
+/**
+ * Stream blob contents via a single `git cat-file --batch` invocation. Each
+ * input SHA produces one entry in the returned array, in the same order.
+ *
+ * The protocol: emit one SHA per line on stdin; for each, git emits a header
+ * line `<sha> <type> <size>\n` followed by `<size>` bytes of content and a
+ * trailing `\n`. On `missing` (unknown SHA), git emits `<sha> missing\n` and
+ * no content. We treat missing as empty.
+ */
+async function batchCatFile(repo: string, shas: readonly string[]): Promise<string[]> {
+  if (shas.length === 0) return [];
+  const { spawn } = await import('node:child_process');
+  return await new Promise<string[]>((resolve, reject) => {
+    const child = spawn('git', ['cat-file', '--batch'], {
+      cwd: repo,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const results: string[] = [];
+    let stderrAcc = '';
+    let buf = Buffer.alloc(0);
+    let mode: 'header' | 'content' = 'header';
+    let expected = 0;
+
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      stderrAcc += chunk;
+    });
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      buf = Buffer.concat([buf, chunk]);
+      while (true) {
+        if (mode === 'header') {
+          const nl = buf.indexOf(0x0a);
+          if (nl === -1) return;
+          const header = buf.slice(0, nl).toString('utf8');
+          buf = buf.slice(nl + 1);
+          // header is `<sha> <type> <size>` or `<sha> missing`
+          const parts = header.split(' ');
+          if (parts.length === 3 && parts[1] !== 'missing') {
+            expected = parseInt(parts[2]!, 10);
+            mode = 'content';
+          } else {
+            // missing — no content body
+            results.push('');
+            if (results.length === shas.length) {
+              try {
+                child.stdin.end();
+              } catch {
+                // ignore
+              }
+            }
+          }
+        } else {
+          // content mode: wait for `expected` bytes + the trailing newline
+          if (buf.length < expected + 1) return;
+          const content = buf.slice(0, expected).toString('utf8');
+          buf = buf.slice(expected + 1); // skip trailing newline
+          results.push(content);
+          mode = 'header';
+          if (results.length === shas.length) {
+            try {
+              child.stdin.end();
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0 && results.length !== shas.length) {
+        reject(new Error(`git cat-file --batch exited ${code}: ${stderrAcc}`));
+      } else {
+        resolve(results);
+      }
+    });
+    child.on('error', reject);
+
+    // Feed SHAs as a single write — git's batch mode reads to EOL.
+    const payload = shas.join('\n') + '\n';
+    child.stdin.write(payload);
+    // Don't end stdin yet — close it when all entries have been read so the
+    // batch process drains cleanly. (Closing early on a slow consumer would
+    // truncate output.)
+  });
 }
 
 function extractTomlString(content: string, key: string): string | null {
