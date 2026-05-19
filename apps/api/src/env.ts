@@ -17,6 +17,13 @@ export const EnvSchema = z.object({
   CFP_DATA_REMOTE: z.string().optional(),
   /** Branch the push daemon pushes to. Defaults to the repo's current HEAD. */
   CFP_DATA_BRANCH: z.string().optional(),
+  /**
+   * Shared bearer-token secret for the `POST /api/_internal/reload-data`
+   * webhook (see specs/behaviors/storage.md#hot-reload). When unset, the
+   * route is still registered but responds 503 — hot-reload is opt-in per
+   * environment via the sealed Secret in the GitOps repo.
+   */
+  CFP_DATA_RELOAD_SECRET: z.string().min(32).optional(),
   /** Which private-storage backend to use. */
   STORAGE_BACKEND: z.enum(['s3', 'filesystem']),
   /** Filesystem backend: absolute path to the private-storage directory. */
@@ -73,6 +80,7 @@ export const envJsonSchema = {
     CFP_DATA_REPO_PATH: { type: 'string' },
     CFP_DATA_REMOTE: { type: 'string' },
     CFP_DATA_BRANCH: { type: 'string' },
+    CFP_DATA_RELOAD_SECRET: { type: 'string', minLength: 32 },
     STORAGE_BACKEND: { type: 'string', enum: ['s3', 'filesystem'] },
     CFP_PRIVATE_STORAGE_PATH: { type: 'string' },
     S3_ENDPOINT: { type: 'string' },

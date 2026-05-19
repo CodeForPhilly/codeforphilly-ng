@@ -38,7 +38,7 @@ export interface StoreTransactOptions extends TransactionOptions {
  * final writes per the writeOrder policy per specs/behaviors/private-storage.md.
  */
 export class Store {
-  readonly #public: PublicStore;
+  #public: PublicStore;
   readonly #private: PrivateStore;
 
   constructor(publicStore: PublicStore, privateStore: PrivateStore) {
@@ -52,6 +52,23 @@ export class Store {
 
   get private(): PrivateStore {
     return this.#private;
+  }
+
+  /**
+   * Replace the public-store snapshot. Used by the hot-reload webhook
+   * (`POST /api/_internal/reload-data`): gitsheets caches the dataTree
+   * each Sheet was opened against, so after a fast-forward merge the
+   * Sheet handles are stale. Re-open the store and swap it in here so
+   * subsequent direct reads (`store.public.<sheet>.query(...)`) see the
+   * new tree.
+   *
+   * The `transact` path doesn't need this — `repo.transact` builds a
+   * fresh workspace from the parent commit on every call. But the
+   * revocation sweeper and any other consumer that reads via the cached
+   * Sheets must pick up the new dataTree.
+   */
+  swapPublic(newPublic: PublicStore): void {
+    this.#public = newPublic;
   }
 
   /**

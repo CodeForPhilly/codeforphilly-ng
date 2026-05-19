@@ -28,6 +28,13 @@ export interface FtsEngine {
   upsertHelpWanted(id: string, title: string, description: string): void;
   /** Remove a help-wanted role row. */
   removeHelpWanted(id: string): void;
+  /**
+   * Drop every FTS5 row and rebuild from `state` — used by the hot-reload
+   * webhook to swap the FTS index after pulling new data. The underlying
+   * SQLite handle and prepared statements are preserved so consumers
+   * holding the same `FtsEngine` reference keep working.
+   */
+  reload(state: InMemoryState): void;
 }
 
 export function buildFtsEngine(state: InMemoryState): FtsEngine {
@@ -50,6 +57,7 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
        VALUES (?, ?, ?, ?)`,
     ),
     removeProject: db.prepare(`DELETE FROM projects_fts WHERE slug = ?`),
+    deleteAllProjects: db.prepare(`DELETE FROM projects_fts`),
     searchProjects: db.prepare(
       `SELECT slug FROM projects_fts
        WHERE projects_fts MATCH ?
@@ -62,6 +70,7 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
        VALUES (?, ?, ?)`,
     ),
     removePerson: db.prepare(`DELETE FROM people_fts WHERE slug = ?`),
+    deleteAllPeople: db.prepare(`DELETE FROM people_fts`),
     searchPeople: db.prepare(
       `SELECT slug FROM people_fts
        WHERE people_fts MATCH ?
@@ -74,6 +83,7 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
        VALUES (?, ?, ?)`,
     ),
     removeHelpWanted: db.prepare(`DELETE FROM help_wanted_fts WHERE id = ?`),
+    deleteAllHelpWanted: db.prepare(`DELETE FROM help_wanted_fts`),
     searchHelpWanted: db.prepare(
       `SELECT id FROM help_wanted_fts
        WHERE help_wanted_fts MATCH ?
@@ -82,9 +92,10 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
     ),
   };
 
-  // Bulk-insert all current records
-  const insertAllProjects = db.transaction(() => {
-    for (const project of state.projects.values()) {
+  // Bulk-insert all current records — wrapped in db.transaction() so
+  // both boot and reload() can re-use the same transactional inserter.
+  const insertAllProjects = db.transaction((s: InMemoryState) => {
+    for (const project of s.projects.values()) {
       if (project.deletedAt) continue;
       stmts.upsertProject.run(
         project.slug,
@@ -95,22 +106,48 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
     }
   });
 
-  const insertAllPeople = db.transaction(() => {
-    for (const person of state.people.values()) {
+  const insertAllPeople = db.transaction((s: InMemoryState) => {
+    for (const person of s.people.values()) {
       if (person.deletedAt) continue;
       stmts.upsertPerson.run(person.slug, person.fullName, person.bio ?? '');
     }
   });
 
-  const insertAllHelpWanted = db.transaction(() => {
-    for (const role of state.helpWantedRoles.values()) {
+  const insertAllHelpWanted = db.transaction((s: InMemoryState) => {
+    for (const role of s.helpWantedRoles.values()) {
       stmts.upsertHelpWanted.run(role.id, role.title, role.description);
     }
   });
 
-  insertAllProjects();
-  insertAllPeople();
-  insertAllHelpWanted();
+  insertAllProjects(state);
+  insertAllPeople(state);
+  insertAllHelpWanted(state);
+
+  // Reload all FTS tables from a (presumably fresh) InMemoryState. Wrapped
+  // in a single SQLite transaction so a mid-reload failure rolls back to
+  // the prior contents — the caller sees a thrown exception and the index
+  // remains internally consistent.
+  const reloadAll = db.transaction((s: InMemoryState) => {
+    stmts.deleteAllProjects.run();
+    stmts.deleteAllPeople.run();
+    stmts.deleteAllHelpWanted.run();
+    for (const project of s.projects.values()) {
+      if (project.deletedAt) continue;
+      stmts.upsertProject.run(
+        project.slug,
+        project.title,
+        project.summary ?? '',
+        project.overview ?? '',
+      );
+    }
+    for (const person of s.people.values()) {
+      if (person.deletedAt) continue;
+      stmts.upsertPerson.run(person.slug, person.fullName, person.bio ?? '');
+    }
+    for (const role of s.helpWantedRoles.values()) {
+      stmts.upsertHelpWanted.run(role.id, role.title, role.description);
+    }
+  });
 
   return {
     searchProjects(q: string): string[] {
@@ -154,6 +191,9 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
     },
     removeHelpWanted(id) {
       stmts.removeHelpWanted.run(id);
+    },
+    reload(newState: InMemoryState): void {
+      reloadAll(newState);
     },
   };
 }
