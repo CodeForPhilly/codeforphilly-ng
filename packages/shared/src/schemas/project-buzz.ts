@@ -10,7 +10,7 @@ export const ProjectBuzzSchema = z.object({
   postedById: z.string().uuid().nullable().optional(),
   slug: z.string().min(1),
   headline: z.string().min(1).max(200),
-  url: z.string().url().startsWith('https://'),
+  url: z.string().url(),
   publishedAt: z.string().datetime({ offset: true }),
   summary: z.string().nullable().optional(),
   imageKey: z.string().nullable().optional(),
