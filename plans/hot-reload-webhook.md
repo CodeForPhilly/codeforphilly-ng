@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/storage.md
 issues: [65]
+pr: 70
 ---
 
 # Plan: Hot-reload webhook for the public data branch
@@ -38,15 +39,15 @@ Out of scope: HMAC payload signing, multi-pod fanout, push-side schema validatio
 
 ## Validation
 
-- [ ] `npm run -w apps/api type-check` passes
-- [ ] `npm run -w apps/api test` — full suite green, including the new `internal-reload.test.ts`
-- [ ] `POST /api/_internal/reload-data` without Authorization → 401 generic message
-- [ ] Wrong bearer token → 401 (same shape; constant-time comparison verified by code review)
-- [ ] Unset `CFP_DATA_RELOAD_SECRET` → 503 "hot-reload not configured"
-- [ ] Body `{ commitHash: <ancestor-of-HEAD> }` → 200 noChanges with no rebuild
-- [ ] Empty body, no remote changes → 200 noChanges with `outcome: 'in-sync'`
-- [ ] Empty body, remote ahead of local → 200 with `outcome: 'fast-forwarded'`, `rebuilt: true`, and a service call sees the new record
-- [ ] Half-built rebuild does not corrupt running state (validated by reading reload.ts — fresh state is built fully before live state mutates)
+- [x] `npm run -w apps/api type-check` passes
+- [x] `npm run -w apps/api test` — full suite green, including the new `internal-reload.test.ts`
+- [x] `POST /api/_internal/reload-data` without Authorization → 401 generic message
+- [x] Wrong bearer token → 401 (same shape; constant-time comparison verified by code review)
+- [x] Unset `CFP_DATA_RELOAD_SECRET` → 503 "hot-reload not configured"
+- [x] Body `{ commitHash: <ancestor-of-HEAD> }` → 200 noChanges with no rebuild
+- [x] Empty body, no remote changes → 200 noChanges with `outcome: 'in-sync'`
+- [x] Empty body, remote ahead of local → 200 with `outcome: 'fast-forwarded'`, `rebuilt: true`, and a service call sees the new record
+- [x] Half-built rebuild does not corrupt running state (validated by reading reload.ts — fresh state is built fully before live state mutates)
 
 ## Risks / unknowns
 
@@ -56,8 +57,13 @@ Out of scope: HMAC payload signing, multi-pod fanout, push-side schema validatio
 
 ## Notes
 
-(To be filled in at closeout.)
+- **Gitsheets caches dataTree per Sheet at openStore time.** A `git merge --ff-only` updates the working tree but the already-open `Store`'s Sheet snapshots still bind the pre-merge tree, so `queryAll()` keeps returning the old records. The reload helper re-opens the public store and replaces it via a new `Store.swapPublic(newPublic)` method. Anything reading via the cached Sheets (the revocation sweeper, anything future-facing that reaches for `fastify.store.public.<sheet>`) now picks up the new tree. Transacts are unaffected — `repo.transact` builds a fresh workspace from the parent commit per call.
+- **In-place Map mutation, not pointer replacement.** Services capture the `InMemoryState` object at boot. Replacing it would orphan them. Helper builds a fresh state to a local var, then `clear()` + `set()` every Map on the live object in a tight synchronous block. If `loadInMemoryState` throws, the live state is untouched. If the FTS reload (last step) throws, the in-memory state has already been swapped but the FTS index is in undefined territory — the route logs loudly and returns 500 so the operator knows a pod restart is warranted.
+- **503 vs. 401 ordering chosen for probe resistance.** Missing/empty `Authorization` → 401 *before* checking whether the secret is configured. Unauthenticated probes can't tell whether the env var is set; only callers that present *some* bearer token get a 503-vs-401 distinction.
+- **`FtsEngine.reload(state)` is a single SQLite transaction.** Drops every FTS5 table's rows, re-inserts. If the inserts throw mid-transaction, SQLite rolls back to the prior contents. The handle and prepared statements are preserved so consumers holding `fastify.fts` keep working.
+- **The workflow YAML for the data repo lives in the PR body, not in this repo.** Per the cautions in the task, this PR doesn't touch `.github/workflows/` here. The operator adds the workflow to `codeforphilly-data` and mirrors the secret value between the sealed Secret in the GitOps repo and the data repo's repository (or environment) secret.
 
 ## Follow-ups
 
-(To be filled in at closeout.)
+- Tracked as: operator must add `notify-deployments.yml` to `codeforphilly-data` and provision `CFP_DATA_RELOAD_SECRET` as both a sealed Secret in the GitOps repo and a repo/env secret on `codeforphilly-data`. The PR body contains the workflow YAML + step-by-step.
+- Tracked as: production cluster gets the same wiring once it stands up — the workflow YAML's matrix has a placeholder entry for the prod URL.
