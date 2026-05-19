@@ -12,6 +12,9 @@ export default tseslint.config(
       '**/.vite/**',
       '**/coverage/**',
       '.claude/worktrees/**',
+      // Skill source is upstream-managed (hash-pinned in skills-lock.json);
+      // its scripts ship as CommonJS and aren't ours to relint.
+      '.agents/**',
     ],
   },
   js.configs.recommended,
