@@ -16,7 +16,13 @@ data:
   NODE_OPTIONS: "--max-old-space-size=1536"
   PORT: "3001"
   STORAGE_BACKEND: "filesystem"
-  CFP_DATA_BRANCH: "fixture"
+  # The runtime-served branch. `published` is the long-term sandbox + prod
+  # default — it accumulates importer snapshots (via merges from
+  # `legacy-import`) on top of new-in-v1 records the running API writes.
+  # Override per-pod via the `CFP_DATA_BRANCH` env var, e.g. point a debug
+  # deployment at `fixture` (small handful of seed records) or directly at
+  # `legacy-import` (raw snapshot, no merged runtime writes).
+  CFP_DATA_BRANCH: "published"
   # SSH key for the data repo deploy key (private branch reads).
   # accept-new keeps first-connect simple; strict host-key checking via
   # known_hosts ConfigMap is an overlay concern.
