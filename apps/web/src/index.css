@@ -139,3 +139,12 @@
     display: none !important;
   }
 }
+
+@keyframes hero-ken-burns {
+  from {
+    transform: scale(1.05) translate(var(--kb-from-x, 0%), var(--kb-from-y, 0%));
+  }
+  to {
+    transform: scale(1.1) translate(var(--kb-to-x, 0%), var(--kb-to-y, 0%));
+  }
+}

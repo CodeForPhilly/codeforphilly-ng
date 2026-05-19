@@ -8,6 +8,14 @@ describe('Home', () => {
   beforeEach(() => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(((input: string) => {
       if (input.startsWith('/api/auth/me')) return Promise.resolve(new Response(null, { status: 404 }));
+      if (input.startsWith('/hero/manifest.json')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      }
       if (input.startsWith('/api/projects')) {
         return Promise.resolve(
           new Response(JSON.stringify(mockPaginated([], { totalItems: 42 })), {
