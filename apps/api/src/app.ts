@@ -8,6 +8,11 @@
  *  4. trace-id plugin      → UUIDv7 traceId on every request
  *  5. setErrorHandler      → single error mapper for all throws
  *  6. store plugin         → decorates fastify.store from bootStores()
+ *  6a. reconcile plugin    → fetch + ff/rebase/escape-hatch against origin
+ *                            (between store and services so in-memory state
+ *                             is built from the post-reconciliation tree)
+ *  6b. push-daemon plugin  → starts gitsheets push daemon
+ *  6c. services plugin     → builds in-memory state + FTS
  *  7. rate-limit plugin    → in-memory counters keyed per-IP + per-account
  *  8. idempotency plugin   → in-memory map keyed by personId+key
  *  9. @fastify/swagger      → OpenAPI 3.1 doc generation
@@ -29,6 +34,7 @@ import { envJsonSchema, type Env } from './env.js';
 import { mapError } from './lib/errors.js';
 import traceIdPlugin from './plugins/trace-id.js';
 import storePlugin from './plugins/store.js';
+import reconcilePlugin from './plugins/reconcile.js';
 import pushDaemonPlugin from './plugins/push-daemon.js';
 import servicesPlugin from './plugins/services.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
@@ -111,10 +117,16 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // ----- 6. Store (boots gitsheets + private-store) -----
   await fastify.register(storePlugin);
 
-  // ----- 6a. Push daemon (pushes public-store commits to CFP_DATA_REMOTE) -----
+  // ----- 6a. Reconcile (fetch + ff/rebase/escape-hatch against origin) -----
+  // Runs AFTER store (needs the repo handle) and BEFORE services (so the
+  // in-memory state is built from the post-reconciliation tree). Skipped
+  // when CFP_DATA_REMOTE is unset.
+  await fastify.register(reconcilePlugin);
+
+  // ----- 6b. Push daemon (pushes public-store commits to CFP_DATA_REMOTE) -----
   await fastify.register(pushDaemonPlugin);
 
-  // ----- 6b. Services (loads in-memory state + FTS, boots after store) -----
+  // ----- 6c. Services (loads in-memory state + FTS, boots after store) -----
   await fastify.register(servicesPlugin);
 
   // ----- 7. Rate limiting -----
