@@ -186,7 +186,7 @@ This is why the hot-reload path uses `Store.swapPublic` (`apps/api/src/store/sto
 
 **Today** that means `slug-history` and `revocations` — neither has live exposure (no current route handler reads them post-write in the same request), but tests that verify a transact landed on those sheets must use `git show HEAD:…` or `swapPublic` themselves. When a future redirect handler does read slug-history post-write, the correct fix is to load it into the typed in-memory `Store` like the other sheets, not to call `swapPublic` per request.
 
-Upstream gitsheets enhancement tracked at the issue linked from [#47](https://github.com/CodeForPhilly/codeforphilly-ng/issues/47).
+Upstream gitsheets enhancement filed at [JarvusInnovations/gitsheets#184](https://github.com/JarvusInnovations/gitsheets/issues/184) (per-sheet `refresh()`). When that lands, tests + future direct-read code can replace the `git show HEAD:…` fallback with `await sheet.refresh(); await sheet.queryAll()`.
 
 ## Commits are the audit log
 
