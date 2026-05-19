@@ -53,6 +53,7 @@ import { helpWantedRoutes } from './routes/projects-help-wanted.js';
 import { projectMembershipRoutes } from './routes/projects-members.js';
 import { previewRoutes } from './routes/preview.js';
 import { samlRoutes } from './routes/saml.js';
+import { internalRoutes } from './routes/internal.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -174,6 +175,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(projectMembershipRoutes);
   await fastify.register(previewRoutes);
   await fastify.register(samlRoutes);
+  await fastify.register(internalRoutes);
 
   // Serve the OpenAPI JSON at the spec-mandated path /api/_openapi.json
   // (swagger-ui also exposes it at /api/_docs/json, but the spec names this path)
