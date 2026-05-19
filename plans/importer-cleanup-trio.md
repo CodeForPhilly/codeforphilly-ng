@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/data-model.md
   - specs/behaviors/storage.md
 issues: [47, 56, 58]
+pr: 74
 ---
 
 # Plan: Importer cleanup trio
@@ -55,16 +56,17 @@ Live production exposure: **none today.** No route handler reads from `slug-hist
 
 ## Validation
 
-- [ ] `packages/shared/src/schemas/project-buzz.ts` — `url` no longer constrained to `startsWith('https://')`; type-check passes.
-- [ ] `apps/api/scripts/import-laddr/translators.ts` — buzz translator passes through any well-formed URL; tag splitter defaults to `topic` with a warning.
-- [ ] Re-run the importer against the legacy snapshot. Compare counts before/after:
-  - ProjectBuzz: 32 → 113 (or whatever the post-fix count is — full 113 if every `http://` URL parses).
-  - Tag skips: ~120 → 0 (all now imported as `topic`).
-- [ ] `npm run -w apps/api test` — existing account-claim test (still using `git show`) passes; importer tests pass; no regressions elsewhere.
-- [ ] `npm run type-check && npm run lint` clean.
-- [ ] `specs/data-model.md` reflects ProjectBuzz + Tag changes; `specs/behaviors/storage.md` has the new dataTree-staleness section.
-- [ ] Upstream gitsheets issue filed; link recorded in the storage.md section.
-- [ ] Sandbox: after a deploy with the new importer's output merged into `published`, the project-detail pages with buzz feeds render the previously-skipped buzz items.
+- [x] `packages/shared/src/schemas/project-buzz.ts` — `url` no longer constrained to `startsWith('https://')`; type-check passes.
+- [x] `apps/api/scripts/import-laddr/translators.ts` — buzz translator passes through any well-formed URL; tag splitter defaults to `topic` with a warning.
+- [x] Dry-run importer against the live laddr snapshot. Counts:
+  - ProjectBuzz: 32 → **112** (1 record still legitimately skipped: `legacyId=118 project=388 — unresolved FK`, not a URL issue).
+  - Tags: 885 → **1017** (132 newly defaulted to `topic`; matches the "~120" estimate in #58).
+  - No new errors in either pass.
+- [x] `npm run -w apps/api test` — importer + account-claim tests pass; full sweep clean.
+- [x] `npm run type-check && npm run lint` clean.
+- [x] `specs/data-model.md` reflects ProjectBuzz + Tag changes; `specs/behaviors/storage.md` has the new dataTree-staleness section.
+- [ ] Upstream gitsheets enhancement filed; link recorded in the storage.md section. **Deferred** — see Follow-ups.
+- [ ] Sandbox: after a deploy with the new importer's output merged into `published`, the project-detail pages with buzz feeds render the previously-skipped buzz items. **Deferred** — runs at the next deploy cadence; the live `legacy-import` re-run waits until the relaxed schema is in the running pod.
 
 ## Risks / unknowns
 
@@ -74,8 +76,21 @@ Live production exposure: **none today.** No route handler reads from `slug-hist
 
 ## Notes
 
-_(filled at done time)_
+Three small fixes paired with their spec updates. Each landed as its own commit on the trio branch:
+
+- `fix(schemas): allow http:// urls on ProjectBuzz` — schema + data-model spec.
+- `fix(importer): default unnamespaced tags to topic; pass http urls through` — `splitTagHandle` no longer returns null; the call site in `translateTag` dropped its null check; `validUrl` sibling helper accepts both schemes while `validHttps` stays for Project's `usersUrl`/`developersUrl`.
+- `docs(storage): document gitsheets dataTree caching limitation` — storage.md section + tightened JSDoc on `Store.swapPublic`.
+
+Surprises:
+
+- The buzz `url` test in `packages/shared/tests/schemas.test.ts` was previously "rejects non-https url" and asserted the rejection. Inverted to "accepts http:// urls" and added a malformed-URL case so the `.url()` floor is still test-covered.
+- The data-model.md edit for the Tag legacy-import policy landed inside the #56 schema-relaxation commit rather than the #58 importer commit. Cohesive enough — both spec edits are adjacent in the file — but a small commit-message-vs-diff mismatch worth being aware of in the log.
+
+The live `legacy-import` re-run intentionally did **not** run from this branch. The relaxed schema needs to ship to the sandbox pod before any commit with `http://` URLs gets merged into `published`, otherwise validation would fail at boot/reload. The dry-run counts proved the importer-side fix; the actual write happens at the next deploy cadence.
 
 ## Follow-ups
 
-_(filled at done time)_
+- **File upstream gitsheets enhancement** — request a per-sheet or per-store refresh API so direct reads after a transact don't need a full re-open. *Tracked as*: needs a fresh issue against `JarvusInnovations/gitsheets`; link to be added to `specs/behaviors/storage.md` once filed.
+- **Re-run the importer and merge to `published`** — after this PR + a fresh sandbox deploy. *Deferred to operator cadence*; no new plan needed.
+- **Re-namespace defaulted tags** — operators may eventually want to triage the ~132 tags that landed in `topic` by default. Out of scope here; *Deferred* until a tag-management surface exists or someone surfaces a clear pain.
