@@ -148,6 +148,31 @@ for the authoritative contract. Operationally:
   with the outcome + commits; failures log error. Search the pod logs
   for `hot-reload` to audit the most recent firings.
 
+## Fetch from the pod's data clone
+
+The pod's working tree lives on a PVC at `/app/data` inside the container and may briefly hold commits the push daemon hasn't shipped to GitHub yet (or that got escape-hatched onto a `conflicts/*` branch — those *are* always pushed, see [`apps/api/src/store/reconcile.ts`](../../apps/api/src/store/reconcile.ts)). When you want to inspect the pod's view of the data repo without exposing any network ports, add it as a git remote via the `ext::` transport.
+
+```bash
+cd /path/to/codeforphilly-data
+
+git config protocol.ext.allow always
+git remote add pod 'ext::sh /path/to/codeforphilly-ng/scripts/git-pod-uploadpack.sh'
+
+git fetch pod
+git log --oneline pod/published..pod/published   # whatever you're chasing
+```
+
+The helper script resolves the current pod by label selector, so it survives restarts. Override via env if your setup differs:
+
+| Var | Default |
+|---|---|
+| `CFP_POD_KUBECONFIG` | `~/.kube/cfp-sandbox-cluster-kubeconfig.yaml` |
+| `CFP_POD_NAMESPACE` | `codeforphilly-rewrite-sandbox` |
+| `CFP_POD_SELECTOR` | `app.kubernetes.io/name=codeforphilly` |
+| `CFP_POD_DATA_PATH` | `/app/data` |
+
+**Read-only by design** — `git upload-pack` only serves fetch; pushing back to the pod would bypass gitsheets + in-memory state and fight the push daemon. Pull what you need to your local clone, reason about it there, then push to `origin` if appropriate.
+
 ## Helpful commands
 
 ```bash
