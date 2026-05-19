@@ -9,6 +9,11 @@ data:
   GIT_AUTHOR_EMAIL: "api@codeforphilly.org"
   GIT_AUTHOR_NAME: "CodeForPhilly API"
   NODE_ENV: "production"
+  # Bump Node's old-space heap ceiling above the default (~400Mi on Linux
+  # containers) so the in-memory record set + secondary indices + FTS fit.
+  # Keep ~25% headroom below the container's memory limit for ephemeral
+  # work (request handling, gitsheets tree mutations, etc.).
+  NODE_OPTIONS: "--max-old-space-size=1536"
   PORT: "3001"
   STORAGE_BACKEND: "filesystem"
   CFP_DATA_BRANCH: "fixture"
