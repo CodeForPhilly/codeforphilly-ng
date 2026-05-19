@@ -29,7 +29,7 @@ The page is composed of four sections, top to bottom:
   - Headline: "Contribute towards technology-related projects that benefit the City of Philadelphia."
   - Subhead: "No coding experience required."
 - Primary CTA: "Volunteer" (links to `/volunteer`)
-- Background: a looped, muted video (current site uses `/videos/video-small.mp4` with .webm and .ogv fallbacks). v1 carries this asset across; future redesigns can replace.
+- Background: a Ken Burns photo slideshow rendered by `<HeroSlideshow />`. Photos live in `apps/web/public/hero/` as optimized JPG (primary) + WebP (via `<picture>`), with a `manifest.json` index. On mount the photo set is shuffled; each photo is displayed for 8 seconds with a slow ambient pan (scale 1.05 → 1.10, translate ±2% on a randomized vector), then crossfades to the next over 1.5 seconds while the incoming photo immediately starts its own independent random pan. The `prefers-reduced-motion` media query disables the pan entirely; the crossfade still occurs. A dark gradient overlay sits above the photos to keep hero text legible. Asset regeneration is reproducible via `apps/web/scripts/optimize-hero-photos.sh <input-dir>`.
 - If the user is signed in, the primary CTA changes to "Browse Projects" (`/projects`).
 
 ### 2. Featured projects
