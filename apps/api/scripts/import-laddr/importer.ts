@@ -8,22 +8,22 @@
  * Branch model:
  *   - On first run, `legacy-import` is created from the `empty` branch (which
  *     carries only `.gitsheets/` configs, no records).
- *   - On subsequent runs, the importer resets a working ref to the current
- *     `legacy-import` HEAD, removes every importer-owned directory, writes
- *     fresh files, and commits.
- *   - Records use `<sheet>/<legacyId>.toml` paths (composite for memberships
- *     and tag-assignments) so re-runs overwrite stable filenames. The
- *     legacy-import branch is parallel history — the runtime spec's slug-
- *     based path templates apply once data is merged into `main`, which is
- *     an operator step outside this importer's scope.
+ *   - On subsequent runs, the importer checks out the existing local branch,
+ *     opens the gitsheets store, reads the previous snapshot's record UUIDs
+ *     (to keep them stable across re-runs), then opens a single transaction
+ *     that clears each importer-owned sheet and re-upserts the fresh data.
+ *   - Files are written by gitsheets per each sheet's path template
+ *     (e.g. `people/${{ slug }}.toml`) — the runtime API reads the same paths.
+ *     The legacy-import branch's tree is shape-identical to fixture/main; the
+ *     operator's merge into main is a plain `git merge`, no rename pass.
  *
  * Author identity on every commit: the pseudonymous Code for Philly API
- * user (see plans/laddr-import-via-json.md). The agent's git config is
- * never used.
+ * user. The agent's git config is never used (gitsheets honors `author`
+ * directly on `transact`).
  *
  * Side effects:
- *   - Writes/removes files in the data repo's working tree
- *   - Creates one commit on the local `legacy-import` branch
+ *   - Checks out the target branch in the data repo's working tree
+ *   - Creates one commit on the local `legacy-import` branch (via gitsheets)
  *   - Does NOT push to origin (operator's call)
  *
  * Private-store side: out of scope for this importer. The JSON endpoints
@@ -31,8 +31,7 @@
  * newsletter prefs) will be imported separately on a future plan.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -56,6 +55,7 @@ import type {
   TagAssignment,
 } from '@cfp/shared/schemas';
 
+import { openPublicStore, type PublicStore } from '../../src/store/public.js';
 import {
   fetchAllPages,
   RawPersonSchema,
@@ -101,8 +101,6 @@ export interface ImportOptions {
   readonly initialParent?: string;
   /** If true, fetch + translate + report but do not write to the repo. */
   readonly dryRun?: boolean;
-  /** If true, write files + stage but do not commit. */
-  readonly noCommit?: boolean;
   /** Truncate each fetched resource to N rows (for dev loops). */
   readonly limit?: number;
   /** Increase logging verbosity. */
@@ -132,24 +130,14 @@ export interface ImportReport {
   readonly branch: string;
   readonly counts: Record<string, EntityCounts>;
   readonly warnings: string[];
-  /** Commit hash produced, or null in `--dry-run` / `--no-commit` / no-changes. */
+  /** Commit hash produced, or null in `--dry-run` / no-changes. */
   readonly commitHash: string | null;
-  /** True when the working tree after staging matches HEAD (so no commit was made). */
+  /** True when the produced tree matches HEAD's (no commit was made). */
   readonly noChanges: boolean;
 }
 
 const AUTHOR_NAME = 'Code for Philly API';
 const AUTHOR_EMAIL = 'api@users.noreply.codeforphilly.org';
-
-const IMPORTER_OWNED_DIRS = [
-  'people',
-  'projects',
-  'tags',
-  'project-memberships',
-  'project-updates',
-  'project-buzz',
-  'tag-assignments',
-] as const;
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -180,16 +168,27 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   };
 
   const idMaps = newIdMaps();
+  const repo = resolve(opts.dataRepo);
 
   // -------------------------------------------------------------------------
-  // 0. Pre-pass — read existing UUIDs from the target branch so re-runs
-  //    are idempotent. Without this, every run mints fresh UUIDs and
-  //    every commit diffs against the last even when nothing changed
-  //    upstream.
+  // 0. Pre-pass — for non-dry-run, switch to the target branch and read
+  //    existing UUIDs from the previous snapshot so re-runs are idempotent.
+  //    Without this, every run mints fresh UUIDs and every commit diffs
+  //    against the last even when nothing changed upstream.
   // -------------------------------------------------------------------------
-  const existingIds = opts.dryRun
-    ? newExistingIds()
-    : await collectExistingIds(opts.dataRepo, branch, initialParent);
+  let store: PublicStore | null = null;
+  let existingIds: ExistingIds;
+
+  if (opts.dryRun) {
+    existingIds = newExistingIds();
+  } else {
+    await ensureGitRepo(repo);
+    await ensureBranchCheckedOut(repo, branch, initialParent);
+    const opened = await openPublicStore(repo);
+    store = opened.store;
+    existingIds = await collectExistingIds(store, log);
+  }
+
   const ctx: TranslateCtx = { idMaps, warnings, now: runAt, existingIds };
 
   // -------------------------------------------------------------------------
@@ -208,12 +207,7 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
 
   log(`[import] fetching tags from ${opts.sourceHost}`);
   const tags: Tag[] = [];
-  for await (const row of fetchAllPages<RawTag>(
-    '/tags',
-    RawTagSchema,
-    {},
-    fetchOpts,
-  )) {
+  for await (const row of fetchAllPages<RawTag>('/tags', RawTagSchema, {}, fetchOpts)) {
     const translated = translateTag(row, ctx);
     if (translated === null) {
       counts.tags!.skipped++;
@@ -229,7 +223,6 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   log(`[import] fetching people from ${opts.sourceHost} (this is the large one)`);
   const people: Person[] = [];
   const tagAssignments: TagAssignment[] = [];
-  const tagAssignmentLegacyTuples: Array<{ tagLegacyId: number; taggableLegacyId: number; taggableType: 'project' | 'person' }> = [];
   for await (const row of fetchAllPages<RawPerson>(
     '/people',
     RawPersonSchema,
@@ -262,11 +255,6 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
         );
         if (parsedTa) {
           tagAssignments.push(parsedTa);
-          tagAssignmentLegacyTuples.push({
-            tagLegacyId: ta.tagLegacyId,
-            taggableLegacyId: ta.taggableLegacyId,
-            taggableType: 'person',
-          });
           counts['tag-assignments']!.imported++;
         }
       }
@@ -317,11 +305,6 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
         );
         if (parsedTa) {
           tagAssignments.push(parsedTa);
-          tagAssignmentLegacyTuples.push({
-            tagLegacyId: ta.tagLegacyId,
-            taggableLegacyId: ta.taggableLegacyId,
-            taggableType: 'project',
-          });
           counts['tag-assignments']!.imported++;
         }
       }
@@ -414,75 +397,108 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   }
 
   // -------------------------------------------------------------------------
-  // 3. Stage tree in the data repo's working dir.
-  //    - Reset branch ref to current legacy-import HEAD (or initialParent if
-  //      the branch doesn't exist locally yet).
-  //    - Wipe every importer-owned directory.
-  //    - Write fresh files.
-  //    - `git add -A <owned-dirs>` and create commit.
+  // 3. One atomic gitsheets transaction:
+  //    - clear() each importer-owned sheet (deletes capture for free)
+  //    - upsert() every translated record (path-template + schema validation)
   // -------------------------------------------------------------------------
-  const repo = resolve(opts.dataRepo);
-  await ensureGitRepo(repo);
-  const parent = await ensureBranch(repo, branch, initialParent);
-  await checkoutBranch(repo, branch, parent);
-  await wipeOwnedDirectories(repo);
+  if (store === null) throw new Error('[import-laddr] internal: store not opened');
 
-  const filesWritten = await writeAllRecords(repo, {
-    tags,
-    people,
-    projects,
-    memberships,
-    updates,
-    buzz,
-    tagAssignments,
-    tagAssignmentLegacyTuples,
-    idMaps,
-    warnings,
-  });
+  const message = buildCommitMessage({ runAt, sourceHost: opts.sourceHost, counts });
 
-  log(`[import] wrote ${filesWritten} files`);
+  const result = await store.transact(
+    {
+      message,
+      author: { name: AUTHOR_NAME, email: AUTHOR_EMAIL },
+      trailers: {
+        Action: 'import.laddr.json',
+        'Source-Host': opts.sourceHost,
+        'Run-At': runAt,
+      },
+    },
+    async (tx) => {
+      log(`[import] clear + upsert tags (${tags.length})`);
+      await tx.tags.clear();
+      for (const t of tags) await tx.tags.upsert(t);
 
-  // -------------------------------------------------------------------------
-  // 4. Stage and check for changes.
-  // -------------------------------------------------------------------------
-  for (const dir of IMPORTER_OWNED_DIRS) {
-    await git(repo, 'add', '-A', '--', dir);
+      log(`[import] clear + upsert people (${people.length})`);
+      await tx.people.clear();
+      for (const p of people) await tx.people.upsert(p);
+
+      log(`[import] clear + upsert projects (${projects.length})`);
+      await tx.projects.clear();
+      for (const p of projects) await tx.projects.upsert(p);
+
+      log(`[import] clear + upsert project-memberships (${memberships.length})`);
+      await tx['project-memberships'].clear();
+      for (const m of memberships) {
+        const projectSlug = idMaps.projectSlugByLegacy.get(m.legacyIds.projectLegacyId);
+        const personSlug = idMaps.personSlugByLegacy.get(m.legacyIds.personLegacyId);
+        if (!projectSlug || !personSlug) {
+          warnings.push(
+            `[project-memberships] skipped: missing slug for project=${m.legacyIds.projectLegacyId} or person=${m.legacyIds.personLegacyId}`,
+          );
+          continue;
+        }
+        await tx['project-memberships'].upsert({
+          ...m.record,
+          projectSlug,
+          personSlug,
+        } as ProjectMembership);
+      }
+
+      log(`[import] clear + upsert project-updates (${updates.length})`);
+      await tx['project-updates'].clear();
+      for (const { record, projectLegacyId } of updates) {
+        const projectSlug = idMaps.projectSlugByLegacy.get(projectLegacyId);
+        if (!projectSlug) {
+          warnings.push(
+            `[project-updates] skipped: missing slug for project=${projectLegacyId}`,
+          );
+          continue;
+        }
+        await tx['project-updates'].upsert({ ...record, projectSlug } as ProjectUpdate);
+      }
+
+      log(`[import] clear + upsert project-buzz (${buzz.length})`);
+      await tx['project-buzz'].clear();
+      for (const { record, projectLegacyId } of buzz) {
+        const projectSlug = idMaps.projectSlugByLegacy.get(projectLegacyId);
+        if (!projectSlug) {
+          warnings.push(
+            `[project-buzz] skipped: missing slug for project=${projectLegacyId}`,
+          );
+          continue;
+        }
+        await tx['project-buzz'].upsert({ ...record, projectSlug } as ProjectBuzz);
+      }
+
+      log(`[import] clear + upsert tag-assignments (${tagAssignments.length})`);
+      await tx['tag-assignments'].clear();
+      for (const ta of tagAssignments) await tx['tag-assignments'].upsert(ta);
+    },
+  );
+
+  // gitsheets' Transaction#finalize doesn't compare the resulting tree-hash
+  // to the parent's tree-hash before committing — it commits whenever any
+  // mutating method was called, even if the tree ended up byte-identical
+  // (e.g. `clear()` + re-`upsert()` of the same records). Filed as
+  // JarvusInnovations/gitsheets#179. Until that lands, detect the no-op here
+  // and reset the ref so the snapshot history stays clean.
+  let commitHash: string | null = result.commitHash;
+  let noChanges = commitHash === null;
+  if (commitHash !== null && result.parentCommitHash !== null && result.treeHash !== null) {
+    const parentTreeHash = (
+      await exec('git', ['rev-parse', `${result.parentCommitHash}^{tree}`], { cwd: repo })
+    ).stdout.trim();
+    if (parentTreeHash === result.treeHash) {
+      await exec('git', ['update-ref', `refs/heads/${branch}`, result.parentCommitHash, commitHash], {
+        cwd: repo,
+      });
+      commitHash = null;
+      noChanges = true;
+      log('[import] tree matches parent — reset ref (no-op snapshot)');
+    }
   }
-
-  if (opts.noCommit) {
-    return {
-      runAt,
-      sourceHost: opts.sourceHost,
-      branch,
-      counts,
-      warnings: warningsList,
-      commitHash: null,
-      noChanges: false,
-    };
-  }
-
-  // Compare the tree we built to the parent's tree — when nothing changed
-  // upstream, we want to exit cleanly without creating an empty commit.
-  const { stdout: porcelain } = await git(repo, 'status', '--porcelain');
-  if (porcelain.trim() === '') {
-    log('[import] no changes from parent commit — nothing to commit');
-    return {
-      runAt,
-      sourceHost: opts.sourceHost,
-      branch,
-      counts,
-      warnings: warningsList,
-      commitHash: null,
-      noChanges: true,
-    };
-  }
-
-  const commitHash = await createImportCommit(repo, {
-    branch,
-    runAt,
-    sourceHost: opts.sourceHost,
-    counts,
-  });
 
   return {
     runAt,
@@ -491,253 +507,18 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
     counts,
     warnings: warningsList,
     commitHash,
-    noChanges: false,
+    noChanges,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Filesystem writers
+// Helpers
 // ---------------------------------------------------------------------------
-
-interface WriteBundle {
-  readonly tags: readonly Tag[];
-  readonly people: readonly Person[];
-  readonly projects: readonly Project[];
-  readonly memberships: readonly {
-    record: ProjectMembership;
-    legacyIds: { projectLegacyId: number; personLegacyId: number };
-  }[];
-  readonly updates: readonly {
-    record: ProjectUpdate;
-    projectLegacyId: number;
-  }[];
-  readonly buzz: readonly {
-    record: ProjectBuzz;
-    projectLegacyId: number;
-  }[];
-  readonly tagAssignments: readonly TagAssignment[];
-  readonly tagAssignmentLegacyTuples: readonly {
-    tagLegacyId: number;
-    taggableLegacyId: number;
-    taggableType: 'project' | 'person';
-  }[];
-  readonly idMaps: IdMaps;
-  readonly warnings: Warnings;
-}
-
-async function writeAllRecords(repo: string, b: WriteBundle): Promise<number> {
-  let count = 0;
-
-  // people/<legacyId>.toml
-  for (const r of b.people) {
-    if (r.legacyId === undefined) continue;
-    await writeRecord(repo, ['people', `${r.legacyId}.toml`], r);
-    count++;
-  }
-  // projects/<legacyId>.toml
-  for (const r of b.projects) {
-    if (r.legacyId === undefined) continue;
-    await writeRecord(repo, ['projects', `${r.legacyId}.toml`], r);
-    count++;
-  }
-  // tags/<legacyId>.toml
-  for (const r of b.tags) {
-    if (r.legacyId === undefined) continue;
-    await writeRecord(repo, ['tags', `${r.legacyId}.toml`], r);
-    count++;
-  }
-  // project-memberships/<projectLegacyId>-<personLegacyId>.toml
-  for (const { record, legacyIds } of b.memberships) {
-    await writeRecord(
-      repo,
-      ['project-memberships', `${legacyIds.projectLegacyId}-${legacyIds.personLegacyId}.toml`],
-      record,
-    );
-    count++;
-  }
-  // project-updates/<legacyId>.toml
-  for (const { record } of b.updates) {
-    if (record.legacyId === undefined) continue;
-    await writeRecord(repo, ['project-updates', `${record.legacyId}.toml`], record);
-    count++;
-  }
-  // project-buzz/<legacyId>.toml
-  for (const { record } of b.buzz) {
-    if (record.legacyId === undefined) continue;
-    await writeRecord(repo, ['project-buzz', `${record.legacyId}.toml`], record);
-    count++;
-  }
-  // tag-assignments/<tagLegacyId>-<taggableType>-<taggableLegacyId>.toml
-  for (let i = 0; i < b.tagAssignments.length; i++) {
-    const record = b.tagAssignments[i]!;
-    const legacy = b.tagAssignmentLegacyTuples[i]!;
-    await writeRecord(
-      repo,
-      [
-        'tag-assignments',
-        `${legacy.tagLegacyId}-${legacy.taggableType}-${legacy.taggableLegacyId}.toml`,
-      ],
-      record,
-    );
-    count++;
-  }
-
-  return count;
-}
-
-async function writeRecord(
-  repo: string,
-  pathParts: readonly string[],
-  record: Record<string, unknown>,
-): Promise<void> {
-  const full = join(repo, ...pathParts);
-  await mkdir(join(full, '..'), { recursive: true });
-  await writeFile(full, toToml(record), 'utf8');
-}
-
-// ---------------------------------------------------------------------------
-// TOML serialization (flat records; same shape as scripts/scrub-data.ts).
-// Records are written with keys in a stable alphabetical order so consecutive
-// snapshots produce stable diffs even if the in-memory object key order
-// drifts.
-// ---------------------------------------------------------------------------
-
-export function toToml(record: Record<string, unknown>): string {
-  const keys = Object.keys(record).sort();
-  const lines: string[] = [];
-  for (const key of keys) {
-    const value = record[key];
-    if (value === null || value === undefined) continue;
-    if (typeof value === 'string') {
-      if (value.includes('\n')) {
-        // Use TOML's basic-multiline-string form; escape the rare embedded
-        // triple-quote sequence and any backslashes.
-        const escaped = value.replace(/\\/g, '\\\\').replace(/"""/g, '\\"""');
-        lines.push(`${key} = """\n${escaped}\n"""`);
-      } else {
-        const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        lines.push(`${key} = "${escaped}"`);
-      }
-    } else if (typeof value === 'number') {
-      lines.push(`${key} = ${value}`);
-    } else if (typeof value === 'boolean') {
-      lines.push(`${key} = ${value}`);
-    }
-    // Arrays/objects intentionally not handled — all current v1 record fields
-    // are scalar at the top level.
-  }
-  return `${lines.join('\n')}\n`;
-}
-
-// ---------------------------------------------------------------------------
-// Git helpers
-// ---------------------------------------------------------------------------
-
-function git(
-  cwd: string,
-  ...args: string[]
-): Promise<{ stdout: string; stderr: string }> {
-  return exec('git', args, { cwd, maxBuffer: 256 * 1024 * 1024 });
-}
-
-async function ensureGitRepo(repo: string): Promise<void> {
-  try {
-    await git(repo, 'rev-parse', '--git-dir');
-  } catch (err) {
-    throw new Error(
-      `[import-laddr] ${repo} is not a git working directory: ${describe(err)}`,
-      { cause: err },
-    );
-  }
-}
-
-/**
- * Make sure the named branch exists locally. Returns the parent commit hash
- * we should use as the snapshot's parent — current branch tip if it exists,
- * else `initialParent`'s commit hash.
- */
-async function ensureBranch(
-  repo: string,
-  branch: string,
-  initialParent: string,
-): Promise<string> {
-  try {
-    const { stdout } = await git(repo, 'rev-parse', '--verify', `refs/heads/${branch}`);
-    return stdout.trim();
-  } catch {
-    // No local branch. Try `origin/<branch>` first; fall back to initialParent.
-    try {
-      const { stdout } = await git(repo, 'rev-parse', '--verify', `refs/remotes/origin/${branch}`);
-      return stdout.trim();
-    } catch {
-      // ignore — fall through
-    }
-    const { stdout } = await git(repo, 'rev-parse', '--verify', initialParent);
-    return stdout.trim();
-  }
-}
-
-async function checkoutBranch(
-  repo: string,
-  branch: string,
-  parent: string,
-): Promise<void> {
-  // Force-reset working tree to the desired parent under the named branch.
-  await git(repo, 'checkout', '-B', branch, parent);
-}
-
-async function wipeOwnedDirectories(repo: string): Promise<void> {
-  for (const dir of IMPORTER_OWNED_DIRS) {
-    const full = join(repo, dir);
-    // `git rm -rf -- <dir>` removes both the index entries and the working
-    // tree files in one shot. The first run on a fresh branch has nothing
-    // to remove, so swallow ENOENT-style failures.
-    try {
-      await git(repo, 'rm', '-rf', '--ignore-unmatch', '--', dir);
-    } catch {
-      // ignore — directory not present
-    }
-    // Defensively remove any leftover working-tree files (covers untracked
-    // detritus from a previous --no-commit run).
-    await rm(full, { recursive: true, force: true });
-  }
-}
 
 interface CommitParams {
-  readonly branch: string;
   readonly runAt: string;
   readonly sourceHost: string;
   readonly counts: Record<string, EntityCounts>;
-}
-
-async function createImportCommit(
-  repo: string,
-  p: CommitParams,
-): Promise<string> {
-  const env = {
-    ...process.env,
-    GIT_AUTHOR_NAME: AUTHOR_NAME,
-    GIT_AUTHOR_EMAIL: AUTHOR_EMAIL,
-    GIT_COMMITTER_NAME: AUTHOR_NAME,
-    GIT_COMMITTER_EMAIL: AUTHOR_EMAIL,
-    GIT_AUTHOR_DATE: p.runAt,
-    GIT_COMMITTER_DATE: p.runAt,
-  };
-
-  const message = buildCommitMessage(p);
-  const messageFile = join(repo, '.git', 'IMPORT_LADDR_MSG');
-  await writeFile(messageFile, message, 'utf8');
-
-  // Use `--quiet` to keep `git commit`'s stdout small (the create-mode list
-  // for a 40k-file snapshot otherwise exceeds the default execFile buffer).
-  await exec('git', ['commit', '--quiet', '-F', messageFile], {
-    cwd: repo,
-    env,
-    maxBuffer: 256 * 1024 * 1024,
-  });
-
-  const { stdout: shaRaw } = await git(repo, 'rev-parse', 'HEAD');
-  return shaRaw.trim();
 }
 
 function buildCommitMessage(p: CommitParams): string {
@@ -753,12 +534,8 @@ function buildCommitMessage(p: CommitParams): string {
     `${c['tag-assignments']!.imported} tag-assignments`,
   ].join(', ');
 
-  return `${subject}\n\n${summary}.\n\nAction: import.laddr.json\nSource-Host: ${p.sourceHost}\nRun-At: ${p.runAt}\n`;
+  return `${subject}\n\n${summary}.\n`;
 }
-
-// ---------------------------------------------------------------------------
-// Misc helpers
-// ---------------------------------------------------------------------------
 
 function blank(): EntityCounts {
   return { imported: 0, skipped: 0, errors: 0 };
@@ -784,206 +561,141 @@ function describe(err: unknown): string {
   return String(err);
 }
 
+// ---------------------------------------------------------------------------
+// Git plumbing (branch checkout only — gitsheets handles commit creation)
+// ---------------------------------------------------------------------------
+
+async function ensureGitRepo(repo: string): Promise<void> {
+  try {
+    await exec('git', ['rev-parse', '--git-dir'], { cwd: repo });
+  } catch (err) {
+    throw new Error(
+      `[import-laddr] ${repo} is not a git working directory: ${describe(err)}`,
+      { cause: err },
+    );
+  }
+}
+
 /**
- * Read each importer-owned `.toml` file from the latest snapshot tip and
- * extract the record's `id` field. Used to keep UUIDs stable across re-runs
- * so an unchanged source produces an unchanged tree (idempotence).
- *
- * Reads from `refs/heads/<branch>` if it exists, then `refs/remotes/origin/
- * <branch>`, then the configured fallback. Returns an empty map if no parent
- * exists yet (first run).
- *
- * Implementation note: `git cat-file --batch` is used to stream blob contents
- * in a single subprocess rather than fork+exec per-file. Snapshots can have
- * 40k+ files; per-file `git show` calls take many minutes.
+ * Check out the target branch in the working tree. On first run, create it
+ * from `origin/<branch>` if available, falling back to `initialParent`
+ * (typically `origin/empty`).
  */
-async function collectExistingIds(
+async function ensureBranchCheckedOut(
   repo: string,
   branch: string,
   initialParent: string,
+): Promise<void> {
+  // Existing local branch: just switch.
+  try {
+    await exec('git', ['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repo });
+    await exec('git', ['checkout', branch], { cwd: repo });
+    return;
+  } catch {
+    // No local branch — fall through.
+  }
+  // No local branch yet. Try origin/<branch>, fall back to initialParent.
+  let parent: string;
+  try {
+    await exec('git', ['rev-parse', '--verify', `refs/remotes/origin/${branch}`], {
+      cwd: repo,
+    });
+    parent = `origin/${branch}`;
+  } catch {
+    parent = initialParent;
+  }
+  await exec('git', ['checkout', '-b', branch, parent], { cwd: repo });
+}
+
+// ---------------------------------------------------------------------------
+// Pre-pass: read existing UUIDs from the current snapshot so re-runs preserve
+// each record's `id` field. Keys mirror the translator's `idFor(ctx, key)`
+// calls.
+//
+// Simple sheets (people, projects, tags, project-updates, project-buzz)
+// carry `legacyId` directly on the record, so we read them in one pass.
+// Composite-path sheets (project-memberships, tag-assignments) don't store
+// legacy IDs on the record; we recover them via uuid→legacyId reverse maps
+// built from the simple-sheet pass.
+// ---------------------------------------------------------------------------
+
+async function collectExistingIds(
+  store: PublicStore,
+  log: (msg: string) => void,
 ): Promise<ExistingIds> {
   const ids = newExistingIds();
-  let ref: string | null = null;
-  for (const candidate of [
-    `refs/heads/${branch}`,
-    `refs/remotes/origin/${branch}`,
-    initialParent,
-  ]) {
-    try {
-      await git(repo, 'rev-parse', '--verify', candidate);
-      ref = candidate;
-      break;
-    } catch {
-      // try next
-    }
-  }
-  if (ref === null) return ids;
+  let count = 0;
 
-  // `ls-tree -r` gives us mode + sha + filename for every file under the
-  // commit's tree. We need both blob sha (for cat-file --batch lookup) and
-  // path (so we know which sheet the record belongs to).
-  let listing: string;
-  try {
-    const { stdout } = await git(repo, 'ls-tree', '-r', ref);
-    listing = stdout;
-  } catch {
-    return ids;
-  }
+  // Pass 1: simple sheets. Also build uuid → legacyId reverse maps used by
+  // the composite-sheet pass below.
+  const personLegacyByUuid = new Map<string, number>();
+  const projectLegacyByUuid = new Map<string, number>();
+  const tagLegacyByUuid = new Map<string, number>();
 
-  interface Entry {
-    readonly sha: string;
-    readonly path: string;
-  }
-  const entries: Entry[] = [];
-  for (const line of listing.split('\n')) {
-    // Format: `<mode> <type> <sha>\t<path>`
-    const tabIdx = line.indexOf('\t');
-    if (tabIdx === -1) continue;
-    const meta = line.slice(0, tabIdx).split(/\s+/);
-    const path = line.slice(tabIdx + 1);
-    if (meta.length < 3) continue;
-    if (!path.endsWith('.toml')) continue;
-    let owned = false;
-    for (const dir of IMPORTER_OWNED_DIRS) {
-      if (path.startsWith(`${dir}/`)) {
-        owned = true;
-        break;
+  const simpleSheets = ['people', 'projects', 'tags', 'project-updates', 'project-buzz'] as const;
+  for (const sheetName of simpleSheets) {
+    const sheet = store[sheetName] as { query: () => AsyncIterable<Record<string, unknown>> };
+    for await (const record of sheet.query()) {
+      const legacyId = record['legacyId'];
+      const id = record['id'];
+      if (typeof legacyId === 'number' && typeof id === 'string') {
+        ids.byFile.set(`${sheetName}/${legacyId}`, id);
+        count++;
+        if (sheetName === 'people') personLegacyByUuid.set(id, legacyId);
+        else if (sheetName === 'projects') projectLegacyByUuid.set(id, legacyId);
+        else if (sheetName === 'tags') tagLegacyByUuid.set(id, legacyId);
       }
     }
-    if (!owned) continue;
-    entries.push({ sha: meta[2]!, path });
   }
 
-  if (entries.length === 0) return ids;
-
-  // Spawn `git cat-file --batch` once; feed it newline-separated SHAs on stdin,
-  // parse the streamed `<sha> blob <size>\n<content>\n` responses.
-  const blobs = await batchCatFile(repo, entries.map((e) => e.sha));
-  for (let i = 0; i < entries.length; i++) {
-    const content = blobs[i] ?? '';
-    const id = extractTomlString(content, 'id');
-    if (id) {
-      const key = entries[i]!.path.replace(/\.toml$/, '');
-      ids.byFile.set(key, id);
+  // Pass 2: composite-path sheets. Look up legacy IDs for the referenced
+  // entities; skip records that point at uuids we couldn't resolve.
+  const membershipsSheet = store['project-memberships'] as {
+    query: () => AsyncIterable<Record<string, unknown>>;
+  };
+  for await (const record of membershipsSheet.query()) {
+    const projectId = record['projectId'];
+    const personId = record['personId'];
+    const id = record['id'];
+    if (typeof id !== 'string' || typeof projectId !== 'string' || typeof personId !== 'string') {
+      continue;
     }
+    const projectLegacyId = projectLegacyByUuid.get(projectId);
+    const personLegacyId = personLegacyByUuid.get(personId);
+    if (projectLegacyId === undefined || personLegacyId === undefined) continue;
+    ids.byFile.set(`project-memberships/${projectLegacyId}-${personLegacyId}`, id);
+    count++;
   }
+
+  const tagAssignmentsSheet = store['tag-assignments'] as {
+    query: () => AsyncIterable<Record<string, unknown>>;
+  };
+  for await (const record of tagAssignmentsSheet.query()) {
+    const tagId = record['tagId'];
+    const taggableId = record['taggableId'];
+    const taggableType = record['taggableType'];
+    const id = record['id'];
+    if (
+      typeof id !== 'string' ||
+      typeof tagId !== 'string' ||
+      typeof taggableId !== 'string' ||
+      (taggableType !== 'project' && taggableType !== 'person')
+    ) {
+      continue;
+    }
+    const tagLegacyId = tagLegacyByUuid.get(tagId);
+    const taggableLegacyId =
+      taggableType === 'project'
+        ? projectLegacyByUuid.get(taggableId)
+        : personLegacyByUuid.get(taggableId);
+    if (tagLegacyId === undefined || taggableLegacyId === undefined) continue;
+    ids.byFile.set(
+      `tag-assignments/${tagLegacyId}-${taggableType}-${taggableLegacyId}`,
+      id,
+    );
+    count++;
+  }
+
+  log(`[import] pre-pass: preserved ${count} record UUIDs from previous snapshot`);
   return ids;
-}
-
-/**
- * Stream blob contents via a single `git cat-file --batch` invocation. Each
- * input SHA produces one entry in the returned array, in the same order.
- *
- * The protocol: emit one SHA per line on stdin; for each, git emits a header
- * line `<sha> <type> <size>\n` followed by `<size>` bytes of content and a
- * trailing `\n`. On `missing` (unknown SHA), git emits `<sha> missing\n` and
- * no content. We treat missing as empty.
- */
-async function batchCatFile(repo: string, shas: readonly string[]): Promise<string[]> {
-  if (shas.length === 0) return [];
-  const { spawn } = await import('node:child_process');
-  return await new Promise<string[]>((resolve, reject) => {
-    const child = spawn('git', ['cat-file', '--batch'], {
-      cwd: repo,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    const results: string[] = [];
-    let stderrAcc = '';
-    let buf = Buffer.alloc(0);
-    let mode: 'header' | 'content' = 'header';
-    let expected = 0;
-
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
-      stderrAcc += chunk;
-    });
-
-    child.stdout.on('data', (chunk: Buffer) => {
-      buf = Buffer.concat([buf, chunk]);
-      while (true) {
-        if (mode === 'header') {
-          const nl = buf.indexOf(0x0a);
-          if (nl === -1) return;
-          const header = buf.slice(0, nl).toString('utf8');
-          buf = buf.slice(nl + 1);
-          // header is `<sha> <type> <size>` or `<sha> missing`
-          const parts = header.split(' ');
-          if (parts.length === 3 && parts[1] !== 'missing') {
-            expected = parseInt(parts[2]!, 10);
-            mode = 'content';
-          } else {
-            // missing — no content body
-            results.push('');
-            if (results.length === shas.length) {
-              try {
-                child.stdin.end();
-              } catch {
-                // ignore
-              }
-            }
-          }
-        } else {
-          // content mode: wait for `expected` bytes + the trailing newline
-          if (buf.length < expected + 1) return;
-          const content = buf.slice(0, expected).toString('utf8');
-          buf = buf.slice(expected + 1); // skip trailing newline
-          results.push(content);
-          mode = 'header';
-          if (results.length === shas.length) {
-            try {
-              child.stdin.end();
-            } catch {
-              // ignore
-            }
-          }
-        }
-      }
-    });
-
-    child.on('close', (code) => {
-      if (code !== 0 && results.length !== shas.length) {
-        reject(new Error(`git cat-file --batch exited ${code}: ${stderrAcc}`));
-      } else {
-        resolve(results);
-      }
-    });
-    child.on('error', reject);
-
-    // Feed SHAs as a single write — git's batch mode reads to EOL.
-    const payload = shas.join('\n') + '\n';
-    child.stdin.write(payload);
-    // Don't end stdin yet — close it when all entries have been read so the
-    // batch process drains cleanly. (Closing early on a slow consumer would
-    // truncate output.)
-  });
-}
-
-function extractTomlString(content: string, key: string): string | null {
-  const re = new RegExp(`^${key}\\s*=\\s*"(.*)"$`, 'm');
-  const m = content.match(re);
-  if (m === null) return null;
-  // Reverse the simple TOML escapes used by our writer.
-  return (m[1] ?? '').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-}
-
-// Exposed for direct invocation in tests that walk the tree.
-export { IMPORTER_OWNED_DIRS };
-
-// Used by tests that want to introspect the unused-but-imported readdir helper.
-export async function listOwnedToml(repo: string): Promise<string[]> {
-  const out: string[] = [];
-  for (const dir of IMPORTER_OWNED_DIRS) {
-    const full = join(repo, dir);
-    try {
-      for (const entry of await readdir(full, { withFileTypes: true })) {
-        if (entry.isFile() && entry.name.endsWith('.toml')) {
-          out.push(`${dir}/${entry.name}`);
-        }
-      }
-    } catch {
-      // dir not present
-    }
-  }
-  return out;
 }

@@ -369,12 +369,39 @@ async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> 
   await run('config', 'user.email', 'test@cfp.test');
   await run('config', 'user.name', 'test');
   await run('config', 'commit.gpgsign', 'false');
-  // Create an "empty" branch with a .gitsheets seed similar to upstream
+  // Create an "empty" branch with the full .gitsheets config matrix. The
+  // importer opens the gitsheets store at boot, which requires every sheet
+  // declared on the validator map (PublicValidators) to have a corresponding
+  // .gitsheets/<name>.toml. Mirrors the upstream codeforphilly-data repo.
   await mkdir(join(dir, '.gitsheets'), { recursive: true });
-  await writeFile(
-    join(dir, '.gitsheets', 'people.toml'),
-    "[gitsheet]\nroot = 'people'\npath = '${{ slug }}'\n",
-  );
+  const sheets: Array<[string, string]> = [
+    ['people', "root = 'people'\npath = '${{ slug }}'\n"],
+    ['projects', "root = 'projects'\npath = '${{ slug }}'\n"],
+    ['tags', "root = 'tags'\npath = '${{ namespace }}/${{ slug }}'\n"],
+    [
+      'project-memberships',
+      "root = 'project-memberships'\npath = '${{ projectSlug }}/${{ personSlug }}'\n",
+    ],
+    [
+      'project-updates',
+      "root = 'project-updates'\npath = '${{ projectSlug }}/${{ number }}'\n",
+    ],
+    ['project-buzz', "root = 'project-buzz'\npath = '${{ projectSlug }}/${{ slug }}'\n"],
+    [
+      'tag-assignments',
+      "root = 'tag-assignments'\npath = '${{ taggableType }}/${{ taggableId }}/${{ tagId }}'\n",
+    ],
+    ['help-wanted-roles', "root = 'help-wanted-roles'\npath = '${{ projectSlug }}/${{ slug }}'\n"],
+    [
+      'help-wanted-interest',
+      "root = 'help-wanted-interest'\npath = '${{ roleId }}/${{ personId }}'\n",
+    ],
+    ['slug-history', "root = 'slug-history'\npath = '${{ entityType }}/${{ slug }}'\n"],
+    ['revocations', "root = 'revocations'\npath = '${{ jti }}'\n"],
+  ];
+  for (const [name, body] of sheets) {
+    await writeFile(join(dir, '.gitsheets', `${name}.toml`), `[gitsheet]\n${body}`);
+  }
   await run('add', '.gitsheets');
   await run('commit', '-m', 'initial empty branch');
   await run('branch', '-M', 'empty'); // rename initial branch
@@ -551,39 +578,48 @@ describe('importLaddrFromJson — orchestrator', () => {
       const tree = await exec('git', ['ls-tree', '-r', '--name-only', 'HEAD'], { cwd: repo });
       const paths = tree.stdout.split('\n').filter(Boolean);
 
-      // people/<legacyId>.toml — keyed by legacyId, not slug
-      expect(paths).toContain('people/10.toml');
-      expect(paths).toContain('people/20.toml');
-      // projects/<legacyId>.toml
-      expect(paths).toContain('projects/100.toml');
-      // tags/<legacyId>.toml
-      expect(paths).toContain('tags/1.toml');
-      expect(paths).toContain('tags/2.toml');
-      // composite memberships
-      expect(paths).toContain('project-memberships/100-10.toml');
-      expect(paths).toContain('project-memberships/100-20.toml');
-      // composite tag-assignments
-      expect(paths).toContain('tag-assignments/1-project-100.toml');
-      expect(paths).toContain('tag-assignments/2-person-10.toml');
-      // updates + buzz by legacyId
-      expect(paths).toContain('project-updates/500.toml');
-      expect(paths).toContain('project-buzz/800.toml');
+      // people/<slug>.toml — gitsheets path templates resolve `${{ slug }}`
+      expect(paths).toContain('people/alice.toml');
+      expect(paths).toContain('people/bob.toml');
+      // projects/<slug>.toml
+      expect(paths).toContain('projects/transit-app.toml');
+      // tags/<namespace>/<slug>.toml — split from handle `topic.transit`
+      expect(paths).toContain('tags/topic/transit.toml');
+      expect(paths).toContain('tags/tech/javascript.toml');
+      // project-memberships/<projectSlug>/<personSlug>.toml
+      expect(paths).toContain('project-memberships/transit-app/alice.toml');
+      expect(paths).toContain('project-memberships/transit-app/bob.toml');
+      // tag-assignments: `taggableType/taggableId/tagId.toml`, UUID-keyed.
+      // Don't pin exact UUIDs — check shape + that both taggable types appear.
+      const tagAssignmentPaths = paths.filter((p) => p.startsWith('tag-assignments/'));
+      expect(tagAssignmentPaths.length).toBeGreaterThanOrEqual(2);
+      expect(tagAssignmentPaths.some((p) => p.startsWith('tag-assignments/project/'))).toBe(true);
+      expect(tagAssignmentPaths.some((p) => p.startsWith('tag-assignments/person/'))).toBe(true);
+      // project-updates/<projectSlug>/<number>.toml
+      expect(paths).toContain('project-updates/transit-app/1.toml');
+      // project-buzz/<projectSlug>/<slug>.toml — buzz slug derived from Handle
+      expect(paths).toContain('project-buzz/transit-app/transit-app-on-tv.toml');
+
+      // gitsheets writes commits directly to the git object DB without
+      // touching the working tree. Read blob contents via `git show HEAD:<path>`.
+      const showBlob = async (path: string): Promise<string> =>
+        (await exec('git', ['show', `HEAD:${path}`], { cwd: repo })).stdout;
 
       // Stage lowercased
-      const projToml = await readFile(join(repo, 'projects/100.toml'), 'utf8');
+      const projToml = await showBlob('projects/transit-app.toml');
       expect(projToml).toContain('stage = "prototyping"');
       expect(projToml).toContain('legacyId = 100');
       // chatChannel preserved
       expect(projToml).toContain('chatChannel = "transit-app"');
 
       // Person.slackSamlNameId == slug
-      const aliceToml = await readFile(join(repo, 'people/10.toml'), 'utf8');
+      const aliceToml = await showBlob('people/alice.toml');
       expect(aliceToml).toContain('slackSamlNameId = "alice"');
       expect(aliceToml).toContain('slug = "alice"');
 
       // No PII (email-shaped patterns / bcrypt hashes) in any committed file
       for (const path of paths.filter((p) => p.endsWith('.toml'))) {
-        const content = await readFile(join(repo, path), 'utf8');
+        const content = await showBlob(path);
         expect(content, `email-like in ${path}`).not.toMatch(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
         expect(content, `bcrypt-like in ${path}`).not.toMatch(/\$2[ayb]\$/);
       }
@@ -698,10 +734,12 @@ describe('importLaddrFromJson — orchestrator', () => {
       expect(second.noChanges).toBe(false);
 
       // The diff between the two commits should touch exactly one file:
-      // projects/100.toml.
+      // the transit-app project itself (path is slug-keyed). All other
+      // records (memberships, tag-assignments, etc.) preserve their UUIDs
+      // and content across re-runs.
       const diff = await exec('git', ['diff', '--name-only', `${first.commitHash}..${second.commitHash}`], { cwd: repo });
       const changed = diff.stdout.split('\n').filter(Boolean);
-      expect(changed).toEqual(['projects/100.toml']);
+      expect(changed).toEqual(['projects/transit-app.toml']);
     } finally {
       await cleanup();
     }
