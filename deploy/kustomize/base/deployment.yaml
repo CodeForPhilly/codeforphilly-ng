@@ -64,10 +64,12 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 384Mi
+              memory: 768Mi
             limits:
               cpu: 1000m
-              memory: 768Mi
+              # Holds the full public dataset + secondary indices + FTS in
+              # memory (~31k people, 268 projects, 10k tag-assignments, …)
+              memory: 2Gi
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

@@ -11,7 +11,7 @@
  *     --source-host=codeforphilly.org \
  *     --data-repo=/path/to/codeforphilly-data \
  *     --branch=legacy-import \
- *     [--dry-run] [--no-commit] [--limit=N] [--verbose] [--page-size=N] [--delay-ms=N]
+ *     [--dry-run] [--limit=N] [--verbose] [--page-size=N] [--delay-ms=N]
  *
  * Defaults:
  *   --source-host  codeforphilly.org
@@ -30,7 +30,6 @@ interface CliArgs {
   readonly dataRepo: string;
   readonly branch: string;
   readonly dryRun: boolean;
-  readonly noCommit: boolean;
   readonly limit: number | undefined;
   readonly verbose: boolean;
   readonly pageSize: number | undefined;
@@ -76,7 +75,6 @@ function parseArgs(argv: readonly string[]): CliArgs {
         ? (opts['branch'] as string)
         : 'legacy-import',
     dryRun: opts['dry-run'] === true,
-    noCommit: opts['no-commit'] === true,
     limit: typeof limit === 'number' && Number.isFinite(limit) ? limit : undefined,
     verbose: opts['verbose'] === true,
     pageSize: typeof pageSize === 'number' && Number.isFinite(pageSize) ? pageSize : undefined,
@@ -90,16 +88,13 @@ async function main(): Promise<void> {
   console.log(`[import-laddr] source-host=${args.sourceHost}`);
   console.log(`[import-laddr] data-repo=${args.dataRepo}`);
   console.log(`[import-laddr] branch=${args.branch}`);
-  console.log(
-    `[import-laddr] dry-run=${args.dryRun} no-commit=${args.noCommit} limit=${args.limit ?? 'none'}`,
-  );
+  console.log(`[import-laddr] dry-run=${args.dryRun} limit=${args.limit ?? 'none'}`);
 
   const report = await importLaddrFromJson({
     sourceHost: args.sourceHost,
     dataRepo: args.dataRepo,
     branch: args.branch,
     dryRun: args.dryRun,
-    noCommit: args.noCommit,
     limit: args.limit,
     verbose: args.verbose,
     pageSize: args.pageSize,
@@ -127,8 +122,6 @@ function printReport(report: ImportReport, args: CliArgs): void {
   }
   if (args.dryRun) {
     lines.push(`(dry-run: no writes performed)`);
-  } else if (args.noCommit) {
-    lines.push(`(no-commit: files staged, no commit made)`);
   } else if (report.noChanges) {
     lines.push(`(no changes from parent commit — branch unchanged)`);
   } else if (report.commitHash) {
