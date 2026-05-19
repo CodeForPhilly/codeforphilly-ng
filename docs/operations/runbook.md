@@ -97,6 +97,57 @@ The local working tree continues to accept writes — it's only the
 asynchronous mirror to GitHub that's broken. Once fixed, the daemon will
 push the backlog.
 
+## Hot-reload webhook
+
+The API exposes `POST /api/_internal/reload-data` so that a push to
+`CFP_DATA_BRANCH` (typically `published`) propagates to the running pod
+without rolling it. The `codeforphilly-data` repo's
+`notify-deployments.yml` workflow calls this endpoint on every push.
+
+See [specs/behaviors/storage.md#hot-reload](../../specs/behaviors/storage.md#hot-reload)
+for the authoritative contract. Operationally:
+
+- **Configured by** the `CFP_DATA_RELOAD_SECRET` env variable. When
+  unset, the endpoint is still registered but returns 503 — the
+  workflow's `curl` will exit non-zero and the operator must
+  investigate. The secret value lives in the GitOps repo's
+  `cfp-sandbox-cluster/codeforphilly-ng.secrets/` (or production
+  equivalent) as a sealed Secret — not in the app repo.
+- **Trigger manually** for debugging:
+
+  ```bash
+  SECRET=$(kubectl -n codeforphilly-rewrite-sandbox get secret \
+    codeforphilly-ng -o jsonpath='{.data.CFP_DATA_RELOAD_SECRET}' | base64 -d)
+
+  curl -sS -X POST https://next-v2.codeforphilly.org/api/_internal/reload-data \
+    -H "Authorization: Bearer $SECRET" \
+    -H "Content-Type: application/json" \
+    -d '{}' | jq
+  ```
+
+- **Response shapes** (all wrapped in the success envelope):
+  - **No-op via cheap pre-check** (commit already in local HEAD) —
+    `{ noChanges: true, outcome: 'in-sync', head, durationMs }`. No
+    fetch, no lock acquired.
+  - **No-op after reconcile** (local already matched remote after the
+    fetch) — `{ noChanges: true, outcome: 'in-sync', oldCommit,
+    newCommit, durationMs }`.
+  - **Rebuilt** — `{ noChanges: false, rebuilt: true, outcome, oldCommit,
+    newCommit, durationMs, conflictBranch? }`. `outcome` is one of
+    `fast-forwarded`, `pushed-ahead`, `rebased`, `conflict-escaped`, or
+    `fetch-failed` (see [`store/reconcile.ts`](../../apps/api/src/store/reconcile.ts)).
+- **500 response** means the reconcile happened but the in-memory
+  rebuild threw partway. The pod's in-memory state and FTS index are
+  in an undefined state — restart the pod:
+
+  ```bash
+  kubectl -n codeforphilly-rewrite-sandbox rollout restart deploy/codeforphilly
+  ```
+
+- **Outside-the-pod observability** — every reload logs an info line
+  with the outcome + commits; failures log error. Search the pod logs
+  for `hot-reload` to audit the most recent firings.
+
 ## Helpful commands
 
 ```bash

@@ -215,6 +215,7 @@ comments. Production pod gets these mounted:
 | `CFP_DATA_REPO_PATH` | ConfigMap | `/app/data` (PVC mount) |
 | `CFP_DATA_REMOTE` | Secret | git URL (ssh in prod) |
 | `CFP_DATA_BRANCH` | ConfigMap | e.g. `fixture` / `main` |
+| `CFP_DATA_RELOAD_SECRET` | **Secret** | Shared bearer-token for the hot-reload webhook; when unset the `/api/_internal/reload-data` endpoint returns 503. See [runbook.md](runbook.md#hot-reload-webhook). |
 | `CFP_WEB_DIST_PATH` | ConfigMap | `/app/apps/web/dist` |
 | `STORAGE_BACKEND` | ConfigMap | `s3` (prod) / `filesystem` (sandbox) |
 | `CFP_PRIVATE_STORAGE_PATH` | ConfigMap | `/app/private-storage` (when filesystem) |
