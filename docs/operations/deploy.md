@@ -101,26 +101,52 @@ curl http://localhost:3001/                  # SPA index.html
 
 ## Boot sequence
 
-The container entrypoint (`deploy/docker/entrypoint.sh`) reconciles the
-data-repo working tree with origin before exec'ing the API. See the
-"Smart entrypoint reconciliation" commit message in `git log
-deploy/docker/entrypoint.sh` for the full state machine; in short:
+The container entrypoint (`deploy/docker/entrypoint.sh`) only handles the
+bits that *must* run before the Node process exists:
 
-- in sync → no-op
-- behind → fast-forward
-- ahead → push (push daemon retries on failure)
-- diverged + clean rebase → rebase + push
-- diverged + conflicts → push a `conflicts/<UTC-timestamp>` branch to origin
-  and hard-reset local to origin
+- Trusts the PVC mount via `git config --global safe.directory`.
+- Sets a pseudonymous git identity (`CodeForPhilly API
+  <api@users.noreply.codeforphilly.org>`) for any committer line a future
+  rebase might write.
+- On first pod boot — and only then — does a full-history `git clone` of
+  `CFP_DATA_REMOTE` into `CFP_DATA_REPO_PATH` when no `.git` directory
+  exists. On subsequent boots the PVC already holds a clone; no clone is
+  performed.
+- Refreshes `origin`'s URL to whatever `CFP_DATA_REMOTE` is set to (lets
+  operators rotate the remote without re-cloning the PVC).
+- `exec`s the API. That's all — about a dozen lines of shell now.
 
 Then `exec node apps/api/dist/index.js`. Inside node, `buildApp()` registers
 plugins ([apps/api/src/app.ts](../../apps/api/src/app.ts)) in order: env →
 CORS → cookies → trace IDs → error mapper → **store** (loads public +
-private into memory) → **push daemon** (starts pushing transact'd commits to
+private into memory) → **reconcile** (fetch + ff/rebase/escape-hatch against
+origin — see below) → **push daemon** (starts pushing transact'd commits to
 `CFP_DATA_REMOTE`) → services (FTS) → rate limit → idempotency → session
 middleware → swagger → routes → static SPA. Fastify's `listen()` doesn't
 fire until all of those resolve, so once `/api/health/ready` returns 200
-both stores have loaded.
+both stores have loaded **and** the working tree has been reconciled with
+origin.
+
+### Reconciliation state machine
+
+Lives in [`apps/api/src/store/reconcile.ts`](../../apps/api/src/store/reconcile.ts)
+and is invoked at boot by the reconcile plugin. Same state machine the
+shell used to run, just structured Node so exit codes propagate naturally
+and the same code is reusable from the future hot-reload webhook (#65):
+
+- in sync → no-op (`'in-sync'`)
+- behind → fast-forward (`'fast-forwarded'`)
+- ahead → push (`'pushed-ahead'`; push daemon retries on push failure)
+- diverged + clean rebase → rebase + push (`'rebased'`)
+- diverged + conflicts → abort rebase, create + push a
+  `conflicts/<UTC-timestamp>` branch from the pre-rebase HEAD, hard-reset
+  local to origin (`'conflict-escaped'`; logged at ERROR level so operators
+  see it in production logs)
+- fetch itself fails (network blip) → log warn, continue with local state
+  (`'fetch-failed'`)
+
+When `CFP_DATA_REMOTE` is unset (typical local dev), the reconcile plugin
+skips reconciliation entirely.
 
 ## Probes
 
@@ -133,9 +159,10 @@ both stores have loaded.
 ## Data repo on disk
 
 The API operates on a working tree at `/app/data` backed by a PVC. The
-entrypoint reconciles that tree with `CFP_DATA_REMOTE` on every boot; the
-push daemon pushes commits made during the pod's lifetime back to the
-remote.
+entrypoint ensures the working tree exists (cloning on first boot); the
+API-side reconcile plugin then synchronizes that tree with `CFP_DATA_REMOTE`
+on every boot, and the push daemon pushes commits made during the pod's
+lifetime back to the remote.
 
 Implications:
 
