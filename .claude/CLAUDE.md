@@ -18,6 +18,20 @@ Skills are version-pinned via `skills-lock.json`. To update: `agent-skills` CLI.
 
 When you `cd` into a clone of [`CodeForPhilly/codeforphilly-data`](https://github.com/CodeForPhilly/codeforphilly-data) (typically a sibling — see [Local setup](#local-setup) below), **read its `.claude/CLAUDE.md` first** — that repo has its own conventions and ships a `gitsheets` skill at `.claude/skills/gitsheets/` covering library use, transactions, path templates, indices. Don't write TOML records or shell out to git there by hand.
 
+## Feature workflow
+
+The shape of how features get built here — spec-driven, plans-tracked. The [`specops`](./skills/specops/SKILL.md) skill carries the full protocol (frontmatter schema, closeout ritual, Follow-ups taxonomy); this is the orientation map.
+
+1. **Specs first** — propose what *should be true* in [`specs/`](../specs/). New behavior, new screen, new endpoint → write or update the relevant spec file. Get it reviewed. The spec is the source of truth, not the eventual code.
+2. **Write a plan** — `plans/<slug>.md`, `status: planned`. Frontmatter declares deps + which specs the plan implements. Body has Scope / Implements / Approach / Validation (checklist) / Risks / Notes / Follow-ups.
+3. **Open the plan** — flip `status: planned → in-progress`, branch off `main` (`feat/<slug>`, `fix/<slug>`, `chore/<slug>`). The plan is now the working contract for the branch.
+4. **Implement** — bring code into conformance with the specs the plan lists. `backend-fastify` / `frontend-shadcn` skills cover per-layer patterns. If the spec turns out wrong, *fix the spec first* — don't code around it.
+5. **Validate** — tick each Validation checkbox as you confirm it. Browser-test UI; spec-conformance check non-trivial features. `npm run type-check && npm run lint && npm test` clean.
+6. **Closeout commit** — flip `status: in-progress → done`, fill **Notes** (what shipped, surprises, deferred trade-offs) and **Follow-ups** using the Issue / Deferred to plan / Tracked as / None taxonomy from the specops skill. This is the last commit on the branch.
+7. **PR** — conventional subject ≤72 chars, body explains *why*. Rebase locally onto `main` before `gh pr merge --merge` (never `--rebase` / `--squash` — see [Source control](#source-control)).
+
+For tiny fixes (typo, one-line bug) where writing a plan would be more ceremony than the change is worth, skip steps 2–3, 6 and go straight to a PR. Anything that touches behavior, schema, or a new file should go through the full loop.
+
 ## Three repos in this project
 
 ```
@@ -100,6 +114,26 @@ npm run lint                # eslint
 npm run -w apps/api dev     # api only
 npm run -w apps/web dev     # web only
 ```
+
+## Deploying
+
+GitOps. This repo publishes a Docker image to GHCR; the [`cfp-sandbox-cluster`](https://github.com/CodeForPhilly/cfp-sandbox-cluster) repo pulls our [`deploy/kustomize/`](../deploy/kustomize/) upstream via hologit and applies it with Kustomize. Production will follow the same pattern under a `cfp-prod-cluster` repo.
+
+Typical change flow:
+
+1. **Merge to `main`** — CI builds + tests; nothing deploys yet.
+2. **Publish image** (currently manual) — `docker build --platform=linux/amd64 -t ghcr.io/codeforphilly/codeforphilly-ng:sandbox . && docker push …`. Apple-silicon dev machines must set the platform flag — cluster nodes are amd64.
+3. **GitOps pickup** — `cfp-sandbox-cluster` projects from our `deploy/kustomize/`; on its own merge, applies via `kubectl apply -k`.
+4. **Pod boot** — single replica, `Recreate` strategy. Container entrypoint clones the data repo on first boot (PVC persists across pods). Node boots: env → store load → **reconcile** (ff/rebase/escape-hatch against `origin/<CFP_DATA_BRANCH>`) → **push daemon** → routes → SPA. `/api/health/ready` returns 200 once stores are loaded *and* reconciled.
+5. **Live data updates** — independent of app deploy. Pushes to `published` trigger the [hot-reload webhook](../docs/operations/runbook.md#hot-reload-webhook); the pod rebuilds in-memory state in place, no restart.
+
+Constraints worth knowing before touching anything deploy-shaped:
+
+- **Single replica is non-negotiable** — writes flow through an in-process mutex; horizontal scale would lose write serialization.
+- **One image for API + SPA** — Fastify serves the built `apps/web/dist` as fallthrough. No separate web container.
+- **Sealed secrets are cluster-bound** — sandbox-sealed secrets can't decrypt in prod. Plain values live in `.env` locally; cluster values live in the sandbox-cluster repo's `codeforphilly-ng.secrets/`.
+
+Full operator docs: [`docs/operations/`](../docs/operations/) — `deploy.md` (boot sequence + env table), `sandbox-deploy.md` (manual bring-up), `secrets.md` (the secret contract), `runbook.md` (incident response + hot-reload webhook), `cutover.md` (production switch plan).
 
 ## Source control
 

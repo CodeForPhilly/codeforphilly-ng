@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/screens/home.md
 issues: []
+pr: 67
 ---
 
 # Plan: Hero photo slideshow
@@ -60,17 +61,17 @@ Add a `/hero/manifest.json` → `[]` branch to the `fetch` spy in `apps/web/test
 
 ## Validation
 
-- [ ] `bash apps/web/scripts/optimize-hero-photos.sh <dir>` produces 16 JPGs (~150–250 KB each), 16 WebPs, and a `manifest.json` of length 16
-- [ ] `npm run -w apps/web dev` — hero photos cycle every ~8 s with a visible slow pan
-- [ ] Two consecutive transitions are smooth crossfades (no hard cut)
-- [ ] Hard-reload several times — photo order differs across loads
-- [ ] DevTools → Rendering → "prefers-reduced-motion: reduce" → pans stop, crossfades continue
-- [ ] DevTools → Network throttle Fast 3G → no blank frame during transitions
-- [ ] Hero text legible over every photo (gradient overlay does its job)
-- [ ] `npm run -w apps/web test` — Home.test.tsx passes
-- [ ] `npm run -w apps/web build` — no TS errors; `dist/hero/` contains 16 jpg + 16 webp + manifest.json
-- [ ] `npm run type-check` and `npm run lint` clean
-- [ ] `specs/screens/home.md` no longer mentions "looped, muted video"
+- [x] `bash apps/web/scripts/optimize-hero-photos.sh <dir>` produces 16 JPGs (~150–250 KB each), 16 WebPs, and a `manifest.json` of length 16
+- [x] `npm run -w apps/web dev` — hero photos cycle every ~8 s with a visible slow pan
+- [x] Two consecutive transitions are smooth crossfades (no hard cut)
+- [x] Hard-reload several times — photo order differs across loads
+- [x] DevTools → Rendering → "prefers-reduced-motion: reduce" → pans stop, crossfades continue
+- [x] DevTools → Network throttle Fast 3G → no blank frame during transitions
+- [x] Hero text legible over every photo (gradient overlay does its job)
+- [x] `npm run -w apps/web test` — Home.test.tsx passes
+- [x] `npm run -w apps/web build` — no TS errors; `dist/hero/` contains 16 jpg + 16 webp + manifest.json
+- [x] `npm run type-check` and `npm run lint` clean
+- [x] `specs/screens/home.md` no longer mentions "looped, muted video"
 
 ## Risks / unknowns
 
@@ -80,8 +81,10 @@ Add a `/hero/manifest.json` → `[]` branch to the `fetch` spy in `apps/web/test
 
 ## Notes
 
-_(filled at done time)_
+Shipped in PR #67 (merged 2026-05-19). Pipeline produced the 16-photo set committed under `apps/web/public/hero/`. CI flake on the run was unrelated — confirmed by re-run before merge.
+
+The two-layer `<picture>` approach kept the DOM small (the next layer is only mounted during a transition), and per-layer random vectors via CSS custom properties meant a single `@keyframes ken-burns` definition could drive every animation instance with distinct motion.
 
 ## Follow-ups
 
-_(filled at done time)_
+None — closeout-only follow-ups absorbed during PR review. Future hero photo refreshes re-run `apps/web/scripts/optimize-hero-photos.sh` against the originals directory; no plan needed.
