@@ -81,7 +81,6 @@ import {
   translateTagAssignment,
   translateUpdate,
   type ExistingIds,
-  type IdMaps,
   type TranslateCtx,
   type Warnings,
 } from './translators.js';
@@ -478,36 +477,17 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
     },
   );
 
-  // gitsheets' Transaction#finalize doesn't compare the resulting tree-hash
-  // to the parent's tree-hash before committing — it commits whenever any
-  // mutating method was called, even if the tree ended up byte-identical
-  // (e.g. `clear()` + re-`upsert()` of the same records). Filed as
-  // JarvusInnovations/gitsheets#179. Until that lands, detect the no-op here
-  // and reset the ref so the snapshot history stays clean.
-  let commitHash: string | null = result.commitHash;
-  let noChanges = commitHash === null;
-  if (commitHash !== null && result.parentCommitHash !== null && result.treeHash !== null) {
-    const parentTreeHash = (
-      await exec('git', ['rev-parse', `${result.parentCommitHash}^{tree}`], { cwd: repo })
-    ).stdout.trim();
-    if (parentTreeHash === result.treeHash) {
-      await exec('git', ['update-ref', `refs/heads/${branch}`, result.parentCommitHash, commitHash], {
-        cwd: repo,
-      });
-      commitHash = null;
-      noChanges = true;
-      log('[import] tree matches parent — reset ref (no-op snapshot)');
-    }
-  }
-
+  // gitsheets v1.3.1+ compares the post-transact tree-hash to the parent's
+  // tree-hash and returns commitHash=null when they match (no-op snapshot).
+  // No workaround needed.
   return {
     runAt,
     sourceHost: opts.sourceHost,
     branch,
     counts,
     warnings: warningsList,
-    commitHash,
-    noChanges,
+    commitHash: result.commitHash,
+    noChanges: result.commitHash === null,
   };
 }
 
