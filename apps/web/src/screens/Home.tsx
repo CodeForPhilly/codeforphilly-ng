@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ActivityCard, mergeActivity, type ActivityItem } from '@/components/ActivityCard';
 import { HelpWantedCard } from '@/components/HelpWantedCard';
+import { HeroSlideshow } from '@/components/HeroSlideshow';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -75,28 +76,20 @@ export function Home() {
   return (
     <div>
       {/* Hero */}
-      <section className="relative bg-gradient-to-br from-primary/5 via-background to-primary/10 border-b border-border">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <video
-            autoPlay
-            muted
-            loop
-            playsInline
-            className="absolute inset-0 w-full h-full object-cover opacity-30"
-            aria-hidden="true"
-          >
-            <source src="/videos/video-small.mp4" type="video/mp4" />
-            <source src="/videos/video-small.webm" type="video/webm" />
-          </video>
-        </div>
+      <section className="relative border-b border-border bg-neutral-900 overflow-hidden">
+        <HeroSlideshow className="absolute inset-0" />
+        <div
+          className="absolute inset-0 bg-gradient-to-br from-black/55 via-black/30 to-black/55 pointer-events-none"
+          aria-hidden="true"
+        />
         <div className="relative container mx-auto px-4 py-20 text-center">
-          <h1 className="text-3xl md:text-5xl font-bold text-foreground mb-4 max-w-3xl mx-auto leading-tight">
+          <h1 className="text-3xl md:text-5xl font-bold text-white mb-4 max-w-3xl mx-auto leading-tight drop-shadow-md">
             Contribute towards technology-related projects that benefit the City of Philadelphia.
           </h1>
-          <p className="text-lg md:text-xl text-muted-foreground mb-8">
+          <p className="text-lg md:text-xl text-white/85 mb-8 drop-shadow">
             No coding experience required.
           </p>
-          <Button asChild size="lg" className="bg-green-600 hover:bg-green-700 text-white">
+          <Button asChild size="lg" className="bg-green-600 hover:bg-green-700 text-white shadow-lg">
             <Link to={person ? '/projects' : '/volunteer'}>
               {person ? 'Browse Projects' : 'Volunteer'}
             </Link>
