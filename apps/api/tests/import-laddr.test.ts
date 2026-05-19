@@ -221,12 +221,14 @@ describe('translateTag', () => {
     expect(tag!.slug).toBe('transit');
   });
 
-  it('skips bare handles with no namespace anywhere', () => {
+  it('defaults bare handles with no namespace to topic', () => {
     const c = ctx();
     const row: RawTag = { ID: 11, Class: 'Tag', Handle: 'cocoa', Title: 'cocoa' };
     const tag = translateTag(row, c);
-    expect(tag).toBeNull();
-    expect(c.warnings.items.some((w) => w.includes('no resolvable namespace'))).toBe(true);
+    expect(tag).not.toBeNull();
+    expect(tag!.namespace).toBe('topic');
+    expect(tag!.slug).toBe('cocoa');
+    expect(c.warnings.items.some((w) => w.includes('defaulted to topic'))).toBe(true);
   });
 
   it('coerces underscores in the slug component', () => {
@@ -244,9 +246,26 @@ describe('translateTag', () => {
 });
 
 describe('splitTagHandle', () => {
-  it('rejects unknown namespaces', () => {
+  it('defaults unknown namespaces to topic with a warning', () => {
     const warnings = { items: [] as string[], push: (w: string) => warnings.items.push(w) };
-    expect(splitTagHandle('weird.foo', null, warnings, 1)).toBeNull();
+    expect(splitTagHandle('weird.foo', null, warnings, 1)).toEqual({
+      namespace: 'topic',
+      slug: 'weird.foo',
+    });
+    expect(warnings.items).toEqual([
+      '[tags] legacyId=1 handle "weird.foo" has no resolvable namespace; defaulted to topic',
+    ]);
+  });
+
+  it('defaults bare-word handles to topic', () => {
+    const warnings = { items: [] as string[], push: (w: string) => warnings.items.push(w) };
+    expect(splitTagHandle('naloxone', null, warnings, 1)).toEqual({
+      namespace: 'topic',
+      slug: 'naloxone',
+    });
+    expect(warnings.items).toEqual([
+      '[tags] legacyId=1 handle "naloxone" has no resolvable namespace; defaulted to topic',
+    ]);
   });
 
   it('handles event namespace', () => {

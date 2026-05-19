@@ -176,6 +176,18 @@ type Store = {
 
 Mutations are scoped to the HTTP request — see the [Request-bound commit lifecycle](#request-bound-commit-lifecycle) below.
 
+### Direct gitsheets reads after a transact (caching limitation)
+
+gitsheets' `Sheet` objects cache the `dataTree` snapshot they were opened against, for the lifetime of the `Sheet` instance. `repo.transact` correctly builds a fresh workspace from the current HEAD each call, so writes always target the right tree — but after `transact` returns and HEAD has advanced, any standing `sheet.query()` / `queryAll()` / `findByIndex()` calls on the originally-opened `Sheet` objects in `store.public` return data from the **pre-commit** tree.
+
+This is why the hot-reload path uses `Store.swapPublic` (`apps/api/src/store/store.ts`) to re-open the public store after a working-tree-changing reconcile.
+
+**Consequence for the in-memory pattern above:** sheets whose records flow into the typed in-memory `Store` (people, projects, memberships, …) are immune — `StateApply.upsert*` mutates the in-memory Maps in lockstep with each transact, and route handlers read from those Maps. The staleness only affects code that reads directly from `store.public['<sheet>'].query*()` after a write in the same logical operation.
+
+**Today** that means `slug-history` and `revocations` — neither has live exposure (no current route handler reads them post-write in the same request), but tests that verify a transact landed on those sheets must use `git show HEAD:…` or `swapPublic` themselves. When a future redirect handler does read slug-history post-write, the correct fix is to load it into the typed in-memory `Store` like the other sheets, not to call `swapPublic` per request.
+
+Upstream gitsheets enhancement tracked at the issue linked from [#47](https://github.com/CodeForPhilly/codeforphilly-ng/issues/47).
+
 ## Commits are the audit log
 
 There is no separate audit-log table or sheet. Every mutation is a git commit with author, timestamp, full diff, structured message, and trailers. Queries that a SQL audit log would serve (`who soft-deleted project X?`, `recent staff actions this month?`) are answered by `git log --grep`, `git log --author`, and `git log -- path/to/sheet/`.

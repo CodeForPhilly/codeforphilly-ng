@@ -218,13 +218,19 @@ type Namespace = (typeof VALID_NAMESPACES)[number];
  * (`topictransit`); when the source row has a `Title` like `topic.Transit`
  * we recover the namespace from there. Both Handle and the slug component
  * are lowercased; slug-shape normalization happens at the call site.
+ *
+ * When neither Handle nor Title supplies a `topic.`/`tech.`/`event.` prefix
+ * (~12% of laddr tags — these were created via autocomplete-create without
+ * typing a namespace), we default to `topic` rather than skip. An audit
+ * warning is emitted so operators can re-namespace them later via tooling.
+ * Per specs/data-model.md#tag.
  */
 export function splitTagHandle(
   handle: string,
   title: string | null,
   warnings: Warnings,
   legacyId: number,
-): { namespace: Namespace; slug: string } | null {
+): { namespace: Namespace; slug: string } {
   const tryFrom = (s: string): { namespace: Namespace; slug: string } | null => {
     const dotIdx = s.indexOf('.');
     if (dotIdx === -1) return null;
@@ -245,9 +251,9 @@ export function splitTagHandle(
     return fromTitle;
   }
   warnings.push(
-    `[tags] legacyId=${legacyId} handle "${handle}" has no resolvable namespace; skipped`,
+    `[tags] legacyId=${legacyId} handle "${handle}" has no resolvable namespace; defaulted to topic`,
   );
-  return null;
+  return { namespace: 'topic', slug: handle.toLowerCase() };
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +276,16 @@ function validHttps(s: string | null): string | null {
   try {
     const u = new URL(s);
     return u.protocol === 'https:' ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function validUrl(s: string | null): string | null {
+  if (s === null) return null;
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null;
   } catch {
     return null;
   }
@@ -449,7 +465,6 @@ export function translateTag(row: RawTag, ctx: TranslateCtx): Tag | null {
     return null;
   }
   const split = splitTagHandle(handle, nonEmptyStr(row.Title), ctx.warnings, legacyId);
-  if (!split) return null;
 
   // The slug component derived from a handle like `topic.urban_design` can
   // contain underscores. Tag slugs only allow `[a-z0-9-]` — coerce, but
@@ -594,7 +609,7 @@ export function translateBuzz(
     );
     return null;
   }
-  const url = validHttps(nonEmptyStr(row.URL));
+  const url = validUrl(nonEmptyStr(row.URL));
   if (!url) {
     ctx.warnings.push(
       `[project-buzz] legacyId=${legacyId} missing/invalid URL; skipped`,

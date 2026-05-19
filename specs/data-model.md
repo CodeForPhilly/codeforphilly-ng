@@ -293,7 +293,7 @@ External media / press / "buzz" about a project. Was laddr's `project_buzz`.
 | postedById | uuid nullable | references people.id |
 | slug | string | URL-safe slug derived from headline |
 | headline | string | required, 1–200 chars |
-| url | string | required, HTTPS valid |
+| url | string | required, valid URL (any scheme). Historical laddr buzz includes mid-2010s `http://` press links still served as plain HTTP today — preserved for fidelity. |
 | publishedAt | iso8601 | date the original article was published |
 | summary | string nullable | excerpt / quote |
 | imageKey | string nullable | gitsheets attachment key for the article image |
@@ -332,6 +332,8 @@ Polymorphic taxonomy. Replaces laddr's `tags` + `tag_items`, but with a typed `n
 **Uniqueness:** `(namespace, slug)`.
 
 URL: `/tags/<namespace>/<slug>` (was `/tags/topic.foo`).
+
+**Legacy-import policy:** laddr tags whose `Handle` is a bare word (no `topic.`/`tech.`/`event.` prefix) and whose `Title` also lacks a prefix default to `namespace: 'topic'`. These are mostly low-traffic org/event keywords created via laddr's autocomplete-create flow without typing a namespace. The importer emits an audit warning per defaulted tag so operators can re-namespace them later via tooling. See [issue #58](https://github.com/CodeForPhilly/codeforphilly-ng/issues/58).
 
 ## TagAssignment
 

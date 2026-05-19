@@ -55,17 +55,21 @@ export class Store {
   }
 
   /**
-   * Replace the public-store snapshot. Used by the hot-reload webhook
-   * (`POST /api/_internal/reload-data`): gitsheets caches the dataTree
-   * each Sheet was opened against, so after a fast-forward merge the
-   * Sheet handles are stale. Re-open the store and swap it in here so
-   * subsequent direct reads (`store.public.<sheet>.query(...)`) see the
-   * new tree.
+   * Replace the public-store snapshot.
    *
-   * The `transact` path doesn't need this — `repo.transact` builds a
-   * fresh workspace from the parent commit on every call. But the
-   * revocation sweeper and any other consumer that reads via the cached
-   * Sheets must pick up the new dataTree.
+   * gitsheets `Sheet` objects cache the `dataTree` they were opened
+   * against and never refresh — direct `sheet.query*()` calls after a
+   * commit (or any working-tree-changing op) read from the pre-commit
+   * tree. The `transact` path itself is unaffected because `repo.transact`
+   * builds a fresh workspace from HEAD on every call, and route handlers
+   * read from the typed in-memory `Store` (kept in lockstep by
+   * `StateApply.upsert*`).
+   *
+   * Use this to swap in a freshly-opened `PublicStore` after an out-of-band
+   * reconcile or hot-reload has advanced HEAD. See
+   * specs/behaviors/storage.md → "Direct gitsheets reads after a transact"
+   * for the limitation on sheets not loaded into the typed Store
+   * (`slug-history`, `revocations`).
    */
   swapPublic(newPublic: PublicStore): void {
     this.#public = newPublic;

@@ -203,13 +203,27 @@ describe('ProjectBuzzSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects non-https url', () => {
+  it('accepts http:// urls (legacy press links)', () => {
     const result = ProjectBuzzSchema.safeParse({
       id: uuid,
       projectId: uuid,
       slug: 'great-article',
       headline: 'Great Article',
       url: 'http://example.com/great-article',
+      publishedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects malformed urls', () => {
+    const result = ProjectBuzzSchema.safeParse({
+      id: uuid,
+      projectId: uuid,
+      slug: 'great-article',
+      headline: 'Great Article',
+      url: 'not a url',
       publishedAt: now,
       createdAt: now,
       updatedAt: now,
