@@ -26,7 +26,7 @@ Closes [#85](https://github.com/CodeForPhilly/codeforphilly-ng/issues/85).
 
 Add a new sub-section to `specs/behaviors/storage.md` (probably after "Repositories") declaring the bare-clone invariant. Cross-link from the deploy + runbook docs.
 
-### 2. `openPublicStore` — drop `workTree`
+### 2. `openPublicStore` — drop `workTree`, bare-only
 
 In `apps/api/src/store/public.ts`:
 
@@ -35,7 +35,9 @@ In `apps/api/src/store/public.ts`:
 +const repo = await openRepo({ gitDir: repoPath });
 ```
 
-For a bare repo, `repoPath` itself is the gitdir (no `.git` subdirectory). Omitting `workTree` causes hologit's `getWorkspace()` to take the `createWorkspaceFromRef(this.ref)` branch — i.e. resolve from HEAD ref, not from hashing the working tree. Confirmed via `node_modules/hologit/lib/Repo.js:86-97`.
+`repoPath` is the bare gitdir (no `.git` subdirectory). Omitting `workTree` causes hologit's `getWorkspace()` to take the `createWorkspaceFromRef(this.ref)` branch — i.e. resolve from HEAD ref, not from hashing the working tree. Confirmed via `node_modules/hologit/lib/Repo.js:86-97`.
+
+**Single mode — bare everywhere.** The app uses a bare clone whether the runtime is the sandbox pod or a local dev machine. Mixed-mode (bare in prod, non-bare in dev) is what got us into the staleness footgun in the first place: API mutations advance HEAD via gitsheets transact, but a parallel working tree drifts. Keeping prod and dev on the same shape — bare — keeps gitsheets' tree-object view of the world coherent.
 
 ### 3. Entrypoint — `git clone --bare`
 
@@ -105,19 +107,36 @@ Re-clone on every pod boot is fine on a small repo (objects-only, ~50 MB or so).
 - `docs/operations/runbook.md` — drop the "delete PVC, restart" recovery procedure under "API won't boot"; recovery is now just a pod restart.
 - `.claude/CLAUDE.md` Local setup section — clarify that local dev clones are **non-bare** (so contributors can browse), but the running app is bare. Two paths via the same code (`workTree` parameter optional).
 
-### 7. Local-dev compatibility
+### 7. Local-dev workflow
 
-Keep `openPublicStore` accepting a path that may be either:
+Local dev mirrors prod: the sibling clone of `codeforphilly-data` is **also bare**. Contributors who want a working tree to browse / hand-edit records clone again *from the bare local* into a second directory and push/pull there.
 
-- A bare repo (production case) — gitDir = repoPath
-- A non-bare repo (local dev) — gitDir = `${repoPath}/.git`
+```bash
+# The clone the app uses (matches production shape)
+git clone --bare git@github.com:CodeForPhilly/codeforphilly-data.git ../codeforphilly-data
 
-Detect by checking for a `.git` subdirectory at boot, log which mode, pass appropriate `gitDir` / `workTree` to `openRepo`. Single code path, both clone shapes supported.
+# Optional: a working-tree view of the same data, for browsing/editing
+git clone ../codeforphilly-data ../codeforphilly-data-wt
+# work in ../codeforphilly-data-wt; push back to ../codeforphilly-data when done
+```
+
+Keeping dev and prod on the same bare shape avoids the mixed-mode drift gitsheets struggles with (API-side commits advance HEAD on the bare repo; a co-located working tree would lag and confuse hologit's `hashWorkTree` path).
+
+### 8. Reconcile tests
+
+Add `apps/api/tests/reconcile.test.ts` (or extend an existing file) with the four state-machine cases:
+
+- **Clean ahead** — local has commits, remote has nothing new; expect `outcome: 'pushed-ahead'`, push goes through.
+- **Clean behind** — remote has commits, local has nothing new; expect `outcome: 'fast-forwarded'`, refs updated via `git update-ref`.
+- **Clean divergent** — both have commits with no overlapping file changes; expect `outcome: 'rebased'`, local commits replayed on top of remote, push fast-forwards.
+- **Divergent conflict** — both have commits with conflicting file changes; expect `outcome: 'conflict-escaped'`, `conflicts/<UTC>` branch created + pushed, local refs reset to remote.
+
+Each test sets up two bare clones in `os.tmpdir()` (one as the "pod's local," one as the "origin") wired with a file:// remote URL. The test exercises the reconcile path with realistic transact-style commits, asserts the outcome + final ref state of both clones.
 
 ## Validation
 
 - [ ] `specs/behaviors/storage.md` declares the bare-clone invariant.
-- [ ] `openPublicStore` detects bare vs working-tree clones; works against both shapes locally.
+- [ ] `openPublicStore` opens a bare clone; non-bare paths fail loudly with a clear error pointing at the bare-only invariant.
 - [ ] `deploy/docker/entrypoint.sh` clones bare on first boot; smoke-test by deleting the PVC (or pointing at a fresh `emptyDir`) and watching the pod come up.
 - [ ] `reconcile.ts` rebase replay passes a unit test for: clean local-ahead, clean local-behind, clean divergent (rebase succeeds), conflicting divergent (escape-hatch fires).
 - [ ] Existing reconcile state-machine tests still pass.
@@ -132,12 +151,12 @@ Detect by checking for a `.git` subdirectory at boot, log which mode, pass appro
 - **First-boot clone time on `emptyDir`** — every pod restart re-clones. Objects-only is ~50 MB today. Acceptable. If the data repo grows past ~500 MB someday, we'd revisit (maybe with a sidecar that does a shared local clone).
 - **Reconcile rebase replay edge cases** — empty-commit dropping, sign-off lines, multi-parent commits (none expected on the data repo, but worth a test).
 - **`git merge-tree --write-tree`** requires git 2.38+; we're on 2.45+ in the Alpine 3.20 base image. Fine.
-- **Dev workflow** — contributors browsing the data repo locally want a working tree. Detection of bare vs. non-bare in `openPublicStore` keeps both paths supported; one code path, two clone shapes.
+- **Dev workflow** — contributors browsing the data repo locally want a working tree. Solution: bare local clone (matches prod) + an optional second clone *from* the bare for a working tree to browse/edit. Same shape everywhere keeps gitsheets coherent (mixed-mode bare-app/working-tree-clone is exactly the drift the bare migration is escaping).
 
 ## Notes
 
-_(filled at done time)_
+*(filled at done time)*
 
 ## Follow-ups
 
-_(filled at done time)_
+*(filled at done time)*
