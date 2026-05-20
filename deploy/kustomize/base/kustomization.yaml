@@ -14,7 +14,6 @@ labels:
 resources:
   - serviceaccount.yaml
   - configmap.yaml
-  - pvc-data.yaml
   - pvc-private.yaml
   - service.yaml
   - deployment.yaml
