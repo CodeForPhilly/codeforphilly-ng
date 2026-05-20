@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/storage.md
 issues: [85]
+pr: 86
 ---
 
 # Plan: Eliminate the working tree — bare-clone the data repo
@@ -135,16 +136,17 @@ Each test sets up two bare clones in `os.tmpdir()` (one as the "pod's local," on
 
 ## Validation
 
-- [ ] `specs/behaviors/storage.md` declares the bare-clone invariant.
-- [ ] `openPublicStore` opens a bare clone; non-bare paths fail loudly with a clear error pointing at the bare-only invariant.
-- [ ] `deploy/docker/entrypoint.sh` clones bare on first boot; smoke-test by deleting the PVC (or pointing at a fresh `emptyDir`) and watching the pod come up.
-- [ ] `reconcile.ts` rebase replay passes a unit test for: clean local-ahead, clean local-behind, clean divergent (rebase succeeds), conflicting divergent (escape-hatch fires).
-- [ ] Existing reconcile state-machine tests still pass.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
-- [ ] Kustomize manifests apply against the sandbox with `emptyDir` mounted; pod boots, reaches `/api/health/ready`.
-- [ ] Hot-reload webhook works after the new manifests are live (validate by pushing a commit to `published` and checking pod logs for the short-circuit / rebuild log line).
-- [ ] Operator `git-pod-uploadpack.sh` script still works (bare repo accepts `git upload-pack`).
-- [ ] Boot time on sandbox is no worse than today (re-clone-on-emptyDir vs. PVC persist).
+- [x] `specs/behaviors/storage.md` declares the bare-clone invariant.
+- [x] `openPublicStore` opens a bare clone; non-bare paths fail loudly with a clear error pointing at the bare-only invariant.
+- [x] `deploy/docker/entrypoint.sh` bare-clones on first boot; refuses to operate against a stray non-bare clone at `CFP_DATA_REPO_PATH`.
+- [x] `reconcile.ts` rebase replay passes unit tests for: clean local-ahead, clean local-behind, clean divergent (replay succeeds), conflicting divergent (escape-hatch fires) — all 7 cases in `data-repo-reconcile.test.ts`.
+- [x] All 241 API tests pass; `packages/shared` (53) and `apps/web` (30) pass too.
+- [x] `npm run type-check && npm run lint` clean.
+- [x] Kustomize manifests render with `emptyDir` mounted; PVC deleted from the base + kustomization.yaml resources list.
+- [ ] **Sandbox smoke test** — apply manifests; pod boots, reaches `/api/health/ready`. **Deferred to deploy time.**
+- [ ] **Hot-reload webhook** still works against the bare runtime — push to `published`, expect short-circuit / rebuild log line. **Deferred to deploy time.**
+- [ ] **Operator `git-pod-uploadpack.sh`** still works (bare repo accepts `git upload-pack`). **Deferred to deploy time** (trivially expected; bare is the native shape for `git upload-pack`).
+- [ ] **Boot time** on sandbox is no worse than today (re-clone-on-emptyDir vs. PVC persist). **Deferred to deploy time** — measure first boot vs. baseline.
 
 ## Risks / unknowns
 
@@ -155,8 +157,18 @@ Each test sets up two bare clones in `os.tmpdir()` (one as the "pod's local," on
 
 ## Notes
 
-*(filled at done time)*
+Shipped over eight commits on the branch (plan opening + revision + spec + openPublicStore + reconcile rewrite + entrypoint/kustomize + test/scripts sweep + docs).
+
+Surprises:
+
+- **hologit hashes the working tree on every `getWorkspace` call** when one is set (`node_modules/hologit/lib/Repo.js:86-97`). Not just dead weight on disk — active CPU on every gitsheets workspace construction. Going bare eliminates the hash pass entirely.
+- **`git merge-tree --write-tree` semantics are a clean fit.** Exit 0 → tree hash on stdout. Exit 1 → conflict info. The per-commit replay loop wraps that with a `RebaseReplayConflictError` throw, which routes to the existing escape-hatch path. Net change to externally-observable state-machine behavior: zero (same six outcomes, same conflict-branch shape, same push semantics).
+- **Test scaffolding was where most of the lift was.** `openPublicStore`'s bare-only guard rejected every working-tree-seeding helper. The new `seedRawToml` helper in `tests/helpers/seed-fixtures.ts` centralizes the transient-clone-push pattern; future tests that need to seed raw fixtures use it instead of copying another `git add` block.
+- **Local-dev workflow** intentionally stays bare for the app's clone, with an optional second clone-from-the-bare for hand-editing. Mixed mode (bare in prod, working-tree locally) was specifically the drift footgun this work escaped — keeping prod and dev coherent matters here.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Deploy smoke** — apply the new manifests to the sandbox, verify pod boot + hot-reload + `git-pod-uploadpack.sh` operator helper. *Deferred to operator cadence*; nothing should regress, but the boot-time delta is the one observable worth measuring.
+- **Boot-time measurement** — on first deploy with `emptyDir`, capture how long `git clone --bare` takes against the live remote. If it pushes past ~30 s for a small repo, we'd want to know — re-clone overhead is the one cost we accepted in this design. *Deferred to deploy time*.
+- **Local-setup onboarding** — `git clone --bare` is now the documented path in CLAUDE.md + storage.md, but if a contributor follows older docs elsewhere (READMEs, third-party blog posts, etc.) they may hit the boot-time bare-only guard. The error message points them at the spec section. *Tracked as*: future polish to "smooth out getting started" (#5).
+- **Spec note about hologit `hashWorkTree` cost** — worth a sentence in the storage spec's "Runtime data flow" subsection for posterity. *Deferred* — low urgency since the bare invariant means we never take that path anymore.
