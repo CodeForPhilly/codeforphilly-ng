@@ -104,43 +104,49 @@ curl http://localhost:3001/                  # SPA index.html
 The container entrypoint (`deploy/docker/entrypoint.sh`) only handles the
 bits that *must* run before the Node process exists:
 
-- Trusts the PVC mount via `git config --global safe.directory`.
+- Trusts the data path via `git config --global safe.directory`.
 - Sets a pseudonymous git identity (`CodeForPhilly API
-  <api@users.noreply.codeforphilly.org>`) for any committer line a future
-  rebase might write.
-- On first pod boot — and only then — does a full-history `git clone` of
-  `CFP_DATA_REMOTE` into `CFP_DATA_REPO_PATH` when no `.git` directory
-  exists. On subsequent boots the PVC already holds a clone; no clone is
-  performed.
-- Refreshes `origin`'s URL to whatever `CFP_DATA_REMOTE` is set to (lets
-  operators rotate the remote without re-cloning the PVC).
-- `exec`s the API. That's all — about a dozen lines of shell now.
+  <api@users.noreply.codeforphilly.org>`) for any committer line the
+  reconcile's commit-replay path might write.
+- On first pod boot — `data` is an `emptyDir`, so this is every fresh
+  pod — does a `git clone --bare --branch $CFP_DATA_BRANCH` of
+  `CFP_DATA_REMOTE` into `CFP_DATA_REPO_PATH`. Bare means no working
+  tree; gitsheets operates on the git object DB directly. See
+  [`specs/behaviors/storage.md`](../../specs/behaviors/storage.md) →
+  "The data clone is bare."
+- Refreshes `origin`'s URL to whatever `CFP_DATA_REMOTE` is set to
+  (operators can rotate the remote with a pod restart; the new
+  `emptyDir` re-clones from the new URL).
+- `exec`s the API. That's all.
 
 Then `exec node apps/api/dist/index.js`. Inside node, `buildApp()` registers
 plugins ([apps/api/src/app.ts](../../apps/api/src/app.ts)) in order: env →
-CORS → cookies → trace IDs → error mapper → **store** (loads public +
-private into memory) → **reconcile** (fetch + ff/rebase/escape-hatch against
+CORS → cookies → trace IDs → error mapper → **store** (opens the bare
+public clone via `openRepo({ gitDir })`, loads public + private into
+memory) → **reconcile** (fetch + ff/rebase-replay/escape-hatch against
 origin — see below) → **push daemon** (starts pushing transact'd commits to
 `CFP_DATA_REMOTE`) → services (FTS) → rate limit → idempotency → session
 middleware → swagger → routes → static SPA. Fastify's `listen()` doesn't
 fire until all of those resolve, so once `/api/health/ready` returns 200
-both stores have loaded **and** the working tree has been reconciled with
-origin.
+both stores have loaded **and** local refs have been reconciled with origin.
 
 ### Reconciliation state machine
 
 Lives in [`apps/api/src/store/reconcile.ts`](../../apps/api/src/store/reconcile.ts)
-and is invoked at boot by the reconcile plugin. Same state machine the
-shell used to run, just structured Node so exit codes propagate naturally
-and the same code is reusable from the future hot-reload webhook (#65):
+and is invoked at boot by the reconcile plugin. Operates entirely on the
+object DB via plumbing (`update-ref`, `merge-tree --write-tree`,
+`commit-tree`) so it works against the bare clone with no working tree:
 
 - in sync → no-op (`'in-sync'`)
-- behind → fast-forward (`'fast-forwarded'`)
+- behind → fast-forward via `git update-ref refs/heads/<branch>` (CAS
+  against old commit) (`'fast-forwarded'`)
 - ahead → push (`'pushed-ahead'`; push daemon retries on push failure)
-- diverged + clean rebase → rebase + push (`'rebased'`)
-- diverged + conflicts → abort rebase, create + push a
-  `conflicts/<UTC-timestamp>` branch from the pre-rebase HEAD, hard-reset
-  local to origin (`'conflict-escaped'`; logged at ERROR level so operators
+- diverged + clean replay → `merge-tree --write-tree` + `commit-tree`
+  per local commit on top of remote tip, then `update-ref` + push
+  (`'rebased'`)
+- diverged + replay conflict → preserve pre-replay HEAD on
+  `conflicts/<UTC-timestamp>`, push it, fast-forward local refs to
+  remote tip (`'conflict-escaped'`; logged at ERROR level so operators
   see it in production logs)
 - fetch itself fails (network blip) → log warn, continue with local state
   (`'fetch-failed'`)
@@ -158,24 +164,26 @@ skips reconciliation entirely.
 
 ## Data repo on disk
 
-The API operates on a working tree at `/app/data` backed by a PVC. The
-entrypoint ensures the working tree exists (cloning on first boot); the
-API-side reconcile plugin then synchronizes that tree with `CFP_DATA_REMOTE`
-on every boot, and the push daemon pushes commits made during the pod's
-lifetime back to the remote.
+The API operates on a **bare** clone at `/app/data` backed by an
+`emptyDir` volume. The entrypoint clones (`git clone --bare`) on every
+pod start since `emptyDir` doesn't survive restarts. Within a pod's
+lifetime, the API-side reconcile plugin synchronizes local refs with
+`CFP_DATA_REMOTE` (boot reconcile + hot-reload webhook), and the push
+daemon pushes commits made during the pod's lifetime back to the
+remote.
 
 Implications:
 
-- **PVC contents are durable enough to outlive a single pod**, which lets the
-  push daemon finish pushing any commits made just before pod terminate.
-  But the source of truth is the git remote, not the PVC — wiping the PVC
-  is safe (the next boot re-clones).
+- **No PVC for data.** The git remote is the source of truth; the
+  pod's bare clone is recoverable from there. Pod restart is the
+  recovery primitive — there's nothing to delete first, and no
+  Multi-Attach errors during node failover.
 - **The deploy key matters.** When `CFP_DATA_REMOTE` is SSH (the
   default), the entrypoint relies on `GIT_SSH_COMMAND` (set in the
-  ConfigMap) pointing at the mounted private key. Rotation: replace the
-  SealedSecret, restart the pod. See
-  [secrets.md](secrets.md#data-repo-deploy-key) and the rotation procedure
-  in [sandbox-deploy.md](sandbox-deploy.md#rotating-the-deploy-key).
+  ConfigMap) pointing at the mounted private key. Rotation: replace
+  the SealedSecret, restart the pod. See
+  [secrets.md](secrets.md#data-repo-deploy-key) and the rotation
+  procedure in [sandbox-deploy.md](sandbox-deploy.md#rotating-the-deploy-key).
 
 ## Bucket provisioning (production)
 
@@ -212,7 +220,7 @@ comments. Production pod gets these mounted:
 | `NODE_ENV` | ConfigMap | `production` |
 | `PORT` | ConfigMap | `3001` |
 | `HOST` | ConfigMap | `0.0.0.0` |
-| `CFP_DATA_REPO_PATH` | ConfigMap | `/app/data` (PVC mount) |
+| `CFP_DATA_REPO_PATH` | ConfigMap | `/app/data` — bare gitdir, backed by an `emptyDir`; re-cloned on every pod boot |
 | `CFP_DATA_REMOTE` | Secret | git URL (ssh in prod) |
 | `CFP_DATA_BRANCH` | ConfigMap | e.g. `fixture` / `main` |
 | `CFP_DATA_RELOAD_SECRET` | **Secret** | Shared bearer-token for the hot-reload webhook; when unset the `/api/_internal/reload-data` endpoint returns 503. See [runbook.md](runbook.md#hot-reload-webhook). |
