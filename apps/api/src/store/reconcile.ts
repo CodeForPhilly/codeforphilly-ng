@@ -95,20 +95,183 @@ interface GitExecResult {
   readonly stderr: string;
 }
 
+interface GitExecResultWithExit extends GitExecResult {
+  readonly exitCode: number;
+}
+
+interface GitOpts {
+  /** Override the child-process env. Used for setting `GIT_AUTHOR_*` on commit-tree calls. */
+  readonly env?: NodeJS.ProcessEnv;
+  /**
+   * Treat a non-zero exit code as a normal result (return with `exitCode > 0`)
+   * instead of throwing. Used for `merge-tree --write-tree`, which signals
+   * conflicts via exit 1 rather than via stderr-only.
+   */
+  readonly allowFailure?: boolean;
+}
+
 /**
  * Run a git command in the data repo. `stderr` is captured (not piped) so
  * exit codes propagate cleanly — none of the pipe-eats-exit-code class of
  * bugs that bit the shell entrypoint.
  *
- * Throws if git exits non-zero. Most call sites in this module trap the
- * throw and translate it into a structured outcome; only unrecoverable
- * errors bubble out of `reconcileDataRepo`.
+ * Throws if git exits non-zero (unless `opts.allowFailure`). Most call
+ * sites in this module trap the throw and translate it into a structured
+ * outcome; only unrecoverable errors bubble out of `reconcileDataRepo`.
  */
 async function git(
   repoPath: string,
   ...args: readonly string[]
 ): Promise<GitExecResult> {
   return exec('git', [...args], { cwd: repoPath, maxBuffer: 32 * 1024 * 1024 });
+}
+
+async function gitWithOpts(
+  repoPath: string,
+  opts: GitOpts,
+  ...args: readonly string[]
+): Promise<GitExecResultWithExit> {
+  try {
+    const result = await exec('git', [...args], {
+      cwd: repoPath,
+      maxBuffer: 32 * 1024 * 1024,
+      env: opts.env,
+    });
+    return { ...result, exitCode: 0 };
+  } catch (err) {
+    if (
+      opts.allowFailure &&
+      err !== null &&
+      typeof err === 'object' &&
+      'code' in err
+    ) {
+      const e = err as { code?: unknown; stdout?: unknown; stderr?: unknown };
+      return {
+        stdout: typeof e.stdout === 'string' ? e.stdout : '',
+        stderr: typeof e.stderr === 'string' ? e.stderr : '',
+        exitCode: typeof e.code === 'number' ? e.code : 1,
+      };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Signal that a `merge-tree --write-tree` step couldn't produce a clean tree.
+ * Caught by the diverged-branch handler to route to the escape-hatch path.
+ */
+class RebaseReplayConflictError extends Error {
+  readonly conflictingCommit: string;
+  constructor(commit: string, mergeOutput: string) {
+    super(`merge-tree conflict replaying ${commit}: ${mergeOutput}`);
+    this.name = 'RebaseReplayConflictError';
+    this.conflictingCommit = commit;
+  }
+}
+
+/**
+ * Replay local commits on top of a remote tip, bare-style. Mirrors today's
+ * `git rebase <remoteRef>` semantics — linear history, original
+ * author/message metadata preserved, committer rewritten to the API's
+ * pseudonymous identity — but done entirely via plumbing so it works on
+ * bare clones with no working tree.
+ *
+ * For each local commit C (oldest first), runs:
+ *   git merge-tree --write-tree --merge-base=C^ <newTip> C
+ *     → tree hash, or exit 1 with conflict markers on stderr
+ *   git commit-tree <tree> -p <newTip> -m <C.message>
+ *     → new commit hash; becomes newTip for the next iteration
+ *
+ * Throws `RebaseReplayConflictError` on first conflict so the caller can
+ * route to the escape hatch (preserve pre-rebase HEAD on conflicts/<UTC>,
+ * fast-forward local refs to remote tip).
+ */
+async function replayLocalOntoRemote(
+  repoPath: string,
+  localTip: string,
+  remoteTip: string,
+  mergeBase: string,
+): Promise<string> {
+  const revList = await git(
+    repoPath,
+    'rev-list',
+    '--reverse',
+    `${mergeBase}..${localTip}`,
+  );
+  const localCommits = revList.stdout
+    .trim()
+    .split('\n')
+    .filter((line) => line.length > 0);
+
+  let newTip = remoteTip;
+  for (const commit of localCommits) {
+    const parent = (
+      await git(repoPath, 'rev-parse', `${commit}^`)
+    ).stdout.trim();
+
+    const merge = await gitWithOpts(
+      repoPath,
+      { allowFailure: true },
+      'merge-tree',
+      '--write-tree',
+      `--merge-base=${parent}`,
+      newTip,
+      commit,
+    );
+    if (merge.exitCode !== 0) {
+      // merge-tree --write-tree prints the conflicting tree hash + a list of
+      // conflicting paths on stdout, with conflict markers (or `info`-style
+      // lines) on stderr depending on the conflict type.
+      throw new RebaseReplayConflictError(
+        commit,
+        [merge.stderr, merge.stdout].filter(Boolean).join('\n'),
+      );
+    }
+    // First line of stdout is the merged tree's hash. (Subsequent lines, if
+    // any, describe non-conflict messages; we only care about the tree hash.)
+    const mergedTreeHash = merge.stdout.split('\n')[0]?.trim() ?? '';
+    if (!/^[0-9a-f]{40}$/.test(mergedTreeHash)) {
+      throw new Error(
+        `merge-tree returned unexpected stdout (no tree hash on first line) while replaying ${commit}: ${merge.stdout.slice(0, 200)}`,
+      );
+    }
+
+    // Read original commit metadata: author name/email/iso-date + full
+    // message (subject + body + trailers). Committer is rewritten to the
+    // API's pseudonymous identity — matches today's `git rebase` behavior
+    // (rebase preserves author, resets committer to current user).
+    const [authorName, authorEmail, authorDate, message] = await Promise.all([
+      git(repoPath, 'show', '-s', '--format=%an', commit).then((r) => r.stdout.trimEnd()),
+      git(repoPath, 'show', '-s', '--format=%ae', commit).then((r) => r.stdout.trimEnd()),
+      git(repoPath, 'show', '-s', '--format=%aI', commit).then((r) => r.stdout.trimEnd()),
+      git(repoPath, 'show', '-s', '--format=%B', commit).then((r) => r.stdout.trimEnd()),
+    ]);
+
+    const commitTree = await gitWithOpts(
+      repoPath,
+      {
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: authorName,
+          GIT_AUTHOR_EMAIL: authorEmail,
+          GIT_AUTHOR_DATE: authorDate,
+          GIT_COMMITTER_NAME: AUTHOR_NAME,
+          GIT_COMMITTER_EMAIL: AUTHOR_EMAIL,
+          // GIT_COMMITTER_DATE: omitted — picks up wall-clock, matches
+          // today's `git rebase` (preserves author date, resets committer date).
+        },
+      },
+      'commit-tree',
+      mergedTreeHash,
+      '-p',
+      newTip,
+      '-m',
+      message,
+    );
+    newTip = commitTree.stdout.trim();
+  }
+
+  return newTip;
 }
 
 /**
@@ -134,18 +297,19 @@ function conflictBranchName(now: Date): string {
 }
 
 /**
- * Reconcile the local working tree against `<remote>/<branch>`.
+ * Reconcile the local bare data clone against `<remote>/<branch>`.
  *
  * Idempotent — calling repeatedly with no upstream changes is a no-op
  * (`outcome: 'in-sync'`).
  *
- * Assumes the caller has already checked out `branch` in the working tree.
- * (The entrypoint's surviving responsibility is the initial clone; the API's
- * is the reconciliation.)
+ * Operates entirely via plumbing (`update-ref`, `merge-tree --write-tree`,
+ * `commit-tree`) so it works against a bare repo with no working tree —
+ * per the invariant in
+ * specs/behaviors/storage.md → "The data clone is bare".
  *
  * Concurrency: this function MUST be called under a write mutex if there
  * are any concurrent gitsheets mutations against the same repo. At boot
- * there's no contention; the future webhook (#65) acquires the mutex first.
+ * there's no contention; the hot-reload webhook acquires the mutex first.
  */
 export async function reconcileDataRepo(
   opts: ReconcileOptions,
@@ -195,7 +359,11 @@ export async function reconcileDataRepo(
     await git(repoPath, 'merge-base', 'HEAD', remoteRef)
   ).stdout.trim();
 
-  // Behind: fast-forward.
+  // Behind: fast-forward by updating the branch ref straight to the remote
+  // commit. `update-ref <ref> <new> <old>` is the bare-repo equivalent of
+  // `merge --ff-only` and the trailing `<old>` argument makes the operation
+  // CAS-safe — a race with another process advancing the ref would fail
+  // here rather than silently clobbering.
   if (oldCommit === mergeBase) {
     const behind = Number(
       (await git(repoPath, 'rev-list', '--count', `HEAD..${remoteRef}`)).stdout.trim(),
@@ -204,9 +372,8 @@ export async function reconcileDataRepo(
       { branch, behind, from: oldCommit, to: remoteCommit },
       'data-repo behind remote — fast-forwarding',
     );
-    await git(repoPath, 'merge', '--ff-only', remoteRef);
-    const newCommit = (await git(repoPath, 'rev-parse', 'HEAD')).stdout.trim();
-    return { outcome: 'fast-forwarded', oldCommit, newCommit, behind };
+    await git(repoPath, 'update-ref', `refs/heads/${branch}`, remoteCommit, oldCommit);
+    return { outcome: 'fast-forwarded', oldCommit, newCommit: remoteCommit, behind };
   }
 
   // Ahead: push.
@@ -244,33 +411,39 @@ export async function reconcileDataRepo(
     'data-repo diverged from remote — attempting rebase',
   );
 
+  let newCommit: string;
   try {
-    await git(repoPath, 'rebase', remoteRef);
+    // Bare-friendly rebase: replay local commits on top of the remote tip
+    // using `merge-tree --write-tree` + `commit-tree`. Leaves no
+    // mid-operation state behind to abort on conflict — the throw is
+    // self-contained.
+    newCommit = await replayLocalOntoRemote(repoPath, oldCommit, remoteCommit, mergeBase);
+    // Move the branch ref to the replayed tip. CAS against oldCommit so a
+    // racing in-process transact (impossible at boot under the mutex,
+    // possible-in-principle during webhook reconcile) surfaces as an error
+    // rather than silently dropping commits.
+    await git(repoPath, 'update-ref', `refs/heads/${branch}`, newCommit, oldCommit);
   } catch (err) {
-    // Rebase failed — escape hatch.
+    // Either a merge-tree conflict or some other plumbing failure during the
+    // replay — escape hatch.
     logger.error(
       { err: describe(err), branch, ahead, behind, local: oldCommit, remote: remoteCommit },
       'data-repo rebase conflicted — invoking escape hatch',
     );
 
-    // Abort the in-progress rebase. If `git rebase --abort` itself fails,
-    // we still want to forge ahead to the conflict-branch preservation —
-    // log + continue.
-    try {
-      await git(repoPath, 'rebase', '--abort');
-    } catch (abortErr) {
-      logger.warn(
-        { err: describe(abortErr), branch },
-        'rebase --abort itself failed; continuing escape-hatch',
-      );
-    }
+    // No mid-rebase state to abort: the replay is pure plumbing on the
+    // object DB; nothing in `refs/` was advanced. We just need to preserve
+    // the pre-reconcile HEAD on a uniquely-named branch and fast-forward
+    // local to the remote tip.
 
     // Preserve the pre-rebase HEAD on a uniquely-named branch so the
-    // operator can investigate. `branch --force` lets the reconciler stay
-    // idempotent even on the same-second second invocation in tests.
+    // operator can investigate. `update-ref --create-reflog` keeps the
+    // reconciler idempotent even on a same-second second invocation in
+    // tests; `update-ref refs/heads/<name> <commit>` (two-arg form) doesn't
+    // require the branch to be absent.
     const conflictBranch = conflictBranchName(now());
     try {
-      await git(repoPath, 'branch', '--force', conflictBranch, oldCommit);
+      await git(repoPath, 'update-ref', `refs/heads/${conflictBranch}`, oldCommit);
     } catch (branchErr) {
       // If we can't even create a ref locally, that's an unrecoverable
       // filesystem-level problem.
@@ -282,7 +455,7 @@ export async function reconcileDataRepo(
 
     // Push the conflict branch to origin so the operator can see it from
     // GitHub. Non-fatal if push fails — the local ref is still there for
-    // forensic recovery via the PVC.
+    // forensic recovery via the bare repo on the pod's emptyDir.
     try {
       await git(repoPath, 'push', remote, conflictBranch);
       logger.error(
@@ -301,13 +474,14 @@ export async function reconcileDataRepo(
       );
     }
 
-    // Hard-reset to origin so the pod boots from a known-good state.
-    await git(repoPath, 'reset', '--hard', remoteRef);
-    const newCommit = (await git(repoPath, 'rev-parse', 'HEAD')).stdout.trim();
+    // Fast-forward the working branch to the remote tip so the pod boots
+    // from a known-good state. (Equivalent to today's `git reset --hard`,
+    // but bare-friendly.)
+    await git(repoPath, 'update-ref', `refs/heads/${branch}`, remoteCommit, oldCommit);
     return {
       outcome: 'conflict-escaped',
       oldCommit,
-      newCommit,
+      newCommit: remoteCommit,
       conflictBranch,
       ahead,
       behind,
@@ -315,7 +489,6 @@ export async function reconcileDataRepo(
   }
 
   // Rebase succeeded — push.
-  const newCommit = (await git(repoPath, 'rev-parse', 'HEAD')).stdout.trim();
   logger.info(
     { branch, ahead, behind, from: oldCommit, to: newCommit },
     'data-repo rebase clean — pushing',
