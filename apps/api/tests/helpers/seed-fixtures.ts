@@ -8,7 +8,53 @@
  * In production the write-api will construct these path fields from the
  * in-memory index at write time. Tests must do the same.
  */
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { promisify } from 'node:util';
+
 import { openRepo } from 'gitsheets';
+
+const execAsync = promisify(execFile);
+
+/**
+ * Write a raw TOML file into a bare gitsheets repo via a transient
+ * working-tree clone. The bare-repo invariant
+ * (specs/behaviors/storage.md → "The data clone is bare") rules out the
+ * traditional `git add` / `git commit` flow against the data path — this
+ * helper does the transient-clone-push dance once per call so test
+ * fixtures can land arbitrary file shapes.
+ *
+ * `relPath` is the path within the working tree (e.g. `people/jane.toml`).
+ * `commitMessage` is used verbatim; author/committer default to the
+ * test identity.
+ */
+export async function seedRawToml(
+  bareRepoPath: string,
+  relPath: string,
+  toml: string,
+  commitMessage: string,
+): Promise<void> {
+  const wt = await mkdtemp(join(tmpdir(), 'cfp-seed-wt-'));
+  try {
+    await execAsync('git', ['clone', bareRepoPath, wt]);
+    await execAsync('git', ['config', 'user.email', 'test@cfp.test'], { cwd: wt });
+    await execAsync('git', ['config', 'user.name', 'cfp test'], { cwd: wt });
+    await execAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: wt });
+    await execAsync('git', ['config', 'core.hooksPath', '/dev/null'], { cwd: wt });
+
+    const absPath = join(wt, relPath);
+    await mkdir(dirname(absPath), { recursive: true });
+    await writeFile(absPath, toml);
+
+    await execAsync('git', ['add', relPath], { cwd: wt });
+    await execAsync('git', ['commit', '-m', commitMessage], { cwd: wt });
+    await execAsync('git', ['push', 'origin', 'main'], { cwd: wt });
+  } finally {
+    await rm(wt, { recursive: true, force: true });
+  }
+}
 
 const NOW = '2026-05-01T00:00:00Z';
 const NOW2 = '2026-05-10T00:00:00Z';
@@ -34,7 +80,7 @@ export interface SeededFixtures {
  * Returns the IDs/slugs for use in assertions.
  */
 export async function seedFixtures(repoPath: string): Promise<SeededFixtures> {
-  const repo = await openRepo({ gitDir: `${repoPath}/.git`, workTree: repoPath });
+  const repo = await openRepo({ gitDir: repoPath });
 
   const projectId = uuid(1);
   const personId = uuid(2);

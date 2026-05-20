@@ -382,9 +382,17 @@ describe('translateProject', () => {
 // ---------------------------------------------------------------------------
 
 async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> }> {
-  const dir = await mkdtemp(join(tmpdir(), 'cfp-import-json-'));
-  const run = (...args: string[]) => exec('git', args, { cwd: dir });
-  await run('init', '-b', 'main');
+  const root = await mkdtemp(join(tmpdir(), 'cfp-import-json-'));
+  const bareDir = join(root, 'data.git');
+  const seedDir = join(root, 'seed');
+
+  // Bare gitdir — what the importer opens via openPublicStore.
+  await exec('git', ['init', '--bare', '-b', 'main', bareDir]);
+  await exec('git', ['config', 'receive.denyCurrentBranch', 'ignore'], { cwd: bareDir });
+
+  // Transient working-tree clone to stage the initial sheet configs.
+  await exec('git', ['init', '-b', 'main', seedDir]);
+  const run = (...args: string[]) => exec('git', args, { cwd: seedDir });
   await run('config', 'user.email', 'test@cfp.test');
   await run('config', 'user.name', 'test');
   await run('config', 'commit.gpgsign', 'false');
@@ -392,7 +400,7 @@ async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> 
   // importer opens the gitsheets store at boot, which requires every sheet
   // declared on the validator map (PublicValidators) to have a corresponding
   // .gitsheets/<name>.toml. Mirrors the upstream codeforphilly-data repo.
-  await mkdir(join(dir, '.gitsheets'), { recursive: true });
+  await mkdir(join(seedDir, '.gitsheets'), { recursive: true });
   const sheets: Array<[string, string]> = [
     ['people', "root = 'people'\npath = '${{ slug }}'\n"],
     ['projects', "root = 'projects'\npath = '${{ slug }}'\n"],
@@ -419,12 +427,16 @@ async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> 
     ['revocations', "root = 'revocations'\npath = '${{ jti }}'\n"],
   ];
   for (const [name, body] of sheets) {
-    await writeFile(join(dir, '.gitsheets', `${name}.toml`), `[gitsheet]\n${body}`);
+    await writeFile(join(seedDir, '.gitsheets', `${name}.toml`), `[gitsheet]\n${body}`);
   }
   await run('add', '.gitsheets');
   await run('commit', '-m', 'initial empty branch');
   await run('branch', '-M', 'empty'); // rename initial branch
-  return { path: dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  await run('remote', 'add', 'origin', bareDir);
+  await run('push', 'origin', 'empty');
+  await rm(seedDir, { recursive: true, force: true });
+  await exec('git', ['symbolic-ref', 'HEAD', 'refs/heads/empty'], { cwd: bareDir });
+  return { path: bareDir, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
 function mockRoutes(): MockRoutes {

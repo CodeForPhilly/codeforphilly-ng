@@ -20,17 +20,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import { SignJWT } from 'jose';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
 
 import { buildApp } from '../src/app.js';
 import { mintSessionFor } from '../src/auth/issue.js';
 import { verifyAccess, verifyRefresh } from '../src/auth/jwt.js';
 import { createFullDataRepo, createPrivateStorageDir } from './helpers/test-full-repo.js';
+import { seedRawToml } from './helpers/seed-fixtures.js';
 
-const exec = promisify(execFile);
 const JWT_KEY = 'test-jwt-signing-key-at-least-32-chars!!';
 
 async function buildTestApp(
@@ -61,7 +57,6 @@ async function seedPerson(
   id: string,
   accountLevel = 'user',
 ): Promise<void> {
-  const git = (...args: string[]) => exec('git', args, { cwd: repoDir });
   const personToml = [
     `id = "${id}"`,
     `slug = "${slug}"`,
@@ -71,14 +66,7 @@ async function seedPerson(
     `updatedAt = "2026-05-01T00:00:00Z"`,
   ].join('\n');
 
-  await mkdir(join(repoDir, 'people'), { recursive: true });
-  await writeFile(join(repoDir, 'people', `${slug}.toml`), personToml);
-  await git('add', `people/${slug}.toml`);
-  await git(
-    '-c', 'user.email=test@cfp.test',
-    '-c', 'user.name=test',
-    'commit', '-m', `seed person ${slug}`,
-  );
+  await seedRawToml(repoDir, `people/${slug}.toml`, personToml, `seed person ${slug}`);
 }
 
 // ---------------------------------------------------------------------------

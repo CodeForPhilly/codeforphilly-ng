@@ -31,41 +31,54 @@ export interface AppTestRepo {
 export async function createTestRepo(
   sheetNames: readonly string[] = [],
 ): Promise<AppTestRepo> {
-  const dir = await mkdtemp(join(tmpdir(), 'cfp-test-'));
-  const gitDir = join(dir, '.git');
+  const root = await mkdtemp(join(tmpdir(), 'cfp-test-'));
+  const bareDir = join(root, 'data.git');
+  const seedDir = join(root, 'seed');
 
-  const git: GitRunner = (...args) => exec('git', args, { cwd: dir });
+  // Bare repo — the path the test code reads as a gitsheets store. Matches
+  // the production bare-repo invariant (specs/behaviors/storage.md).
+  await exec('git', ['init', '--bare', '-b', 'main', bareDir]);
+  // Allow pushes to the currently-checked-out branch on the bare so the
+  // seed step's `git push` lands.
+  await exec('git', ['config', 'receive.denyCurrentBranch', 'ignore'], { cwd: bareDir });
 
-  await git('init', '-b', 'main');
-  await git('config', 'user.email', 'test@cfp.test');
-  await git('config', 'user.name', 'cfp test');
-  await git('config', 'commit.gpgsign', 'false');
-  await git('config', 'core.hooksPath', '/dev/null');
-  await git('commit', '--allow-empty', '-m', 'initial');
+  // Transient working-tree clone used only for the seed commits.
+  await exec('git', ['init', '-b', 'main', seedDir]);
+  const seedGit: GitRunner = (...args) => exec('git', args, { cwd: seedDir });
+  await seedGit('config', 'user.email', 'test@cfp.test');
+  await seedGit('config', 'user.name', 'cfp test');
+  await seedGit('config', 'commit.gpgsign', 'false');
+  await seedGit('config', 'core.hooksPath', '/dev/null');
+  await seedGit('commit', '--allow-empty', '-m', 'initial');
 
   if (sheetNames.length > 0) {
-    await mkdir(join(dir, '.gitsheets'), { recursive: true });
+    await mkdir(join(seedDir, '.gitsheets'), { recursive: true });
     for (const name of sheetNames) {
       const config =
         `[gitsheet]\n` +
         `root = '${name}'\n` +
         `path = '\${{ slug }}'\n`;
-      await writeFile(join(dir, '.gitsheets', `${name}.toml`), config);
+      await writeFile(join(seedDir, '.gitsheets', `${name}.toml`), config);
     }
-    await git('add', '.gitsheets');
-    await git('commit', '-m', `chore: add sheet configs (${sheetNames.join(', ')})`);
+    await seedGit('add', '.gitsheets');
+    await seedGit('commit', '-m', `chore: add sheet configs (${sheetNames.join(', ')})`);
   }
 
-  const repo = await openRepo({ gitDir, workTree: dir });
+  await seedGit('remote', 'add', 'origin', bareDir);
+  await seedGit('push', 'origin', 'main');
+  // Discard the transient working tree — only the bare matters from here on.
+  await rm(seedDir, { recursive: true, force: true });
+
+  const repo = await openRepo({ gitDir: bareDir });
 
   let cleaned = false;
   return {
     repo,
-    path: dir,
+    path: bareDir,
     cleanup: async () => {
       if (cleaned) return;
       cleaned = true;
-      await rm(dir, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
     },
   };
 }
