@@ -143,10 +143,10 @@ Each test sets up two bare clones in `os.tmpdir()` (one as the "pod's local," on
 - [x] All 241 API tests pass; `packages/shared` (53) and `apps/web` (30) pass too.
 - [x] `npm run type-check && npm run lint` clean.
 - [x] Kustomize manifests render with `emptyDir` mounted; PVC deleted from the base + kustomization.yaml resources list.
-- [ ] **Sandbox smoke test** — apply manifests; pod boots, reaches `/api/health/ready`. **Deferred to deploy time.**
-- [ ] **Hot-reload webhook** still works against the bare runtime — push to `published`, expect short-circuit / rebuild log line. **Deferred to deploy time.**
-- [ ] **Operator `git-pod-uploadpack.sh`** still works (bare repo accepts `git upload-pack`). **Deferred to deploy time** (trivially expected; bare is the native shape for `git upload-pack`).
-- [ ] **Boot time** on sandbox is no worse than today (re-clone-on-emptyDir vs. PVC persist). **Deferred to deploy time** — measure first boot vs. baseline.
+- [x] **Sandbox smoke test** — applied via cluster-repo PR [#167](https://github.com/CodeForPhilly/cfp-sandbox-cluster/pull/167) (dropped pvc-data manifest reference + projection); deploy PR [#168](https://github.com/CodeForPhilly/cfp-sandbox-cluster/pull/168) merged 2026-05-28; pod `codeforphilly-7655fb97db-stkk7` boots cleanly on `emptyDir`, `/api/health/ready` returns 200, `/api/projects` serves real records.
+- [x] **Hot-reload webhook** still works against the bare runtime — manual `POST /api/_internal/reload-data` returns `{ outcome: 'in-sync', durationMs: 513 }` via the new plumbing reconcile path.
+- [x] **Operator `git-pod-uploadpack.sh`** still works — `git fetch pod` from a local data-repo clone returns refs for all branches (the bare clone naturally mirrors more refs than the old single-branch working-tree clone did, a small ergonomic bonus).
+- [x] **Boot time** on sandbox: ~10s for `git clone --bare` + ~20s for in-memory state + FTS build = ~32s container-start → readiness 200. Same end-to-end profile as the working-tree path (FTS build dominates either way); the clone itself is fast against GitHub-hosted origin.
 
 ## Risks / unknowns
 
