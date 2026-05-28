@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/markdown-rendering.md
 issues: [81]
+pr: 91
 ---
 
 # Plan: Markdown @mention + external-link transforms
@@ -112,12 +113,12 @@ API-side test: a serializer-level smoke test that confirms the decorator wires t
 
 ## Validation
 
-- [ ] `packages/shared/tests/markdown.test.ts` covers all the external-link + mention cases listed above.
-- [ ] `renderMarkdown(source)` (no opts) preserves existing behavior — confirmed by the unchanged existing tests.
-- [ ] `apps/api` serializers route through `fastify.renderMarkdown`; `grep -r "renderMarkdown(" apps/api/src/ | grep -v "fastify.renderMarkdown"` returns empty (or only the import line).
-- [ ] One API-level smoke test confirming the decorator delivers — e.g. `/api/projects/:slug` with a body containing `@chris` resolves to a link when `chris` is in the seeded data.
-- [ ] `CFP_SITE_HOST` added to `env.ts`, `.env.example`, configmap, deploy.md env table.
-- [ ] `npm run -w packages/shared build && npm run type-check && npm run lint && npm test` clean.
+- [x] `packages/shared/tests/markdown.test.ts` covers all the external-link + mention cases listed above (16 new tests; 69/69 pass).
+- [x] `renderMarkdown(source)` (no opts) preserves existing behavior — the no-opts call in `common.ts`'s default `currentRender` keeps every pre-existing test passing without changes.
+- [x] `apps/api` serializers route through `common.renderMarkdown` (which dispatches to the boot-installed renderer); every direct `@cfp/shared` import was replaced.
+- [x] API-level smoke tests: `tests/preview.test.ts` exercises the external-link rewrite + `@mention` resolution end-to-end through the boot-installed renderer (7 cases pass, including a seeded `@chris` → `<a href="/members/chris">@chris</a>`).
+- [x] `CFP_SITE_HOST` added to `env.ts` + JSON schema (default `codeforphilly.org`). Configmap/`.env.example`/deploy.md env-table entries follow in this PR.
+- [x] `npm run type-check && npm run lint && npm run -w apps/api test` clean (244/244 API tests; 69/69 shared tests).
 
 ## Risks / unknowns
 
@@ -129,8 +130,17 @@ API-side test: a serializer-level smoke test that confirms the decorator wires t
 
 ## Notes
 
-_(filled at done time)_
+Shipped across the plan opening commit plus three implementation commits (shared transforms + tests, API wiring + env, docs/configmap). 16 new unit tests in `@cfp/shared` cover both transforms; 2 new integration tests in `preview.test.ts` confirm the end-to-end wiring.
+
+Surprises:
+
+- **Serializer wiring shape.** Originally I planned a Fastify decorator (`fastify.renderMarkdown(source)`), but the serializers are pure functions with no Fastify reference — threading the decorator through would have meant changing every serializer signature + every call site. Instead, the plugin installs a renderer into a module-level binding in `apps/api/src/services/serializers/common.ts` via `setRenderMarkdown(fn)`. Serializers import a stable `renderMarkdown` from `common.ts` that dispatches to whichever function the plugin most recently installed; tests + ad-hoc scripts fall back to the bare `@cfp/shared` renderer with no setup. Single-process Fastify app means a per-process binding is the right shape — no concurrency hazard, no test isolation issue (every `buildApp()` re-runs the plugin and re-binds).
+- **Mention slug-boundary subtlety.** The word-start check (`@chris` must not match inside `alice@chris.example`) needed a manual char-class check on the character preceding `@` because JS regex lookbehind syntax (`(?<![a-z0-9])`) is supported on modern engines but I kept the implementation portable. The cost is one branch per match — trivial.
+- **`URL` constructor in `@cfp/shared`.** First pass used `new URL(href, base)` for host parsing in the external-link transform. The shared package's tsconfig doesn't include DOM or `@types/node`, so the compiler couldn't find `URL`. Rather than add a node types dep to shared (which serves web too), I switched to a tiny regex-based `hostOf(href)` helper. The subset we actually need from URL parsing is narrow — "does this href have a host, and if so, what is it" — and the regex is clearer than dragging in type defs.
+- **`renderField` was already dead code.** The pre-existing `renderField(source)` helper in `common.ts` was exported but never used — discovered while routing the new renderer through `common.ts`. Deleted as part of this work.
 
 ## Follow-ups
 
-_(filled at done time)_
+- **Mention resolution caching** — the resolver is a `Map.has()` call, already O(1). If profiling ever shows hot rendering paths (long blog posts with many mentions), we could memoize per-render-call. *Tracked as:* low priority; bring up if it appears in flamegraphs.
+- **Image proxying** — `behaviors/markdown-rendering.md` notes a planned `/img-proxy?u=...` transform not yet implemented. Separate issue; this PR is just the two transforms the spec calls out as v1.
+- **Configurable mention paths** — `/members/<slug>` is hardcoded in the Mdast plugin. If we ever surface `@<slug>` in non-Person contexts (e.g. a future `@<projectSlug>` for projects), the link template would need to come from options. *Deferred* until that use case lands.
