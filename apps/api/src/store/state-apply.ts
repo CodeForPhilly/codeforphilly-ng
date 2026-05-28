@@ -15,6 +15,7 @@ import type {
   ProjectBuzz,
   ProjectMembership,
   ProjectUpdate,
+  SlugHistory,
   Tag,
   TagAssignment,
 } from '@cfp/shared/schemas';
@@ -28,6 +29,7 @@ import {
   indexProject,
   indexProjectBuzz,
   indexProjectUpdate,
+  indexSlugHistory,
   indexTag,
   indexTagAssignment,
   type InMemoryState,
@@ -204,6 +206,16 @@ export class StateApply {
 
   upsertInterest(e: HelpWantedInterestExpression): this {
     this.#ops.push((state) => indexHelpWantedInterest(state, e));
+    return this;
+  }
+
+  /**
+   * Mirror a SlugHistory upsert into the in-memory map so the slug-redirect
+   * plugin sees it on the very next request. Expiry filtering happens inside
+   * indexSlugHistory — already-expired records are no-ops here.
+   */
+  upsertSlugHistory(record: SlugHistory): this {
+    this.#ops.push((state) => indexSlugHistory(state, record));
     return this;
   }
 

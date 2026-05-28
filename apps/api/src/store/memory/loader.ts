@@ -14,6 +14,7 @@ import {
   indexProject,
   indexProjectBuzz,
   indexProjectUpdate,
+  indexSlugHistory,
   indexTag,
   indexTagAssignment,
   type InMemoryState,
@@ -32,6 +33,7 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
     buzzes,
     roles,
     interests,
+    slugHistoryRecords,
   ] = await Promise.all([
     publicStore.projects.queryAll(),
     publicStore.people.queryAll(),
@@ -42,6 +44,7 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
     publicStore['project-buzz'].queryAll(),
     publicStore['help-wanted-roles'].queryAll(),
     publicStore['help-wanted-interest'].queryAll(),
+    publicStore['slug-history'].queryAll(),
   ]);
 
   for (const p of projects) indexProject(state, p);
@@ -53,6 +56,11 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
   for (const b of buzzes) indexProjectBuzz(state, b);
   for (const r of roles) indexHelpWantedRole(state, r);
   for (const i of interests) indexHelpWantedInterest(state, i);
+  // Slug-history is filtered for expiry inside indexSlugHistory — records
+  // past their 90-day window are skipped (the sheet retains them until a
+  // separate sweeper purges; this is the read-path defense).
+  const bootNow = new Date();
+  for (const r of slugHistoryRecords) indexSlugHistory(state, r, bootNow);
 
   return state;
 }
