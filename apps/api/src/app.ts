@@ -38,6 +38,7 @@ import reconcilePlugin from './plugins/reconcile.js';
 import pushDaemonPlugin from './plugins/push-daemon.js';
 import servicesPlugin from './plugins/services.js';
 import markdownPlugin from './plugins/markdown.js';
+import slugRedirectPlugin from './plugins/slug-redirect.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import idempotencyPlugin from './plugins/idempotency.js';
 import sessionMiddlewarePlugin from './auth/middleware.js';
@@ -131,6 +132,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // ----- 6c. Services (loads in-memory state + FTS, boots after store) -----
   await fastify.register(servicesPlugin);
   await fastify.register(markdownPlugin);
+  await fastify.register(slugRedirectPlugin);
 
   // ----- 7. Rate limiting -----
   await fastify.register(rateLimitPlugin);
