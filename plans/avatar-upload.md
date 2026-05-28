@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/api/people.md
   - specs/behaviors/storage.md
 issues: [32]
+pr: 97
 ---
 
 # Plan: POST /api/people/:slug/avatar (multipart + image resize)
@@ -173,11 +174,11 @@ The spec already documents the route precisely; no spec edit needed.
 
 ## Validation
 
-- [ ] All 11+ test cases pass.
-- [ ] Existing 280 API tests still pass.
-- [ ] `npm run type-check && npm run lint` clean.
-- [ ] Spec compliance — input limits + output paths + response shape all match `api/people.md`.
-- [ ] End-to-end with the attachments route from #94 — upload → fetch via `/api/attachments/<key>` returns the JPEG bytes.
+- [x] 11 test cases in `apps/api/tests/avatar-upload.test.ts` pass — happy paths (PNG/JPEG/WebP), center-crop on non-square input, round-trip through `/api/attachments/<key>` with metadata assertions on the served bytes (square original + 128×128 thumbnail), admin-on-behalf, 403 on unauthorized, 404 on missing person, 422 on unsupported MIME / wrong field name, 422 on oversized.
+- [x] All 291 API tests pass (280 pre-existing + 11 new).
+- [x] `npm run type-check && npm run lint` clean.
+- [x] Spec compliance — 5 MB cap, allowed MIME enum, `people/<slug>/avatar.jpg` + `people/<slug>/avatar-128.jpg` paths, `{ avatarUrl }` response shape all match `api/people.md`.
+- [x] End-to-end with the attachments route from #94 — upload, then fetch via `/api/attachments/people/<slug>/avatar.jpg` returns valid JPEG bytes with `Content-Type: image/jpeg`.
 
 ## Risks / unknowns
 
@@ -189,8 +190,18 @@ The spec already documents the route precisely; no spec edit needed.
 
 ## Notes
 
-*(filled at done time)*
+Three implementation commits — deps + plan + the route+tests.
+
+Surprises:
+
+- **`BlobObject.write` type signature is too narrow.** Declared as `(repo, content: string)`, but the runtime spawns `git hash-object --stdin -w` which accepts Buffer over stdin fine. Cast `as unknown as string` at the call site with an inline comment — cleaner than wrapping in a per-package shim, and if hologit ever widens the type we just drop the cast.
+- **Multipart size-limit error needed explicit translation.** `@fastify/multipart`'s `FST_REQ_FILE_TOO_LARGE` was bubbling as a 500 through our `mapError` fall-through. Caught at the call site of `file.toBuffer()` and translated to `ApiValidationError` with `image: too_large`. Could move into `mapError` for global coverage; doing it locally is more targeted for one endpoint.
+- **Test multipart construction was non-trivial.** `app.inject()` doesn't have first-class multipart support, so the test helper builds a `form-data` payload + headers and injects raw. Added `form-data` as a devdep.
+- **Oversized test simplified.** First pass tried to *generate* a valid >5 MB JPEG via sharp, which got tangled in compositing dimension mismatches. The size limit fires at the multipart layer before sharp sees the bytes, so a 6 MB random buffer labeled `image/jpeg` exercises the cap directly.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Avatar delete.** No `DELETE /api/people/:slug/avatar` yet — a person can replace but not *remove* their avatar. Spec doesn't currently mandate it; worth filing if users surface the need.
+- **EXIF metadata stripping.** sharp's `.rotate()` reads EXIF for orientation but the output keeps other EXIF (GPS, camera model). For an avatar this is more than we want to leak. *Tracked as*: add `.withMetadata(false)` (or equivalent) to the sharp chain in a polish pass.
+- **PNG-with-alpha handling.** Currently flattened to opaque white. If we ever want round-trip-correct PNG avatars, swap the original output to PNG (and dual-format the served URLs).
+- **Lift FST_REQ_FILE_TOO_LARGE into `mapError`.** Once a second multipart endpoint lands (buzz image, project featured image), promote the translation to global so every multipart route gets the 422 envelope for free.
