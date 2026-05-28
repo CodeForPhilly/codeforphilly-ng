@@ -684,6 +684,9 @@ export class AccountClaimService {
     await tx.public['slug-history'].upsert(slugHistory);
 
     // Hard-delete the requester Person -----------------------------------
+    // (the slugHistory record is replayed into the in-memory state via
+    // MergeApply below — same lockstep guarantee the other state-apply
+    // ops get.)
 
     await tx.public.people.delete(requester);
 
@@ -711,6 +714,7 @@ export class AccountClaimService {
       updatedPerson: updatedClaimed,
       deletedRequesterPersonId: requester.id,
       deletedRequesterSlug: requester.slug,
+      slugHistory,
       reMemberships,
       removedMemberships,
       reUpdates,
@@ -730,6 +734,7 @@ interface MergeApplyInput {
   readonly updatedPerson: Person;
   readonly deletedRequesterPersonId: string;
   readonly deletedRequesterSlug: string;
+  readonly slugHistory: SlugHistory;
   readonly reMemberships: ProjectMembership[];
   readonly removedMemberships: ProjectMembership[];
   readonly reUpdates: ProjectUpdate[];
@@ -760,6 +765,7 @@ export class MergeApply {
   replay(stateApply: StateApply): void {
     const i = this.#input;
     stateApply.upsertPerson(i.updatedPerson);
+    stateApply.upsertSlugHistory(i.slugHistory);
     for (const m of i.reMemberships) stateApply.upsertMembership(m);
     for (const m of i.removedMemberships) stateApply.removeMembership(m);
     for (const u of i.reUpdates) stateApply.upsertProjectUpdate(u);
