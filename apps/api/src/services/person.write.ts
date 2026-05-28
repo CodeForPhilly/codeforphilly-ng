@@ -125,6 +125,7 @@ export class PersonWriteService {
       };
       await tx.public['slug-history'].upsert(history);
       stateApply.renamePersonSlug(existing.id, existing.slug, newSlug);
+      stateApply.upsertSlugHistory(history);
     }
 
     await tx.public.people.upsert(updated);

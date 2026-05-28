@@ -15,6 +15,7 @@ import type {
   ProjectBuzz,
   ProjectMembership,
   ProjectUpdate,
+  SlugHistory,
   Tag,
   TagAssignment,
 } from '@cfp/shared/schemas';
@@ -78,6 +79,20 @@ export interface InMemoryState {
   interestByRoleAndPerson: Map<string, string>;
   /** roleId → Set<interestId> */
   interestByRole: Map<string, Set<string>>;
+
+  /**
+   * Slug-history index, keyed by `${entityType}:${oldSlug}` → newSlug + expiry.
+   * Populated at boot from non-expired SlugHistory records; updated in
+   * lockstep with rename writes via StateApply.upsertSlugHistory. The
+   * `slug-redirect` plugin reads this on every non-/api/* GET request to
+   * decide whether to serve a 301 per specs/behaviors/slug-handles.md.
+   */
+  slugHistory: Map<string, { newSlug: string; expiresAt: string }>;
+}
+
+/** Compose the slug-history map key. Kept here so call sites stay consistent. */
+export function slugHistoryKey(entityType: SlugHistory['entityType'], oldSlug: string): string {
+  return `${entityType}:${oldSlug}`;
 }
 
 export function createEmptyState(): InMemoryState {
@@ -108,7 +123,22 @@ export function createEmptyState(): InMemoryState {
     tagAssignmentsByTag: new Map(),
     interestByRoleAndPerson: new Map(),
     interestByRole: new Map(),
+    slugHistory: new Map(),
   };
+}
+
+/**
+ * Index a SlugHistory record into the in-memory map. Expired records (where
+ * `expiresAt < now`) are dropped — the periodic sweeper that purges them
+ * from the gitsheets sheet is a separate concern; this is the read-path
+ * defense.
+ */
+export function indexSlugHistory(state: InMemoryState, record: SlugHistory, now: Date = new Date()): void {
+  if (new Date(record.expiresAt) <= now) return;
+  state.slugHistory.set(slugHistoryKey(record.entityType, record.oldSlug), {
+    newSlug: record.newSlug,
+    expiresAt: record.expiresAt,
+  });
 }
 
 /** Add or replace one project and update its secondary indices. */

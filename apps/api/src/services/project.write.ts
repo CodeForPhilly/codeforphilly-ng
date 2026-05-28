@@ -302,6 +302,7 @@ export class ProjectWriteService {
       };
       await tx.public['slug-history'].upsert(history);
       stateApply.renameProjectSlug(existing.id, slugRename.oldSlug, slugRename.newSlug);
+      stateApply.upsertSlugHistory(history);
     }
 
     await tx.public.projects.upsert(updated);
