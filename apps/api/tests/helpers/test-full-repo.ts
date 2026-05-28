@@ -70,7 +70,8 @@ export async function createFullDataRepo(): Promise<FullTestRepo> {
 
   await seedGit('remote', 'add', 'origin', bareDir);
   await seedGit('push', 'origin', 'main');
-  await rm(seedDir, { recursive: true, force: true });
+  // maxRetries: Linux ext4 + git background pack work races bare rmdir.
+  await rm(seedDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 
   let cleaned = false;
   return {

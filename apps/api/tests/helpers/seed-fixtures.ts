@@ -52,7 +52,10 @@ export async function seedRawToml(
     await execAsync('git', ['commit', '-m', commitMessage], { cwd: wt });
     await execAsync('git', ['push', 'origin', 'main'], { cwd: wt });
   } finally {
-    await rm(wt, { recursive: true, force: true });
+    // Linux ext4 + git background pack work can race the recursive rmdir
+    // (ENOTEMPTY on `.git/objects/`). maxRetries gives the filesystem a
+    // moment to settle. macOS APFS doesn't hit this; the retries are cheap.
+    await rm(wt, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
