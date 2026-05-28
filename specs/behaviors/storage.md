@@ -56,7 +56,20 @@ There are two git repositories:
 | `codeforphilly-rewrite` | The application code (this repo) | Public |
 | `codeforphilly-data` | The live gitsheets data | **Private** — contains emails, real names, IPs |
 
-The code repo references the data repo by env (`CFP_DATA_REPO_PATH`). They are not git submodules — too much friction. They're sibling working trees.
+The code repo references the data repo by env (`CFP_DATA_REPO_PATH`). They are not git submodules — too much friction. Sibling clones, locally and in production.
+
+### The data clone is bare
+
+The API always operates against a **bare** clone of the data repo. gitsheets reads and writes via hologit's tree-object interface; a checked-out working tree is redundant data on disk *and* an active drift hazard — hologit's `getWorkspace()` hashes the working tree on every workspace construction when one is present, which both costs CPU and exposes a class of staleness bugs when API-side commits advance HEAD while the working tree lags.
+
+Invariants:
+
+- `CFP_DATA_REPO_PATH` points at the **bare gitdir** (no `.git` subdirectory inside it; the path itself is the gitdir).
+- `openPublicStore` calls `openRepo({ gitDir: repoPath })` with `workTree` omitted, putting hologit on the `createWorkspaceFromRef(HEAD)` path.
+- The reconcile state machine uses git plumbing (`update-ref`, `merge-tree --write-tree`, `commit-tree`) instead of working-tree-touching commands (`merge --ff-only`, `rebase`, `reset --hard`). See [`apps/api/src/store/reconcile.ts`](../../apps/api/src/store/reconcile.ts).
+- The pod's data volume is `emptyDir` — re-cloned on every pod start, updated incrementally via `git fetch` within a pod's lifetime.
+
+Local dev mirrors this: the sibling clone the app reads is bare. Contributors who want a working tree to browse/edit by hand clone *from* the bare local into a second working directory and push/pull between them.
 
 ### Dev-environment data
 
@@ -72,12 +85,19 @@ A `scripts/scrub-data.ts` in the code repo produces the snapshot. The contributo
 
 ```bash
 git clone https://github.com/CodeForPhilly/codeforphilly-rewrite.git
-git clone https://github.com/CodeForPhilly/codeforphilly-data-snapshot.git ../codeforphilly-data
+git clone --bare https://github.com/CodeForPhilly/codeforphilly-data-snapshot.git ../codeforphilly-data
 npm install
 npm run dev   # api + web boot, data already there
 ```
 
-That's the "no moving pieces" win — a contributor sees real-shape data without ever touching a database, and can `git checkout`, `git reset`, or branch to experiment.
+The data clone is `--bare` to match the runtime invariant above. Contributors who want a working tree for browsing/hand-editing records clone *again* from the local bare:
+
+```bash
+git clone ../codeforphilly-data ../codeforphilly-data-wt
+# edit in ../codeforphilly-data-wt, then push back to ../codeforphilly-data
+```
+
+That's the "no moving pieces" win — a contributor sees real-shape data without ever touching a database, and can `git checkout`, `git reset`, or branch to experiment in their working-tree clone without the app caring.
 
 ## Sheet layout
 
@@ -100,7 +120,7 @@ Each entity lives in one sheet. The path template determines how records are sto
 
 ### Why these path shapes
 
-The path template is the only "index" gitsheets provides natively. Choose it to support the _dominant_ access pattern; in-memory secondary indices handle reverse lookups.
+The path template is the only "index" gitsheets provides natively. Choose it to support the *dominant* access pattern; in-memory secondary indices handle reverse lookups.
 
 - **Composite paths** (`${projectSlug}/${personSlug}.toml`) make "list everything for this parent" a single directory scan. Reverse lookups ("which projects is this person in?") use an in-memory index built at boot.
 - **Time-partitioned paths** keep directory size bounded for sheets that grow monotonically. None of the v1 sheets currently use time partitioning, but the pattern is reserved for future high-volume sheets (e.g., webhook ingestion logs).

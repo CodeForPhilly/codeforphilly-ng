@@ -23,7 +23,7 @@ Look for one of the four common boot failures:
 |------------------|-------|-----|
 | `[entrypoint] ERROR: CFP_DATA_REMOTE is unset` | The Secret containing `CFP_DATA_REMOTE` isn't reaching the pod. | Check `kubectl get secret codeforphilly-secrets -o yaml`; verify the SealedSecret in the GitOps repo decrypted successfully (look at the sealed-secrets controller logs). |
 | `fatal: could not read Username for 'https://...'` or `Permission denied (publickey)` | Bad/missing data-repo credentials. | Verify the `codeforphilly-data-deploy-key` Secret holds a valid `id_ed25519` whose public key has push access to the data repo. See [secrets.md](secrets.md#data-repo-deploy-key). |
-| `Failed to open public gitsheets store` | Working tree corrupt or missing `.gitsheets/` configs. | Exec into the pod, inspect `/app/data/.gitsheets/`. Recovery: `kubectl delete pvc codeforphilly-data -n <ns>`, then trigger a rollout — the entrypoint re-clones from `CFP_DATA_REMOTE`. |
+| `Failed to open public gitsheets store` | Bare clone corrupt or missing `.gitsheets/` configs. | Exec into the pod, inspect `/app/data/refs/`, `/app/data/objects/`, and verify `.gitsheets/` exists in HEAD via `git --git-dir=/app/data show HEAD:.gitsheets`. Recovery: restart the pod — `data` is an `emptyDir`, so a fresh pod re-clones from `CFP_DATA_REMOTE` automatically. |
 | `Failed to load private store (s3)` | Bucket creds wrong, bucket gone, or network ACL blocks egress. | Confirm `S3_*` env in the ConfigMap + Secret. From the pod, `curl $S3_ENDPOINT` to confirm reachability. |
 | `environment variable ... is required` | A required env (`CFP_DATA_REPO_PATH`, `STORAGE_BACKEND`, `CFP_JWT_SIGNING_KEY`) is missing. | Manifest regression. Compare against `deploy/kustomize/base/configmap.yaml` + the GitOps repo's SealedSecret. |
 
@@ -37,8 +37,10 @@ kubectl -n codeforphilly debug -it deploy/codeforphilly \
 From inside:
 
 ```bash
-# Is the data repo really there?
-ls -la /app/data /app/data/.gitsheets
+# Is the bare data repo really there? Bare gitdir lives at the path root —
+# no .git subdir; expect HEAD, config, objects/, refs/ at the top.
+ls -la /app/data
+git --git-dir=/app/data show HEAD:.gitsheets
 
 # Are env vars present?
 env | grep -E '^(CFP_|S3_|STORAGE_|GITHUB_)' | sort
@@ -71,8 +73,10 @@ kubectl -n codeforphilly-rewrite-sandbox set image \
   deploy/codeforphilly codeforphilly=ghcr.io/codeforphilly/codeforphilly-ng:<known-good-tag>
 ```
 
-Data is **not** in the PVC long-term; it's in the git remote. Deleting the
-PVC and letting the entrypoint re-clone is safe.
+The bare data clone lives in an `emptyDir` — re-cloned from the git remote on
+every pod boot. Pod restart is the recovery primitive; there's no PVC to
+delete. (A `codeforphilly-private` PVC still exists for the S3-fallback
+private store; only `codeforphilly-data` was retired.)
 
 ## "Readiness flapping / 503 spikes"
 

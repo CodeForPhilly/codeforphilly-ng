@@ -21,13 +21,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { writeFile, mkdir, readFile } from 'node:fs/promises';
+import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import bcrypt from 'bcryptjs';
 
 import { buildApp } from '../src/app.js';
 import { issueClaimPending, issueSession } from '../src/auth/jwt.js';
 import { createFullDataRepo, createPrivateStorageDir } from './helpers/test-full-repo.js';
+import { seedRawToml } from './helpers/seed-fixtures.js';
 
 const exec = promisify(execFile);
 const JWT_KEY = 'test-jwt-signing-key-at-least-32-chars!!';
@@ -52,7 +53,6 @@ async function seedPerson(
   id: string,
   opts: SeedPersonOpts = {},
 ): Promise<void> {
-  const git = (...args: string[]) => exec('git', args, { cwd: repoDir });
   const lines = [
     `id = "${id}"`,
     `slug = "${slug}"`,
@@ -68,14 +68,7 @@ async function seedPerson(
     lines.push(`slackSamlNameId = "${opts.slackSamlNameId}"`);
   }
 
-  await mkdir(join(repoDir, 'people'), { recursive: true });
-  await writeFile(join(repoDir, 'people', `${slug}.toml`), lines.join('\n'));
-  await git('add', `people/${slug}.toml`);
-  await git(
-    '-c', 'user.email=test@cfp.test',
-    '-c', 'user.name=test',
-    'commit', '-m', `seed person ${slug}`,
-  );
+  await seedRawToml(repoDir, `people/${slug}.toml`, lines.join('\n'), `seed person ${slug}`);
 }
 
 async function seedPrivateProfile(

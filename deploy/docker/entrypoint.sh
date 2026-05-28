@@ -3,26 +3,31 @@
 #
 # Minimal boot prep. The data-repo reconciliation state machine
 # (in-sync / behind / ahead / diverged-clean-rebase / diverged-conflict-escape)
-# lives in the Node API process now — see apps/api/src/store/reconcile.ts
+# lives in the Node API process — see apps/api/src/store/reconcile.ts
 # and apps/api/src/plugins/reconcile.ts. This script only ensures:
 #
-#   1. The PVC mount at CFP_DATA_REPO_PATH is trusted by git regardless of
-#      file-ownership (PVCs survive pod restarts and may carry files owned
-#      by a different uid than the current runAsUser).
-#   2. A reasonable git user identity is configured for any rebase committer
-#      writes (rebase preserves authors of replayed commits; the committer
-#      line is the only thing that can pick up runtime identity).
-#   3. There IS a valid `.git` working tree at CFP_DATA_REPO_PATH. On first
-#      pod boot (empty PVC), we do an initial full-history clone. On
-#      subsequent boots, the reconciler inside the API decides what to do.
+#   1. CFP_DATA_REPO_PATH is trusted by git regardless of file-ownership
+#      (volumes may carry files owned by a different uid than the current
+#      runAsUser between iterations).
+#   2. A reasonable git user identity is configured for any committer line
+#      the API's plumbing-based reconcile might mint.
+#   3. CFP_DATA_REPO_PATH is a valid **bare** git repo. On first pod boot
+#      (empty volume), we do an initial bare clone. On subsequent boots
+#      within the same pod's lifetime, the reconciler inside the API
+#      handles fetching + ref advancement.
+#
+# Bare invariant: gitsheets reads/writes via hologit's tree-object
+# interface — no working tree needed. See
+# specs/behaviors/storage.md → "The data clone is bare".
 #
 # Required env:
-#   CFP_DATA_REPO_PATH — local working-tree path (mounted PVC in k8s)
+#   CFP_DATA_REPO_PATH — bare gitdir (the path itself is the gitdir; no
+#                       .git subdirectory inside it)
 # Optional env:
-#   CFP_DATA_REMOTE    — git URL to clone/fetch/push. If unset, the entrypoint
-#                        assumes an offline-style dev setup and uses whatever
-#                        working tree is already at CFP_DATA_REPO_PATH.
-#   CFP_DATA_BRANCH    — branch to clone initially (default: main).
+#   CFP_DATA_REMOTE    — git URL to clone/fetch/push. If unset, the
+#                        entrypoint assumes an offline-style dev setup
+#                        and uses whatever is already at the path.
+#   CFP_DATA_BRANCH    — branch to set HEAD to on initial clone (default: main).
 #   GIT_SSH_COMMAND    — set when an SSH deploy key is mounted.
 
 set -eu
@@ -35,53 +40,58 @@ log() {
 
 DATA_BRANCH="${CFP_DATA_BRANCH:-main}"
 
-# Trust the data-repo working tree regardless of file ownership. PVCs survive
-# pod restarts and may carry files owned by a different uid than this pod's
-# runAsUser (e.g., an earlier iteration ran as root).
+# Trust the data-repo path regardless of file ownership.
 git config --global --add safe.directory "$CFP_DATA_REPO_PATH"
 
 # Pseudonymous identity for any direct git operations that pick up the
-# runtime committer line. API mutations supply their own GIT_AUTHOR_* via
-# gitsheets transaction options; the reconciler re-applies these to the
-# repo-local config too, so this is belt-and-suspenders for any other tool
-# that touches the tree.
+# runtime committer line.
 : "${GIT_AUTHOR_NAME:=CodeForPhilly API}"
 : "${GIT_AUTHOR_EMAIL:=api@users.noreply.codeforphilly.org}"
 : "${GIT_COMMITTER_NAME:=$GIT_AUTHOR_NAME}"
 : "${GIT_COMMITTER_EMAIL:=$GIT_AUTHOR_EMAIL}"
 export GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 
-if [ ! -d "$CFP_DATA_REPO_PATH/.git" ]; then
+# Bare-repo marker: an `objects/` directory at the path root. (A non-bare
+# clone has `.git/objects/` instead, so this check distinguishes the two
+# without false positives on either side.)
+if [ ! -d "$CFP_DATA_REPO_PATH/objects" ]; then
   if [ -z "${CFP_DATA_REMOTE:-}" ]; then
-    log "ERROR: $CFP_DATA_REPO_PATH is not a git repo and CFP_DATA_REMOTE is unset"
+    log "ERROR: $CFP_DATA_REPO_PATH is not a bare git repo and CFP_DATA_REMOTE is unset"
+    exit 1
+  fi
+
+  # Refuse a non-bare working-tree clone left over from an earlier build.
+  if [ -d "$CFP_DATA_REPO_PATH/.git" ]; then
+    log "ERROR: $CFP_DATA_REPO_PATH contains a non-bare clone (.git subdirectory)"
+    log "  The app requires a bare clone — wipe the volume and restart, or"
+    log "  delete $CFP_DATA_REPO_PATH/.git and re-clone."
     exit 1
   fi
 
   mkdir -p "$CFP_DATA_REPO_PATH"
 
-  # PVC may carry residue from a previous pod that bailed mid-clone.
+  # Volume may carry residue from a previous pod that bailed mid-clone.
   # `git clone` refuses to clone into a non-empty directory, so wipe it
   # first. Safe because the data repo is always re-cloneable.
   if [ -n "$(ls -A "$CFP_DATA_REPO_PATH" 2>/dev/null)" ]; then
-    log "$CFP_DATA_REPO_PATH non-empty but lacks .git — wiping before clone"
+    log "$CFP_DATA_REPO_PATH non-empty but not a bare repo — wiping before clone"
     find "$CFP_DATA_REPO_PATH" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
   fi
 
-  log "cloning $CFP_DATA_REMOTE into $CFP_DATA_REPO_PATH (branch=$DATA_BRANCH)"
+  log "bare-cloning $CFP_DATA_REMOTE into $CFP_DATA_REPO_PATH (HEAD → $DATA_BRANCH)"
   # Full history (no --depth) so the API-side reconciler can rebase against
   # any realistic divergence on subsequent boots.
-  git clone --branch "$DATA_BRANCH" "$CFP_DATA_REMOTE" "$CFP_DATA_REPO_PATH"
+  git clone --bare --branch "$DATA_BRANCH" "$CFP_DATA_REMOTE" "$CFP_DATA_REPO_PATH"
 fi
 
-cd "$CFP_DATA_REPO_PATH"
-git config user.name  "$GIT_AUTHOR_NAME"
-git config user.email "$GIT_AUTHOR_EMAIL"
-# Ensure the origin URL matches the current env (in case CFP_DATA_REMOTE
-# was rotated). Idempotent.
-if [ -n "${CFP_DATA_REMOTE:-}" ] && git remote get-url origin >/dev/null 2>&1; then
-  git remote set-url origin "$CFP_DATA_REMOTE"
-fi
-cd - >/dev/null
+# Pin the API's committer identity into the bare repo's config.
+git --git-dir="$CFP_DATA_REPO_PATH" config user.name  "$GIT_AUTHOR_NAME"
+git --git-dir="$CFP_DATA_REPO_PATH" config user.email "$GIT_AUTHOR_EMAIL"
 
-log "data repo ready; starting API (reconciliation runs inside the API process)"
+# Refresh the origin URL in case CFP_DATA_REMOTE was rotated. Idempotent.
+if [ -n "${CFP_DATA_REMOTE:-}" ] && git --git-dir="$CFP_DATA_REPO_PATH" remote get-url origin >/dev/null 2>&1; then
+  git --git-dir="$CFP_DATA_REPO_PATH" remote set-url origin "$CFP_DATA_REMOTE"
+fi
+
+log "data repo ready (bare); starting API (reconciliation runs inside the API process)"
 exec "$@"

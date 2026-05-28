@@ -100,10 +100,11 @@ Two background concerns keep that store in sync with the world:
 ## Local setup
 
 1. `asdf install` — picks up Node from `.tool-versions`
-2. Clone the data repo as a sibling: `git clone git@github.com:CodeForPhilly/codeforphilly-data.git ../codeforphilly-data` (checkout `fixture` for a small seed, or `published` for the full laddr import)
-3. `cp .env.example .env` and edit — point `CFP_DATA_REPO_PATH` at your sibling clone (absolute path recommended; relative paths resolve from `apps/api/`, not repo root)
-4. `npm install`
-5. `npm run dev` — api + web concurrently
+2. **Bare-clone** the data repo as a sibling: `git clone --bare git@github.com:CodeForPhilly/codeforphilly-data.git ../codeforphilly-data` (use `--branch fixture` for a small seed, or `--branch published` for the full laddr import). The app reads via gitsheets' tree-object interface and *requires* bare — see [specs/behaviors/storage.md](../specs/behaviors/storage.md) → "The data clone is bare."
+3. *(optional)* If you want a working tree to browse/edit records by hand, clone *from* your bare into a second directory: `git clone ../codeforphilly-data ../codeforphilly-data-wt`. Push/pull between them; the app doesn't care.
+4. `cp .env.example .env` and edit — point `CFP_DATA_REPO_PATH` at your bare sibling clone (absolute path recommended; relative paths resolve from `apps/api/`, not repo root)
+5. `npm install`
+6. `npm run dev` — api + web concurrently
 
 ```bash
 npm install                 # install all workspaces
@@ -124,7 +125,7 @@ Typical change flow:
 1. **Merge to `main`** — CI builds + tests; nothing deploys yet.
 2. **Publish image** (currently manual) — `docker build --platform=linux/amd64 -t ghcr.io/codeforphilly/codeforphilly-ng:sandbox . && docker push …`. Apple-silicon dev machines must set the platform flag — cluster nodes are amd64.
 3. **GitOps pickup** — `cfp-sandbox-cluster` projects from our `deploy/kustomize/`; on its own merge, applies via `kubectl apply -k`.
-4. **Pod boot** — single replica, `Recreate` strategy. Container entrypoint clones the data repo on first boot (PVC persists across pods). Node boots: env → store load → **reconcile** (ff/rebase/escape-hatch against `origin/<CFP_DATA_BRANCH>`) → **push daemon** → routes → SPA. `/api/health/ready` returns 200 once stores are loaded *and* reconciled.
+4. **Pod boot** — single replica, `Recreate` strategy. Container entrypoint bare-clones the data repo on every pod start (the data volume is `emptyDir`, so first boot = every fresh pod). Node boots: env → store load → **reconcile** (ff/replay/escape-hatch against `origin/<CFP_DATA_BRANCH>`) → **push daemon** → routes → SPA. `/api/health/ready` returns 200 once stores are loaded *and* reconciled.
 5. **Live data updates** — independent of app deploy. Pushes to `published` trigger the [hot-reload webhook](../docs/operations/runbook.md#hot-reload-webhook); the pod rebuilds in-memory state in place, no restart.
 
 Constraints worth knowing before touching anything deploy-shaped:

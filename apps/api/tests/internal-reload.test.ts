@@ -17,7 +17,7 @@
  *    FTS index actually got rebuilt against the new tree).
  */
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -76,7 +76,7 @@ async function createRig(): Promise<Rig> {
   const root = await mkdtemp(join(tmpdir(), 'cfp-hot-reload-'));
   const bare = join(root, 'remote.git');
   const seed = join(root, 'seed');
-  const local = join(root, 'local');
+  const local = join(root, 'local.git');
 
   // Seed: produces the initial sheet-configs commit on `main`.
   await exec('git', ['init', '-b', 'main', seed]);
@@ -97,12 +97,13 @@ async function createRig(): Promise<Rig> {
   await git(bare, 'config', 'receive.denyCurrentBranch', 'ignore');
   await exec('git', ['push', bare, 'main'], { cwd: seed });
 
-  // Local clone from the bare.
-  await exec('git', ['clone', bare, local]);
+  // Local clone from the bare — also bare, matching the app's runtime invariant
+  // (specs/behaviors/storage.md → "The data clone is bare").
+  await exec('git', ['clone', '--bare', bare, local]);
+  await git(local, 'symbolic-ref', 'HEAD', 'refs/heads/main');
   await git(local, 'config', 'user.email', 'local@test.local');
   await git(local, 'config', 'user.name', 'local');
   await git(local, 'config', 'commit.gpgsign', 'false');
-  await git(local, 'config', 'core.hooksPath', '/dev/null');
 
   return {
     local,
@@ -379,15 +380,13 @@ describe('POST /api/_internal/reload-data — short-circuit + reconcile', () => 
     expect(project.data.slug).toBe('lazyloader');
     expect(project.data.title).toBe('LazyLoader');
 
-    // Confirm the local working tree actually fast-forwarded too.
+    // Confirm the local bare actually fast-forwarded too.
     const afterHead = await git(rig.local, 'rev-parse', 'HEAD');
     expect(afterHead).toBe(newRemoteHead);
 
-    // And the sheet config file was written to the bare in the seed
-    // commit — sanity check that gitsheets has actually parsed the new
-    // record (read the TOML to confirm shape).
-    const tomlPath = join(rig.local, 'projects', 'lazyloader.toml');
-    const contents = await readFile(tomlPath, 'utf8');
+    // Sanity-check that gitsheets has parsed the new record by reading
+    // the TOML from the bare's HEAD tree (no working tree to filesystem-read).
+    const contents = await git(rig.local, 'show', 'HEAD:projects/lazyloader.toml');
     expect(contents).toContain("slug = 'lazyloader'");
   });
 });

@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { openRepo, openStore } from 'gitsheets';
 import type { Repository, StandardSchemaV1, Store, StoreTx, ValidatorMap } from 'gitsheets';
 import {
@@ -60,17 +63,33 @@ export type PublicStoreTx = StoreTx<PublicValidators>;
 /**
  * Open the gitsheets-backed public data store.
  *
- * Reads `.gitsheets/<sheet>.toml` for each declared sheet in `repoPath`.
- * In-memory secondary indices are built by the caller (boot.ts) after this
+ * `repoPath` is the **bare gitdir** — no `.git` subdirectory. The app
+ * always operates against a bare clone per
+ * specs/behaviors/storage.md → "The data clone is bare". A non-bare
+ * repoPath fails loudly here so misconfiguration surfaces at boot
+ * rather than as runtime drift between the API's HEAD and a stale
+ * working tree.
+ *
+ * Reads `.gitsheets/<sheet>.toml` for each declared sheet. In-memory
+ * secondary indices are built by the caller (boot.ts) after this
  * returns, since they require iterating over all records.
  *
- * Returns both the typed store and the underlying Repository handle — the
- * latter is needed by the push-daemon plugin to push commits to origin.
+ * Returns both the typed store and the underlying Repository handle —
+ * the latter is needed by the push-daemon plugin to push commits to
+ * origin.
  */
 export async function openPublicStore(
   repoPath: string,
 ): Promise<{ store: PublicStore; repo: Repository }> {
-  const repo = await openRepo({ gitDir: `${repoPath}/.git`, workTree: repoPath });
+  if (existsSync(join(repoPath, '.git'))) {
+    throw new Error(
+      `CFP_DATA_REPO_PATH=${repoPath} looks like a non-bare clone (found .git subdirectory). ` +
+      `The app requires a bare clone — re-create with: git clone --bare <remote> ${repoPath}. ` +
+      `See specs/behaviors/storage.md → "The data clone is bare".`,
+    );
+  }
+
+  const repo = await openRepo({ gitDir: repoPath });
   repo.requireExplicitTransactions();
 
   const validators: PublicValidators = {

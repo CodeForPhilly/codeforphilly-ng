@@ -557,34 +557,44 @@ async function ensureGitRepo(repo: string): Promise<void> {
 }
 
 /**
- * Check out the target branch in the working tree. On first run, create it
- * from `origin/<branch>` if available, falling back to `initialParent`
- * (typically `origin/empty`).
+ * Point HEAD at the target branch in the bare data repo. On first run,
+ * the branch ref is created from `origin/<branch>` if available, falling
+ * back to `initialParent` (typically `origin/empty`).
+ *
+ * Bare-friendly — no working tree to check out into. The branch ref is
+ * created/updated via `git update-ref`, and HEAD becomes a symbolic-ref
+ * pointing at it so subsequent transacts commit onto the right branch.
  */
 async function ensureBranchCheckedOut(
   repo: string,
   branch: string,
   initialParent: string,
 ): Promise<void> {
-  // Existing local branch: just switch.
+  // Resolve the parent commit hash: either the existing local branch (use
+  // it as-is), origin/<branch> if it exists, or the initialParent fallback.
+  let parentCommit: string;
   try {
-    await exec('git', ['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repo });
-    await exec('git', ['checkout', branch], { cwd: repo });
-    return;
+    const result = await exec('git', ['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repo });
+    parentCommit = result.stdout.trim();
   } catch {
-    // No local branch — fall through.
+    // No local branch — try origin/<branch>, fall back to initialParent.
+    let parentRef: string;
+    try {
+      await exec('git', ['rev-parse', '--verify', `refs/remotes/origin/${branch}`], {
+        cwd: repo,
+      });
+      parentRef = `refs/remotes/origin/${branch}`;
+    } catch {
+      parentRef = initialParent;
+    }
+    const result = await exec('git', ['rev-parse', '--verify', parentRef], { cwd: repo });
+    parentCommit = result.stdout.trim();
+    await exec('git', ['update-ref', `refs/heads/${branch}`, parentCommit], { cwd: repo });
   }
-  // No local branch yet. Try origin/<branch>, fall back to initialParent.
-  let parent: string;
-  try {
-    await exec('git', ['rev-parse', '--verify', `refs/remotes/origin/${branch}`], {
-      cwd: repo,
-    });
-    parent = `origin/${branch}`;
-  } catch {
-    parent = initialParent;
-  }
-  await exec('git', ['checkout', '-b', branch, parent], { cwd: repo });
+
+  // Point HEAD at the (now-existing) branch so subsequent gitsheets
+  // transacts commit onto it.
+  await exec('git', ['symbolic-ref', 'HEAD', `refs/heads/${branch}`], { cwd: repo });
 }
 
 // ---------------------------------------------------------------------------

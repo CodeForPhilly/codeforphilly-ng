@@ -53,7 +53,7 @@ async function seedPerson(
   repoPath: string,
   fields: { id: string; slug: string; githubUserId?: number },
 ): Promise<void> {
-  const repo = await openRepo({ gitDir: `${repoPath}/.git`, workTree: repoPath });
+  const repo = await openRepo({ gitDir: repoPath });
   await repo.transact(
     { message: `seed person ${fields.slug}`, author: { name: 'test', email: 'test@cfp.test' } },
     async (tx) => {

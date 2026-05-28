@@ -43,31 +43,42 @@ export interface FullTestRepo {
  * for full-app tests where the store plugin boots the real openPublicStore().
  */
 export async function createFullDataRepo(): Promise<FullTestRepo> {
-  const dir = await mkdtemp(join(tmpdir(), 'cfp-full-data-'));
-  const git = (...args: string[]) => execFileAsync('git', args, { cwd: dir });
+  const root = await mkdtemp(join(tmpdir(), 'cfp-full-data-'));
+  const bareDir = join(root, 'data.git');
+  const seedDir = join(root, 'seed');
 
-  await git('init', '-b', 'main');
-  await git('config', 'user.email', 'test@cfp.test');
-  await git('config', 'user.name', 'cfp test');
-  await git('config', 'commit.gpgsign', 'false');
-  await git('config', 'core.hooksPath', '/dev/null');
-  await git('commit', '--allow-empty', '-m', 'initial');
+  // Bare gitdir — the path tests pass to openPublicStore. Matches the
+  // production bare-repo invariant (specs/behaviors/storage.md).
+  await execFileAsync('git', ['init', '--bare', '-b', 'main', bareDir]);
+  await execFileAsync('git', ['config', 'receive.denyCurrentBranch', 'ignore'], { cwd: bareDir });
 
-  // Write all sheet configs
-  await mkdir(join(dir, '.gitsheets'), { recursive: true });
+  // Transient working-tree clone for seeding the sheet configs.
+  await execFileAsync('git', ['init', '-b', 'main', seedDir]);
+  const seedGit = (...args: string[]) => execFileAsync('git', args, { cwd: seedDir });
+  await seedGit('config', 'user.email', 'test@cfp.test');
+  await seedGit('config', 'user.name', 'cfp test');
+  await seedGit('config', 'commit.gpgsign', 'false');
+  await seedGit('config', 'core.hooksPath', '/dev/null');
+  await seedGit('commit', '--allow-empty', '-m', 'initial');
+
+  await mkdir(join(seedDir, '.gitsheets'), { recursive: true });
   for (const [name, config] of Object.entries(SHEET_CONFIGS)) {
-    await writeFile(join(dir, '.gitsheets', `${name}.toml`), config);
+    await writeFile(join(seedDir, '.gitsheets', `${name}.toml`), config);
   }
-  await git('add', '.gitsheets');
-  await git('commit', '-m', 'chore: add all gitsheets sheet configs');
+  await seedGit('add', '.gitsheets');
+  await seedGit('commit', '-m', 'chore: add all gitsheets sheet configs');
+
+  await seedGit('remote', 'add', 'origin', bareDir);
+  await seedGit('push', 'origin', 'main');
+  await rm(seedDir, { recursive: true, force: true });
 
   let cleaned = false;
   return {
-    path: dir,
+    path: bareDir,
     cleanup: async () => {
       if (cleaned) return;
       cleaned = true;
-      await rm(dir, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
     },
   };
 }

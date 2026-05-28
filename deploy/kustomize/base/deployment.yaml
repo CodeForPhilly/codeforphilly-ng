@@ -78,9 +78,12 @@ spec:
             capabilities:
               drop: [ALL]
       volumes:
+        # Data repo lives as a bare clone — ephemeral. Re-cloned from origin
+        # on every pod boot; objects-only (~50 MB) so the clone is cheap.
+        # Persisting across pod restarts buys nothing because the bare
+        # clone is fully recoverable from the git remote.
         - name: data
-          persistentVolumeClaim:
-            claimName: codeforphilly-data
+          emptyDir: {}
         - name: private
           persistentVolumeClaim:
             claimName: codeforphilly-private

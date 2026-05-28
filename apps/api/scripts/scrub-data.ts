@@ -476,7 +476,7 @@ export async function scrubRepo(opts: ScrubOptions): Promise<ScrubResult> {
   // -------------------------------------------------------------------------
   // 1. Open source repo
   // -------------------------------------------------------------------------
-  const sourceRepo = await openRepo({ workTree: source, gitDir: join(source, '.git') });
+  const sourceRepo = await openRepo({ gitDir: source });
   const sourceHeadHash = await sourceRepo.resolveRef('HEAD');
 
   // -------------------------------------------------------------------------
@@ -585,16 +585,24 @@ export async function scrubRepo(opts: ScrubOptions): Promise<ScrubResult> {
     await writeFile(fullPath, content, 'utf-8');
   }
 
-  // Copy .gitsheets config from source
-  const sourceGitsheetsDir = join(source, '.gitsheets');
+  // Copy .gitsheets configs from source's HEAD tree (source is a bare clone,
+  // per specs/behaviors/storage.md → "The data clone is bare", so the configs
+  // live as git blobs rather than working-tree files).
   const targetGitsheetsDir = join(target, '.gitsheets');
   await mkdir(targetGitsheetsDir, { recursive: true });
-  const configFiles = await readdir(sourceGitsheetsDir, { withFileTypes: true }).catch(() => []);
-  for (const entry of configFiles) {
-    if (entry.isFile() && entry.name.endsWith('.toml')) {
-      const configContent = await readFile(join(sourceGitsheetsDir, entry.name), 'utf-8');
-      await writeFile(join(targetGitsheetsDir, entry.name), configContent, 'utf-8');
-    }
+  const lsTreeResult = await exec('git', [
+    '--git-dir', source,
+    'ls-tree', '--name-only', 'HEAD', '.gitsheets/',
+  ]);
+  const configFiles = lsTreeResult.stdout
+    .split('\n')
+    .filter((name) => name.endsWith('.toml'));
+  for (const path of configFiles) {
+    const blob = await exec('git', [
+      '--git-dir', source,
+      'show', `HEAD:${path}`,
+    ]);
+    await writeFile(join(target, path), blob.stdout, 'utf-8');
   }
 
   // -------------------------------------------------------------------------
