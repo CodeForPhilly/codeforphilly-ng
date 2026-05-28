@@ -61,9 +61,13 @@ export class StateApply {
 
   removeProject(projectId: string, slug: string): this {
     this.#ops.push((state, fts) => {
+      const old = state.projects.get(projectId);
       state.projects.delete(projectId);
       state.projectSlugById.delete(projectId);
       state.projectIdBySlug.delete(slug);
+      if (old && typeof old.legacyId === 'number') {
+        state.projectIdByLegacyId.delete(old.legacyId);
+      }
       fts.removeProject(slug);
     });
     this.#invalidateFacets = true;
@@ -183,6 +187,7 @@ export class StateApply {
       state.projectBuzz.delete(b.id);
       state.buzzByProject.get(b.projectId)?.delete(b.id);
       state.buzzByProjectAndSlug.delete(`${b.projectId}:${b.slug}`);
+      state.buzzIdBySlug.delete(b.slug);
     });
     return this;
   }

@@ -43,6 +43,14 @@ export interface InMemoryState {
   projectSlugById: Map<string, string>;
   /** project.slug → project.id */
   projectIdBySlug: Map<string, string>;
+  /**
+   * project.legacyId → project.id. Populated only for records that carry a
+   * laddr legacy ID (the importer sets these; runtime-created projects don't).
+   * Used by the legacy-redirect plugin to resolve `/projects?ID=<n>` and
+   * `/project-updates?ProjectID=<n>` to the canonical slug URL.
+   * Per specs/behaviors/legacy-id-mapping.md.
+   */
+  projectIdByLegacyId: Map<number, string>;
 
   /** person.id → person.slug */
   personSlugById: Map<string, string>;
@@ -66,6 +74,13 @@ export interface InMemoryState {
   buzzByProject: Map<string, Set<string>>;
   /** projectId + buzzSlug → buzzId */
   buzzByProjectAndSlug: Map<string, string>;
+  /**
+   * buzz.slug → buzz.id (global). Buzz slugs are globally unique per
+   * `data-model.md#projectbuzz`, so a flat map is the right shape for the
+   * legacy `/project-buzz/<slug>` redirect (which carries only the buzz slug
+   * with no project hint).
+   */
+  buzzIdBySlug: Map<string, string>;
 
   /** projectId → Set<roleId> */
   helpWantedByProject: Map<string, Set<string>>;
@@ -109,6 +124,7 @@ export function createEmptyState(): InMemoryState {
 
     projectSlugById: new Map(),
     projectIdBySlug: new Map(),
+    projectIdByLegacyId: new Map(),
     personSlugById: new Map(),
     personIdBySlug: new Map(),
     tagIdByHandle: new Map(),
@@ -118,6 +134,7 @@ export function createEmptyState(): InMemoryState {
     updateByProjectAndNumber: new Map(),
     buzzByProject: new Map(),
     buzzByProjectAndSlug: new Map(),
+    buzzIdBySlug: new Map(),
     helpWantedByProject: new Map(),
     tagAssignmentsByTaggable: new Map(),
     tagAssignmentsByTag: new Map(),
@@ -147,10 +164,16 @@ export function indexProject(state: InMemoryState, project: Project): void {
   if (old) {
     state.projectSlugById.delete(old.id);
     state.projectIdBySlug.delete(old.slug);
+    if (typeof old.legacyId === 'number') {
+      state.projectIdByLegacyId.delete(old.legacyId);
+    }
   }
   state.projects.set(project.id, project);
   state.projectSlugById.set(project.id, project.slug);
   state.projectIdBySlug.set(project.slug, project.id);
+  if (typeof project.legacyId === 'number') {
+    state.projectIdByLegacyId.set(project.legacyId, project.id);
+  }
 }
 
 /** Add or replace one person and update their secondary indices. */
@@ -212,6 +235,10 @@ export function indexProjectUpdate(state: InMemoryState, update: ProjectUpdate):
 
 /** Add or replace a buzz item and update secondary indices. */
 export function indexProjectBuzz(state: InMemoryState, buzz: ProjectBuzz): void {
+  const old = state.projectBuzz.get(buzz.id);
+  if (old) {
+    state.buzzIdBySlug.delete(old.slug);
+  }
   state.projectBuzz.set(buzz.id, buzz);
 
   let byProject = state.buzzByProject.get(buzz.projectId);
@@ -220,6 +247,7 @@ export function indexProjectBuzz(state: InMemoryState, buzz: ProjectBuzz): void 
 
   const key = `${buzz.projectId}:${buzz.slug}`;
   state.buzzByProjectAndSlug.set(key, buzz.id);
+  state.buzzIdBySlug.set(buzz.slug, buzz.id);
 }
 
 /** Add or replace a help-wanted role and update secondary indices. */
