@@ -2,9 +2,8 @@
  * ProjectUpdate serializer.
  */
 import type { Person, Project, ProjectUpdate } from '@cfp/shared/schemas';
-import { renderMarkdown } from '@cfp/shared';
 import type { UpdatePermissions } from '../permissions.js';
-import { serializePersonAvatar } from './common.js';
+import { renderMarkdown, serializePersonAvatar } from './common.js';
 
 export interface ProjectUpdateResponse {
   readonly id: string;

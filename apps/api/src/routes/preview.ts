@@ -10,7 +10,7 @@
  * editor preview path.
  */
 import type { FastifyInstance } from 'fastify';
-import { renderMarkdown } from '@cfp/shared';
+import { renderMarkdown } from '../services/serializers/common.js';
 import { ok } from '../lib/response.js';
 import { ApiValidationError } from '../lib/errors.js';
 

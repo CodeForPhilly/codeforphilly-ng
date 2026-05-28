@@ -1,8 +1,36 @@
 /**
  * Shared serialization helpers used across entity serializers.
  */
-import { renderMarkdown } from '@cfp/shared';
+import { renderMarkdown as rawRenderMarkdown, type RenderMarkdownResult } from '@cfp/shared';
 import type { Person, Tag } from '@cfp/shared/schemas';
+
+/**
+ * Boot-installed renderer. Defaults to the bare `@cfp/shared` pipeline so
+ * tests + dev code that import serializers directly without booting the
+ * markdown plugin keep working. The markdown plugin
+ * (`apps/api/src/plugins/markdown.ts`) calls `setRenderMarkdown` at boot
+ * to swap in a renderer bound to `CFP_SITE_HOST` + the live
+ * `inMemoryState.personIdBySlug` lookup, so all serializer output applies
+ * the external-link + `@mention` transforms from
+ * specs/behaviors/markdown-rendering.md.
+ *
+ * Module-level state is justified here over per-call threading: every
+ * serializer currently routes through `renderMarkdown(source)` without
+ * carrying an `app` or `FastifyInstance` reference, and a per-process
+ * single binding matches the runtime's actual shape (one Fastify app,
+ * one renderer config). Hot-reload preserves the state Maps in place so
+ * the closure stays correct.
+ */
+let currentRender: (source: string) => RenderMarkdownResult = rawRenderMarkdown;
+
+export function setRenderMarkdown(fn: (source: string) => RenderMarkdownResult): void {
+  currentRender = fn;
+}
+
+/** Render a markdown source through the boot-installed renderer. */
+export function renderMarkdown(source: string): RenderMarkdownResult {
+  return currentRender(source);
+}
 
 /** PersonAvatar shape used in many nested contexts. */
 export interface PersonAvatar {
@@ -53,12 +81,6 @@ export function groupTagsByNamespace(
   return { topic, tech, event };
 }
 
-/** Render markdown to HTML + an excerpt. Returns empty string for null/empty source. */
-export function renderField(source: string | null | undefined): { html: string; excerpt: string } {
-  if (!source) return { html: '', excerpt: '' };
-  const { html, excerpt } = renderMarkdown(source);
-  return { html, excerpt };
-}
 
 /** Truncate a plain-text string at a word boundary. */
 export function truncate(text: string, maxLength: number): string {

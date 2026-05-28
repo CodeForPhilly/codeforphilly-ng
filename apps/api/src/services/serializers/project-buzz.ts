@@ -2,9 +2,8 @@
  * ProjectBuzz serializer.
  */
 import type { Person, Project, ProjectBuzz } from '@cfp/shared/schemas';
-import { renderMarkdown } from '@cfp/shared';
 import type { BuzzPermissions } from '../permissions.js';
-import { serializePersonAvatar } from './common.js';
+import { renderMarkdown, serializePersonAvatar } from './common.js';
 
 export interface ProjectBuzzResponse {
   readonly id: string;

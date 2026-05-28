@@ -9,8 +9,8 @@ import type {
   Tag,
   TagAssignment,
 } from '@cfp/shared/schemas';
-import { renderMarkdown } from '@cfp/shared';
 import type { PersonPermissions } from '../permissions.js';
+import { renderMarkdown } from './common.js';
 import {
   groupTagsByNamespace,
   serializePersonAvatar,
