@@ -8,10 +8,15 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { ok, paginated } from '../lib/response.js';
-import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
-import { getCallerSession } from '../services/permissions.js';
+import { ApiNotFoundError, ApiValidationError, ForbiddenError } from '../lib/errors.js';
+import { computePersonPermissions, getCallerSession } from '../services/permissions.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
 import type { UpdatePersonInput } from '../services/person.write.js';
+import { AVATAR_ALLOWED_MIME, processAvatar } from '../lib/avatar.js';
+import { BlobObject } from 'hologit';
+import type { Person } from '@cfp/shared/schemas';
+import { PersonSchema } from '@cfp/shared/schemas';
+import { StateApply } from '../store/state-apply.js';
 
 export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/people
@@ -184,5 +189,139 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       personId: profile.personId,
       newsletter: profile.newsletter ?? null,
     });
+  });
+
+  // POST /api/people/:slug/avatar — multipart upload, file field `image`.
+  // Spec: specs/api/people.md → POST /api/people/:slug/avatar.
+  fastify.post('/api/people/:slug/avatar', {
+    schema: {
+      tags: ['people'],
+      summary: 'Upload an avatar image (multipart, field: image)',
+      consumes: ['multipart/form-data'],
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: { avatarUrl: { type: 'string' } },
+              required: ['avatarUrl'],
+            },
+          },
+        },
+      },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+
+    const caller = getCallerSession(request);
+    if (!caller) {
+      throw new ForbiddenError('authentication required');
+    }
+
+    const personId = fastify.inMemoryState.personIdBySlug.get(slug);
+    if (!personId) {
+      throw new ApiNotFoundError(`person not found: ${slug}`);
+    }
+    const person = fastify.inMemoryState.people.get(personId);
+    if (!person) {
+      // personIdBySlug exists but the record's missing — state-corruption
+      // shape; treat as 404 rather than 500 so the client retries cleanly.
+      throw new ApiNotFoundError(`person not found: ${slug}`);
+    }
+
+    const perms = computePersonPermissions(caller, person);
+    if (!perms.canEdit) {
+      throw new ForbiddenError('cannot edit this person');
+    }
+
+    // Pull the single multipart file. @fastify/multipart raises
+    // FST_REQ_FILE_TOO_LARGE on oversized uploads (mapped to 413 by Fastify's
+    // default error handler upstream of our mapError).
+    const file = await request.file();
+    if (!file) {
+      throw new ApiValidationError('file field "image" is required', { image: 'required' });
+    }
+    if (file.fieldname !== 'image') {
+      throw new ApiValidationError(
+        `file field name must be "image" (got "${file.fieldname}")`,
+        { image: 'wrong_field_name' },
+      );
+    }
+    if (!AVATAR_ALLOWED_MIME.has(file.mimetype)) {
+      throw new ApiValidationError(
+        `unsupported image type: ${file.mimetype} (allowed: image/png, image/jpeg, image/webp)`,
+        { image: 'unsupported_image_type' },
+      );
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await file.toBuffer();
+    } catch (err) {
+      // @fastify/multipart raises FST_REQ_FILE_TOO_LARGE when the streamed
+      // upload exceeds the configured fileSize limit (5 MB per spec).
+      if (err !== null && typeof err === 'object' && 'code' in err && err.code === 'FST_REQ_FILE_TOO_LARGE') {
+        throw new ApiValidationError(
+          'image too large (max 5 MB)',
+          { image: 'too_large' },
+        );
+      }
+      throw err;
+    }
+
+    let processed;
+    try {
+      processed = await processAvatar(buffer);
+    } catch {
+      throw new ApiValidationError('image could not be decoded', { image: 'unreadable' });
+    }
+
+    const newAvatarKey = `people/${person.slug}/avatar.jpg`;
+    const stateApply = new StateApply();
+    const hologit = fastify.publicRepo.hologitRepo;
+
+    let updatedPerson: Person = person;
+    await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'person.avatar.upload',
+        subjectType: 'person',
+        subjectSlug: slug,
+        subjectId: person.id,
+        responseCode: 200,
+      }),
+      async (tx) => {
+        // Write the two attachment blobs into the gitsheets transaction
+        // tree. BlobObject.write hashes the buffer into the git object DB
+        // via `git hash-object -w`; the tx-level setAttachments then wires
+        // the blob refs into the post-commit tree at the conventional path.
+        //
+        // BlobObject.write's TypeScript signature declares `content: string`
+        // but the underlying `git-client` `$putBlob` spawns `git hash-object
+        // --stdin -w` and pipes `content` to stdin, which accepts both
+        // strings and Buffers at runtime. Cast to match the declared shape;
+        // hologit's type would tighten upstream eventually.
+        const originalBlob = await BlobObject.write(hologit, processed.original as unknown as string);
+        const thumbnailBlob = await BlobObject.write(hologit, processed.thumbnail as unknown as string);
+        await tx.public.people.setAttachments(person, {
+          'avatar.jpg': originalBlob,
+          'avatar-128.jpg': thumbnailBlob,
+        });
+
+        updatedPerson = PersonSchema.parse({
+          ...person,
+          avatarKey: newAvatarKey,
+          updatedAt: new Date().toISOString(),
+        });
+        await tx.public.people.upsert(updatedPerson);
+        stateApply.upsertPerson(updatedPerson);
+      },
+    );
+    stateApply.apply(fastify.inMemoryState, fastify.fts);
+
+    return ok({ avatarUrl: `/api/attachments/${updatedPerson.avatarKey}` });
   });
 }
