@@ -59,6 +59,37 @@ export async function seedRawToml(
   }
 }
 
+/**
+ * Sibling of `seedRawToml` for binary blobs (attachments, images, …).
+ * Writes raw bytes at `relPath` and commits via the same transient
+ * working-tree-clone-then-push dance.
+ */
+export async function seedRawBlob(
+  bareRepoPath: string,
+  relPath: string,
+  bytes: Buffer,
+  commitMessage: string,
+): Promise<void> {
+  const wt = await mkdtemp(join(tmpdir(), 'cfp-seed-wt-'));
+  try {
+    await execAsync('git', ['clone', bareRepoPath, wt]);
+    await execAsync('git', ['config', 'user.email', 'test@cfp.test'], { cwd: wt });
+    await execAsync('git', ['config', 'user.name', 'cfp test'], { cwd: wt });
+    await execAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: wt });
+    await execAsync('git', ['config', 'core.hooksPath', '/dev/null'], { cwd: wt });
+
+    const absPath = join(wt, relPath);
+    await mkdir(dirname(absPath), { recursive: true });
+    await writeFile(absPath, bytes);
+
+    await execAsync('git', ['add', relPath], { cwd: wt });
+    await execAsync('git', ['commit', '-m', commitMessage], { cwd: wt });
+    await execAsync('git', ['push', 'origin', 'main'], { cwd: wt });
+  } finally {
+    await rm(wt, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}
+
 const NOW = '2026-05-01T00:00:00Z';
 const NOW2 = '2026-05-10T00:00:00Z';
 
