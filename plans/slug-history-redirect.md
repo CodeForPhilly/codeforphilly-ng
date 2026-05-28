@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/slug-handles.md
 issues: [80]
+pr: 92
 ---
 
 # Plan: SlugHistory 90-day redirect handler
@@ -117,13 +118,13 @@ The plugin uses `fastify.addHook('onRequest', ...)` so it fires for every reques
 
 ## Validation
 
-- [ ] `InMemoryState.slugHistory` populated at boot from non-expired records; expired entries skipped.
-- [ ] All three write services call `stateApply.upsertSlugHistory` after the gitsheets upsert.
-- [ ] Fastify plugin registered after `services`, before `static-web`.
-- [ ] All 9 test cases above pass.
-- [ ] Existing 244 API tests still pass.
-- [ ] `npm run type-check && npm run lint` clean.
-- [ ] Spec compliance: GET `/<entity>/<old-slug>` with a non-expired SlugHistory → 301; live wins; multi-hop chain follows; expired → no redirect.
+- [x] `InMemoryState.slugHistory` populated at boot from non-expired records; expired entries skipped via `indexSlugHistory`'s `expiresAt < now` guard.
+- [x] All three write services call `stateApply.upsertSlugHistory` after the gitsheets upsert (`project.write.ts`, `person.write.ts`, `account-claim.ts`'s `MergeApply.replay`).
+- [x] Fastify `slug-redirect` plugin registered after `services`, before `static-web`.
+- [x] 11 test cases pass — single-hop project + person renames, sub-route preservation, query-string preservation, multi-hop A→B→C, live-wins, expired-skip, reserved-segment passthrough, tag rename, `/api/*` never intercepted, key-format determinism.
+- [x] All 255 API tests pass (244 pre-existing + 11 new).
+- [x] `npm run type-check && npm run lint` clean.
+- [x] Spec compliance: GET `/<entity>/<old-slug>` with a non-expired SlugHistory → 301; live wins; multi-hop chain follows; expired → no redirect.
 
 ## Risks / unknowns
 
@@ -135,8 +136,17 @@ The plugin uses `fastify.addHook('onRequest', ...)` so it fires for every reques
 
 ## Notes
 
-*(filled at done time)*
+Shipped over five commits — plan opening + three implementation steps (in-memory state, write-service wiring, Fastify plugin) + tests.
+
+Surprises:
+
+- **Account-claim's MergeApply needed slug-history threading.** Project + person renames live in their own write services where the StateApply is directly accessible, so wiring `upsertSlugHistory` was a one-line addition. Account-claim uses a `MergeApply` wrapper that batches all the post-onboarding rewrites for later replay onto the route-level StateApply — slug-history needed to ride along through that wrapper, which meant adding it to `MergeApplyInput` + `MergeApply.replay`.
+- **Buzz live-index is intentionally fake.** Buzz slugs are keyed by `${projectId}:${buzzSlug}` in the live index (`buzzByProjectAndSlug`); we don't have the projectId cheaply at the URL-pattern level (only the project's slug). For now the buzz pattern always returns `false` from `liveIndex` — which means a slug-history hit always wins for buzz, regardless of whether the buzz slug is live under a different project. No writer currently creates buzz slug-history records, so this is hypothetical.
+- **Tag live-check scans `tagIdByHandle.keys()`.** Tags are uniquely keyed by `(namespace, slug)` but slug-history's key is `tag:<slug>` (no namespace). The live-check walks the handle map looking for any namespace that owns the slug. Tag slug-history has no live writer today either; the conservative live-wins behavior matches the spec.
+- **The 5-min `Cache-Control` is a deliberate undersizing.** 301s are normally aggressively cached by browsers. Because our redirects can expire when the 90-day SlugHistory TTL hits, we keep cache headers short so stale-redirect windows after expiry are bounded to ~5 minutes.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Periodic sweeper to purge expired SlugHistory records from the sheet.** The read path is already defensive — expired records are filtered at index time — so this is purely about keeping the on-disk sheet from growing forever. *Tracked as*: file a new issue when sheet bloat becomes measurable; today's volume is negligible.
+- **Buzz live-index** — when buzz renames become real, add a `buzzByGlobalSlug` map (or accept the conservative "always redirect on slug-history hit"). *Deferred* until buzz rename writers exist.
+- **CDN/edge cache awareness** — if/when we put the site behind a CDN, 301s would benefit from explicit cache-key handling so the redirect doesn't outlive its TTL at the edge. *Deferred* until cutover plans introduce a CDN.
