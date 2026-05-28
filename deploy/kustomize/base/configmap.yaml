@@ -6,6 +6,10 @@ data:
   CFP_DATA_REPO_PATH: "/app/data"
   CFP_PRIVATE_STORAGE_PATH: "/app/private-storage"
   CFP_WEB_DIST_PATH: "/app/apps/web/dist"
+  # Public-facing host. Used by the server-side markdown renderer to flag
+  # anchors with a foreign host for target=_blank rel=noopener nofollow.
+  # Sandbox overlay overrides this to next-v2.codeforphilly.org.
+  CFP_SITE_HOST: "codeforphilly.org"
   GIT_AUTHOR_EMAIL: "api@codeforphilly.org"
   GIT_AUTHOR_NAME: "CodeForPhilly API"
   NODE_ENV: "production"

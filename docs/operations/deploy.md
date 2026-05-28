@@ -225,6 +225,7 @@ comments. Production pod gets these mounted:
 | `CFP_DATA_BRANCH` | ConfigMap | e.g. `fixture` / `main` |
 | `CFP_DATA_RELOAD_SECRET` | **Secret** | Shared bearer-token for the hot-reload webhook; when unset the `/api/_internal/reload-data` endpoint returns 503. See [runbook.md](runbook.md#hot-reload-webhook). |
 | `CFP_WEB_DIST_PATH` | ConfigMap | `/app/apps/web/dist` |
+| `CFP_SITE_HOST` | ConfigMap | Public-facing host (`codeforphilly.org` base, `next-v2.codeforphilly.org` sandbox). Drives the markdown renderer's external-link transform — anchors with a different host get `target="_blank" rel="noopener nofollow"`. |
 | `STORAGE_BACKEND` | ConfigMap | `s3` (prod) / `filesystem` (sandbox) |
 | `CFP_PRIVATE_STORAGE_PATH` | ConfigMap | `/app/private-storage` (when filesystem) |
 | `S3_ENDPOINT` / `S3_BUCKET` / `S3_REGION` | ConfigMap | Bucket addressing |

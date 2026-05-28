@@ -46,3 +46,14 @@ patches:
       - op: replace
         path: /spec/hostnames/0
         value: next-v2.codeforphilly.org
+  # Sandbox lives at next-v2.codeforphilly.org, not codeforphilly.org —
+  # tell the markdown renderer's external-link transform to treat that
+  # as the "internal" host so internal-link rendering matches expectations.
+  - target:
+      version: v1
+      kind: ConfigMap
+      name: codeforphilly-env
+    patch: |
+      - op: replace
+        path: /data/CFP_SITE_HOST
+        value: next-v2.codeforphilly.org
