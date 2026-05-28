@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/storage.md
   - specs/api/people.md
 issues: [77]
+pr: 94
 ---
 
 # Plan: GET /api/attachments/:key
@@ -80,12 +81,14 @@ All 4xx/5xx use the standard response envelope from `lib/response.ts` (the route
 
 ## Validation
 
-- [ ] `GET /api/attachments/people/<slug>/avatar.jpg` against a seeded attachment returns 200 + the bytes + correct Content-Type.
-- [ ] `GET /api/attachments/<nonexistent>` returns 404 with the standard envelope.
-- [ ] Path traversal attempts (`../etc/passwd`, `people/../../foo`) return 400.
-- [ ] Content-Type for image/* extensions matches expectations.
-- [ ] Existing 274 API tests still pass.
-- [ ] `npm run type-check && npm run lint` clean.
+- [x] `GET /api/attachments/people/<slug>/avatar.png` against a seeded attachment returns 200 + the bytes + correct Content-Type.
+- [x] `GET /api/attachments/<nonexistent>` returns 404 with the standard envelope.
+- [x] URL-based path traversal (`/api/attachments/../etc/passwd`) — Fastify normalizes upstream of the handler, so these never reach our validator and never serve 200 from outside the data repo. Test confirms `statusCode !== 200`.
+- [x] Null-byte-in-key (`%00`) returns 422 from the validator.
+- [x] Content-Type inferred for jpg/jpeg/png/gif/webp/avif/svg/pdf; unknown extensions get `application/octet-stream`.
+- [x] Binary content byte-identical end-to-end (test seeds all 256 byte values; route returns them unchanged).
+- [x] All 280 API tests pass (274 pre-existing + 6 new).
+- [x] `npm run type-check && npm run lint` clean.
 
 ## Risks / unknowns
 
@@ -97,8 +100,17 @@ All 4xx/5xx use the standard response envelope from `lib/response.ts` (the route
 
 ## Notes
 
-*(filled at done time)*
+Three commits — plan opening + route + tests/lint-fix.
+
+Surprises:
+
+- **Fastify normalizes URL path segments before routing.** `/api/attachments/../etc/passwd` gets collapsed to `/etc/passwd` upstream of our handler — the validator never sees the `..` from URL-borne traversal attempts. The validator's `..` check is defense in depth, not the primary line. Adjusted the test to assert "doesn't 200 from outside the data repo" rather than "validator returns 422". The validator still catches null bytes, control chars, and leading `/` which Fastify doesn't normalize.
+- **Hijacking the reply for streaming.** First pass used `reply.header()` + `reply.raw.write()` to inject the buffered first chunk, but headers set via `reply.header()` are tracked by Fastify and only flushed on `reply.send()` — bypassing send via `.raw.write()` skips header flush, so the response went out with no Content-Type. Fixed by calling `reply.hijack()` first (tells Fastify "I own the response from here"), then `reply.raw.writeHead(200, { ... })` to write headers directly.
+- **First-chunk-or-exit race.** `git cat-file` exits non-zero with `fatal:` on stderr when a path is missing. Race-style `Promise` on `firstData` vs `exit` lets us distinguish "exited before any stdout" (translate to 404) from "first chunk arrived" (200 + stream). Zero-byte blobs would currently 404 — edge case not worth designing around for v1 since gitsheets' `setAttachment` rejects zero-byte input.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **ETag + 304 conditional GETs.** Easy win: `git rev-parse HEAD:<key>` gives the blob hash; use it as ETag. With `If-None-Match`, 304 the request instead of streaming the blob. Saves the git-spawn cost on cache hits. *Tracked as*: low-priority polish; the 1-hour max-age already gives most clients fresh-enough responses.
+- **Range request support.** No `Range:` handling today — full 200 OK on every request. Fine for small avatars/buzz-images; if we ever serve video or large PDFs, revisit.
+- **Process pool for high concurrency.** Each request spawns a `git cat-file` process. If a project-list page renders 30 avatars in parallel, that's 30 fork/execs. Today's traffic doesn't warrant pooling; if flamegraphs show fork overhead, switch to `git cat-file --batch` long-running mode shared via a pool.
+- **404 vs 410 for tombstoned records.** Plan originally mentioned 410 for tombstoned record attachments. Distinguishing requires re-querying the record by sheet/slug, which adds a lookup per request. *Deferred* until a concrete user-facing need for the distinction appears.
