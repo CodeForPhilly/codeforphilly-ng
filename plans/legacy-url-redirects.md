@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/legacy-id-mapping.md
 issues: [78]
+pr: 93
 ---
 
 # Plan: Legacy laddr URL redirects
@@ -94,12 +95,12 @@ Both `legacy-redirect` and `slug-redirect` are `onRequest` hooks; they each patt
 
 ## Validation
 
-- [ ] `projectIdByLegacyId` and `buzzIdBySlug` populated at boot for every record with the relevant field.
-- [ ] `indexProject` + `indexProjectBuzz` update the new indices in lockstep (re-index after upsert keeps state consistent).
-- [ ] Plugin registered in `app.ts` after `services`, alongside `slug-redirect`.
-- [ ] All 13 test cases above pass.
-- [ ] Existing 255 API tests still pass.
-- [ ] `npm run type-check && npm run lint` clean.
+- [x] `projectIdByLegacyId` and `buzzIdBySlug` populated at boot via `indexProject` + `indexProjectBuzz`.
+- [x] `indexProject` + `indexProjectBuzz` update both old- and new-index entries on upsert; `removeProject` + `removeProjectBuzz` ops in `state-apply.ts` clean up the new indices too.
+- [x] Plugin registered in `app.ts` after `services`, alongside `slug-redirect`.
+- [x] 19 test cases pass (covering all 5 redirect patterns + 410 + /api/* bypass + unknown-legacyId pass-through + sub-route + query-string preservation).
+- [x] All 274 API tests pass (255 pre-existing + 19 new).
+- [x] `npm run type-check && npm run lint` clean.
 
 ## Risks / unknowns
 
@@ -110,8 +111,17 @@ Both `legacy-redirect` and `slug-redirect` are `onRequest` hooks; they each patt
 
 ## Notes
 
-*(filled at done time)*
+Shipped over four commits — plan opening + in-memory indices + plugin + tests.
+
+Surprises:
+
+- **`removeProject` + `removeProjectBuzz` needed legacy-index cleanup too.** Adding new in-memory indices means every place that mutates the corresponding maps needs to mirror — easy to miss on the remove side. Caught while reviewing state-apply.ts; the existing remove ops only cleared the slug indices, so the legacy indices would have leaked stale entries.
+- **No `indexProjectBuzz` lookup-on-upsert** in the original code — when a buzz record changed `slug`, the old `buzzIdBySlug` entry would have stuck around. Fixed in the same edit (read `state.projectBuzz.get(buzz.id)` to find the old slug and delete it before re-indexing). Same shape as `indexProject` and `indexPerson`.
+- **24-hour Cache-Control for 301s.** Slug-redirect uses 5min because the SlugHistory 90-day window can expire mid-life. Legacy URL shapes are *permanent* — they'll never change — so 24h is safe and reduces redirect-chain latency for recurring inbound links.
+- **Unknown legacyIds fall through, never 410.** The hook treats `?ID=99999` (no matching project) the same as any unknown URL: pass through to the SPA. Treating it as 410 would imply "this used to exist," which we can't know.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Real explanation pages for /checkin and /bigscreen.** The minimal inline HTML the plugin serves today is fine but unstyled. A more polished 410 page is post-cutover polish. *Tracked as*: a Fastify route that serves a real `apps/web/src/screens/Gone.tsx` instead of inline HTML.
+- **Additional 410 targets.** Other deferred laddr URL shapes — `/projects.csv`, `/project-updates?format=rss`, RSS feeds — currently fall through to the SPA which 404s. Whether to add them to the 410 list is a judgment call. *Deferred* until someone surfaces a specific request.
+- **Cutover smoke** — at deploy time, exercise each redirect pattern against the live sandbox with realistic laddr inbound URLs (Google index, Slack share links, etc.). *Deferred to deploy time*.
