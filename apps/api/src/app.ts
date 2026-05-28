@@ -39,6 +39,7 @@ import pushDaemonPlugin from './plugins/push-daemon.js';
 import servicesPlugin from './plugins/services.js';
 import markdownPlugin from './plugins/markdown.js';
 import slugRedirectPlugin from './plugins/slug-redirect.js';
+import legacyRedirectPlugin from './plugins/legacy-redirect.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import idempotencyPlugin from './plugins/idempotency.js';
 import sessionMiddlewarePlugin from './auth/middleware.js';
@@ -133,6 +134,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(servicesPlugin);
   await fastify.register(markdownPlugin);
   await fastify.register(slugRedirectPlugin);
+  await fastify.register(legacyRedirectPlugin);
 
   // ----- 7. Rate limiting -----
   await fastify.register(rateLimitPlugin);
