@@ -59,6 +59,14 @@ export const EnvSchema = z.object({
    * image; unset in dev (Vite owns 5173).
    */
   CFP_WEB_DIST_PATH: z.string().optional(),
+  /**
+   * Host of the public-facing site (e.g. `codeforphilly.org` in prod,
+   * `next-v2.codeforphilly.org` in sandbox). Used by the server-side
+   * markdown renderer to distinguish internal from external links — anchors
+   * with a host different from this one get `target="_blank" rel="noopener
+   * nofollow"`. Per specs/behaviors/markdown-rendering.md.
+   */
+  CFP_SITE_HOST: z.string().default('codeforphilly.org'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -95,5 +103,6 @@ export const envJsonSchema = {
     SAML_CERTIFICATE: { type: 'string' },
     SLACK_TEAM_HOST: { type: 'string', default: 'codeforphilly.slack.com' },
     CFP_WEB_DIST_PATH: { type: 'string' },
+    CFP_SITE_HOST: { type: 'string', default: 'codeforphilly.org' },
   },
 } as const;

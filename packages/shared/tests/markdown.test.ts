@@ -127,4 +127,107 @@ describe('renderMarkdown', () => {
       expect(excerpt).not.toContain('_');
     });
   });
+
+  describe('external-link transform (siteHost)', () => {
+    const opts = { siteHost: 'codeforphilly.org' };
+
+    it('adds target+rel to anchors with a foreign host', () => {
+      const { html } = renderMarkdown('[news](https://example.com/story)', opts);
+      expect(html).toContain('target="_blank"');
+      expect(html).toMatch(/rel="noopener nofollow"|rel="nofollow noopener"/);
+    });
+
+    it('leaves same-host anchors unchanged', () => {
+      const { html } = renderMarkdown('[home](https://codeforphilly.org/about)', opts);
+      expect(html).not.toContain('target="_blank"');
+      expect(html).not.toContain('nofollow');
+    });
+
+    it('leaves relative anchors unchanged', () => {
+      const { html } = renderMarkdown('[members](/members/chris)', opts);
+      expect(html).toContain('href="/members/chris"');
+      expect(html).not.toContain('target="_blank"');
+    });
+
+    it('treats protocol-relative URLs as foreign', () => {
+      const { html } = renderMarkdown('[x](//other.example/path)', opts);
+      expect(html).toContain('target="_blank"');
+    });
+
+    it('leaves mailto: anchors unchanged', () => {
+      const { html } = renderMarkdown('[mail](mailto:hi@codeforphilly.org)', opts);
+      expect(html).not.toContain('target="_blank"');
+    });
+
+    it('treats subdomains as foreign', () => {
+      const { html } = renderMarkdown('[other](https://blog.codeforphilly.org/p)', opts);
+      expect(html).toContain('target="_blank"');
+    });
+
+    it('without siteHost, all anchors stay untouched', () => {
+      const { html } = renderMarkdown('[x](https://example.com/y)');
+      expect(html).not.toContain('target="_blank"');
+      expect(html).not.toContain('nofollow');
+    });
+  });
+
+  describe('@mention resolution', () => {
+    const knownSlugs = new Set(['chris', 'jane-doe']);
+    const resolve = (slug: string): boolean => knownSlugs.has(slug);
+
+    it('linkifies a known mention', () => {
+      const { html } = renderMarkdown('hi @chris', { resolveMention: resolve });
+      expect(html).toContain('<a href="/members/chris">@chris</a>');
+    });
+
+    it('leaves unknown mentions as literal text', () => {
+      const { html } = renderMarkdown('hi @nobody', { resolveMention: resolve });
+      expect(html).not.toContain('<a');
+      expect(html).toContain('@nobody');
+    });
+
+    it('handles a hyphenated slug', () => {
+      const { html } = renderMarkdown('see @jane-doe for', { resolveMention: resolve });
+      expect(html).toContain('<a href="/members/jane-doe">@jane-doe</a>');
+    });
+
+    it('does not match @ inside an email address', () => {
+      const { html } = renderMarkdown('email me at alice@chris.example', {
+        resolveMention: resolve,
+      });
+      expect(html).not.toContain('<a href="/members/chris"');
+    });
+
+    it('captures the slug up to a non-slug character', () => {
+      const { html } = renderMarkdown('thanks @chris, you rock', { resolveMention: resolve });
+      // Link wraps "@chris" only, comma stays outside
+      expect(html).toContain('<a href="/members/chris">@chris</a>');
+      expect(html).toContain(', you rock');
+    });
+
+    it('leaves mentions inside inline code as literal', () => {
+      const { html } = renderMarkdown('use `@chris` in chat', { resolveMention: resolve });
+      expect(html).not.toContain('<a href="/members/chris"');
+      expect(html).toContain('<code>@chris</code>');
+    });
+
+    it('leaves mentions inside fenced code as literal', () => {
+      const { html } = renderMarkdown('```\n@chris was here\n```', {
+        resolveMention: resolve,
+      });
+      expect(html).not.toContain('<a href="/members/chris"');
+    });
+
+    it('without resolveMention, all mentions stay literal', () => {
+      const { html } = renderMarkdown('hi @chris');
+      expect(html).not.toContain('<a');
+      expect(html).toContain('@chris');
+    });
+
+    it('handles multiple mentions in one paragraph', () => {
+      const { html } = renderMarkdown('cc @chris and @jane-doe', { resolveMention: resolve });
+      expect(html).toContain('<a href="/members/chris">@chris</a>');
+      expect(html).toContain('<a href="/members/jane-doe">@jane-doe</a>');
+    });
+  });
 });

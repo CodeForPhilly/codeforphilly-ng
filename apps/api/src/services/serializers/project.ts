@@ -9,7 +9,7 @@ import type {
   Tag,
   TagAssignment,
 } from '@cfp/shared/schemas';
-import { renderMarkdown } from '@cfp/shared';
+import { renderMarkdown } from './common.js';
 import type { ProjectPermissions } from '../permissions.js';
 import {
   groupTagsByNamespace,

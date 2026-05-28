@@ -2,9 +2,8 @@
  * HelpWantedRole serializer.
  */
 import type { HelpWantedRole, Person, Project, Tag, TagAssignment } from '@cfp/shared/schemas';
-import { renderMarkdown } from '@cfp/shared';
 import type { HelpWantedPermissions } from '../permissions.js';
-import { groupTagsByNamespace, serializePersonAvatar, type TagItem } from './common.js';
+import { groupTagsByNamespace, renderMarkdown, serializePersonAvatar, type TagItem } from './common.js';
 
 export interface HelpWantedRoleResponse {
   readonly id: string;

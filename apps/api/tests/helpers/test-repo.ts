@@ -67,7 +67,8 @@ export async function createTestRepo(
   await seedGit('remote', 'add', 'origin', bareDir);
   await seedGit('push', 'origin', 'main');
   // Discard the transient working tree — only the bare matters from here on.
-  await rm(seedDir, { recursive: true, force: true });
+  // maxRetries: Linux ext4 + git background pack work races bare rmdir.
+  await rm(seedDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 
   const repo = await openRepo({ gitDir: bareDir });
 
