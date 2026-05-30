@@ -169,6 +169,21 @@ export async function completeCallback(
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
 
+    // Fire-and-forget the welcome notification — never block the OAuth
+    // redirect on notifier latency or failures. The notifier already
+    // swallows errors internally and returns `{ delivered: false }`; the
+    // outer .catch handles any unforeseen sync-throw before the SDK is
+    // reached. See plans/welcome-notification.md.
+    void fastify.notifier
+      .notifyWelcomeOnSignup({
+        email: result.value.profile.email,
+        fullName: result.value.person.fullName,
+        slug: result.value.person.slug,
+      })
+      .catch((err) => {
+        fastify.log.error({ err }, 'welcome notification threw (fire-and-forget)');
+      });
+
     const minted = await mintSessionFor(
       result.value.person.id,
       result.value.person.accountLevel,

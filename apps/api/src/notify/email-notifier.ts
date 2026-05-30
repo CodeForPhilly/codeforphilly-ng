@@ -18,8 +18,9 @@ import type {
   HelpWantedFillNotification,
   HelpWantedInterestNotification,
   Notifier,
+  WelcomeNotification,
 } from './index.js';
-import { renderFilledEmail, renderInterestEmail } from './templates.js';
+import { renderFilledEmail, renderInterestEmail, renderWelcomeEmail } from './templates.js';
 
 export interface EmailNotifierOptions {
   /** Resend client (constructed at boot with the API key from env). */
@@ -95,6 +96,44 @@ export class EmailNotifier implements Notifier {
           roleId: n.roleId,
         },
         'help-wanted interest: email send threw',
+      );
+      return { delivered: false };
+    }
+  }
+
+  async notifyWelcomeOnSignup(n: WelcomeNotification): Promise<{ delivered: boolean }> {
+    if (!n.email) {
+      this.#log.warn(
+        { kind: 'auth.welcome', slug: n.slug },
+        'welcome: no email address; skipped',
+      );
+      return { delivered: false };
+    }
+    const tpl = renderWelcomeEmail(n, this.#siteHost);
+    try {
+      const result = await this.#resend.emails.send({
+        from: this.#from,
+        to: n.email,
+        subject: tpl.subject,
+        text: tpl.text,
+        html: tpl.html,
+      });
+      if (result.error) {
+        this.#log.error(
+          { kind: 'auth.welcome', err: result.error, slug: n.slug },
+          'welcome: Resend reported delivery failure',
+        );
+        return { delivered: false };
+      }
+      this.#log.info(
+        { kind: 'auth.welcome', slug: n.slug, resendId: result.data?.id },
+        'welcome: email queued for delivery',
+      );
+      return { delivered: true };
+    } catch (err) {
+      this.#log.error(
+        { kind: 'auth.welcome', err, slug: n.slug },
+        'welcome: email send threw',
       );
       return { delivered: false };
     }

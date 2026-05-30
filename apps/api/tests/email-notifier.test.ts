@@ -11,10 +11,15 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { EmailNotifier } from '../src/notify/email-notifier.js';
-import { renderFilledEmail, renderInterestEmail } from '../src/notify/templates.js';
+import {
+  renderFilledEmail,
+  renderInterestEmail,
+  renderWelcomeEmail,
+} from '../src/notify/templates.js';
 import type {
   HelpWantedFillNotification,
   HelpWantedInterestNotification,
+  WelcomeNotification,
 } from '../src/notify/index.js';
 
 const noopLogger = {
@@ -49,6 +54,12 @@ const baseFill: HelpWantedFillNotification = {
   projectTitle: 'SquadQuest',
   filledByFullName: 'Jane Doe',
   filledBySlug: 'jane-doe',
+};
+
+const baseWelcome: WelcomeNotification = {
+  email: 'new-user@example.com',
+  fullName: 'New User',
+  slug: 'new-user',
 };
 
 function makeNotifier(emails: { send: ReturnType<typeof vi.fn> }): EmailNotifier {
@@ -152,6 +163,76 @@ describe('EmailNotifier.notifyHelpWantedInterest', () => {
 
     const result = await notifier.notifyHelpWantedInterest(baseInterest);
     expect(result).toEqual({ delivered: false });
+  });
+});
+
+describe('renderWelcomeEmail', () => {
+  it('builds subject + text + html with the user fullName + slug', () => {
+    const tpl = renderWelcomeEmail(baseWelcome, 'codeforphilly.org');
+    expect(tpl.subject).toContain('New User');
+    expect(tpl.text).toContain('Hey New User');
+    expect(tpl.text).toContain('https://codeforphilly.org/members/new-user');
+    expect(tpl.text).toContain('https://codeforphilly.org/projects');
+    expect(tpl.html).toContain('<strong>New User</strong>');
+    expect(tpl.html).toContain('href="https://codeforphilly.org/members/new-user"');
+  });
+
+  it('escapes HTML in fullName', () => {
+    const tpl = renderWelcomeEmail(
+      { ...baseWelcome, fullName: '<script>alert(1)</script>' },
+      'codeforphilly.org',
+    );
+    expect(tpl.html).not.toContain('<script>');
+    expect(tpl.html).toContain('&lt;script&gt;');
+  });
+
+  it('URL-encodes the slug for the profile link', () => {
+    const tpl = renderWelcomeEmail(
+      { ...baseWelcome, slug: 'name with spaces' },
+      'codeforphilly.org',
+    );
+    expect(tpl.html).toContain('href="https://codeforphilly.org/members/name%20with%20spaces"');
+  });
+});
+
+describe('EmailNotifier.notifyWelcomeOnSignup', () => {
+  it('sends via Resend and returns delivered:true', async () => {
+    const send = vi.fn().mockResolvedValue({ data: { id: 'msg-welcome' }, error: null });
+    const notifier = makeNotifier({ send });
+
+    const result = await notifier.notifyWelcomeOnSignup(baseWelcome);
+    expect(result).toEqual({ delivered: true });
+    expect(send).toHaveBeenCalledTimes(1);
+    const arg = send.mock.calls[0]![0]!;
+    expect(arg.to).toBe('new-user@example.com');
+    expect(arg.subject).toContain('Welcome');
+    expect(arg.text).toContain('New User');
+    expect(arg.html).toContain('<strong>New User</strong>');
+  });
+
+  it('returns delivered:false when Resend reports an error', async () => {
+    const send = vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: 'Sender domain unverified' },
+    });
+    const notifier = makeNotifier({ send });
+    const result = await notifier.notifyWelcomeOnSignup(baseWelcome);
+    expect(result).toEqual({ delivered: false });
+  });
+
+  it('returns delivered:false when the SDK throws', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('network blip'));
+    const notifier = makeNotifier({ send });
+    const result = await notifier.notifyWelcomeOnSignup(baseWelcome);
+    expect(result).toEqual({ delivered: false });
+  });
+
+  it('returns delivered:false on empty email (defensive)', async () => {
+    const send = vi.fn();
+    const notifier = makeNotifier({ send });
+    const result = await notifier.notifyWelcomeOnSignup({ ...baseWelcome, email: '' });
+    expect(result).toEqual({ delivered: false });
+    expect(send).not.toHaveBeenCalled();
   });
 });
 
