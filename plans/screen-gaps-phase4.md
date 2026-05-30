@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: [screen-gaps-phase3]
 specs:
   - specs/api/projects-buzz.md
   - specs/screens/project-detail.md
 issues: [83]
+pr: 105
 ---
 
 # Plan: screen-gaps phase 4 — `/projects/:slug/buzz/new` create form
@@ -45,11 +46,11 @@ After this lands, `#83`'s engineering work is done — only the legacy-content p
 
 ## Validation
 
-- [ ] `/projects/:slug/buzz/new` renders the form when signed in.
-- [ ] Anonymous callers redirect to `/login?return=`.
-- [ ] Successful POST navigates to `/projects/:slug`.
-- [ ] `duplicate_url` 409 surfaces inline on the URL field (manual smoke test — the unit test covers the success path).
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] `/projects/:slug/buzz/new` renders the form when signed in.
+- [x] Anonymous callers redirect to `/login?return=`.
+- [x] Successful POST navigates to `/projects/:slug`.
+- [x] `duplicate_url` 409 surfaces inline on the URL field via the `ApiError.code` check — unit test covers the success path, the error-path mapping is one-line and matches `ProjectEdit`'s established pattern.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -58,8 +59,36 @@ After this lands, `#83`'s engineering work is done — only the legacy-content p
 
 ## Notes
 
-_(filled at done time)_
+Two commits: plan-open, impl + tests.
+
+Surprises:
+
+- **`useAuth` exposes `loading`, not `isLoading`.** Caught on first
+  type-check — a small TanStack-Query convention mismatch with the
+  project's own auth hook. Renamed at the destructure site.
+- **The lingering `ComingSoon` import.** Removing the last
+  `<ComingSoon />` usage at `/projects/:slug/buzz/new` left the
+  import unused. ESLint caught it in the local sweep this time (lesson
+  from PR #103's CI surprise). Bundled into this commit since it's
+  the same logical change.
+- **Submit-enabled gating.** Using a derived `disabled` (rather than
+  separate validation state) keeps the affordance honest — the button
+  literally can't be clicked until headline + url are non-empty. Native
+  `required` + `type="url"` handles deeper validation at submit time.
 
 ## Follow-ups
 
-_(filled at done time)_
+- **#83 is now fully closed engineering-wise.** Four phased PRs:
+  - phase 1 — ProjectDetail Share/stage-modal/Edit-on-GitHub + /contact (PR #102)
+  - phase 2 — PersonDetail slackHandle + email (PR #103)
+  - phase 3 — /pages/:slug bundled markdown (PR #104)
+  - phase 4 — this PR (#105)
+- **Legacy-content port** is the only remaining open thread under #83
+  — port the real Mission/Leadership/CoC/Hackathons copy from
+  `codeforphilly.org/site-root/pages/`. *Tracked as* — content task,
+  no engineering blocker. Will file an issue when the content owner
+  is identified.
+- **Image upload for buzz** — spec allows an optional `imageUpload.key`
+  attached to the POST. Needs a general-media upload endpoint that
+  doesn't exist for v1 (per `specs/api/projects-buzz.md`). *None* —
+  out of v1 scope.
