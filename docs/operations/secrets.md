@@ -118,6 +118,24 @@ integration ([specs/api/saml.md](../../specs/api/saml.md)).
 - **Cadence:** every 36 months (cert expiry), plus immediately on
   suspected leak.
 
+### `RESEND_API_KEY`
+
+API key for the [Resend](https://resend.com) HTTPS email API. Drives the
+help-wanted email notifier. When unset, the API falls back to a no-op
+`LoggingNotifier` — convenient for local dev but means real users get no
+outbound mail in production.
+
+- **Generate:** Resend dashboard → API Keys → Create API key. Scope to
+  send-only on the `codeforphilly.org` sender domain.
+- **Pre-flight:** the sender domain (`codeforphilly.org`) must be verified
+  in Resend with SPF + DKIM + DMARC records before flipping this on.
+  Unverified domains get hard-bounced or spam-filtered immediately.
+- **Rotation impact:** none in-flight (no in-flight email state on our
+  end); next outbound mail uses the new key.
+- **Rotation procedure:** create new key in Resend → update sealed-secret
+  → `kubectl rollout restart` → revoke the old key in Resend.
+- **Cadence:** every 12 months, plus immediately on suspected leak.
+
 ### Data-repo deploy key
 
 SSH ed25519 private key with **write** access to the `codeforphilly-data`
