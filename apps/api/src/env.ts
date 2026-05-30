@@ -67,6 +67,20 @@ export const EnvSchema = z.object({
    * nofollow"`. Per specs/behaviors/markdown-rendering.md.
    */
   CFP_SITE_HOST: z.string().default('codeforphilly.org'),
+  /**
+   * Resend API key for the email notifier. When unset, the services plugin
+   * falls back to LoggingNotifier so dev + test runs don't need a real key.
+   * See plans/notifier-email.md.
+   */
+  RESEND_API_KEY: z.string().optional(),
+  /**
+   * From-address for outbound notifications. RFC 5322 form
+   * (e.g. `"Code for Philly <notifications@codeforphilly.org>"`). Only
+   * relevant when RESEND_API_KEY is set.
+   */
+  CFP_NOTIFICATION_FROM: z
+    .string()
+    .default('Code for Philly <notifications@codeforphilly.org>'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -104,5 +118,10 @@ export const envJsonSchema = {
     SLACK_TEAM_HOST: { type: 'string', default: 'codeforphilly.slack.com' },
     CFP_WEB_DIST_PATH: { type: 'string' },
     CFP_SITE_HOST: { type: 'string', default: 'codeforphilly.org' },
+    RESEND_API_KEY: { type: 'string' },
+    CFP_NOTIFICATION_FROM: {
+      type: 'string',
+      default: 'Code for Philly <notifications@codeforphilly.org>',
+    },
   },
 } as const;
