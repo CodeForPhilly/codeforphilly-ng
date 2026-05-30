@@ -515,6 +515,60 @@ describe('translateBlogPost', () => {
     expect(t!.mediaAssets.find((a) => a.sourceUrl.includes('youtube'))).toBeUndefined();
   });
 
+  it('rewrites inline markdown image URLs in Markdown items', () => {
+    // Authors sometimes write `![alt](https://codeforphilly.org/thumbnail/<id>/<dim>)`
+    // directly inside a Markdown item instead of using the structured Media
+    // item path. The final body pass catches those.
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 18,
+      Class: 'BlogPost',
+      Handle: 'inline-markdown-image',
+      Title: 'Inline',
+      Published: 1746028800,
+      items: [
+        {
+          ID: 220,
+          Class: 'Emergence\\CMS\\Item\\Markdown',
+          Order: 1,
+          Data: 'See ![hero](https://codeforphilly.org/thumbnail/2953/700x700) for context.',
+        },
+      ],
+    };
+    const t = translateBlogPost(row, c);
+    expect(t!.record.body).toBe('See ![hero](cfp-media:2953) for context.');
+    expect(t!.mediaAssets.map((a) => a.mediaId)).toEqual([2953]);
+  });
+
+  it('matches alternate laddr URL shapes (media without slash, open-media, sitedata)', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 19,
+      Class: 'BlogPost',
+      Handle: 'alt-shapes',
+      Title: 'Alt shapes',
+      Published: 1746028800,
+      items: [
+        {
+          ID: 230,
+          Class: 'Emergence\\CMS\\Item\\Markdown',
+          Order: 1,
+          Data:
+            'a https://codeforphilly.org/media/679 ' +
+            'b https://codeforphilly.org/media/open/1379 ' +
+            'c https://codeforphilly.org/sitedata/2200',
+        },
+      ],
+    };
+    const t = translateBlogPost(row, c);
+    expect(t!.record.body).toContain('cfp-media:679');
+    expect(t!.record.body).toContain('cfp-media:1379');
+    expect(t!.record.body).toContain('cfp-media:2200');
+    expect(t!.mediaAssets.map((a) => a.mediaId).sort((x, y) => x - y)).toEqual([
+      679, 1379, 2200,
+    ]);
+  });
+
   it('sorts items by Order before assembling', () => {
     const c = ctx();
     const row: RawBlogPost = {

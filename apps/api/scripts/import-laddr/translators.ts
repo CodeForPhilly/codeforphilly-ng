@@ -711,25 +711,44 @@ export interface BlogMediaAsset {
 }
 
 /**
- * Scan an Embed item's raw HTML for legacy laddr media URLs and rewrite
- * them inline to use the placeholder. Returns the rewritten HTML plus a
- * list of asset descriptors discovered. Third-party URLs (YouTube iframes,
- * external links) are left alone.
+ * Match laddr media URLs in any text — markdown source, raw HTML inside
+ * Embed items, or stray references in author-written prose. URL shapes
+ * surveyed across production data:
  *
- * URL pattern matched: `https?://codeforphilly.org/(thumbnail|media)/<id>/...`
- * up to the first whitespace, `"`, `'`, `<`, or `)`. The MediaID is the
- * capture group used to dedupe and key the asset; the path tail after the
- * ID is discarded since we always fetch via `/media/<id>/original`.
+ *   https://codeforphilly.org/thumbnail/<id>/<dimensions>
+ *   https://codeforphilly.org/media/<id>             (no trailing slash)
+ *   https://codeforphilly.org/media/open/<id>        (legacy "open media")
+ *   https://codeforphilly.org/sitedata/<id>          (older asset namespace)
+ *
+ * The MediaID is the capture group; the path tail is discarded because
+ * we always fetch via `/media/<id>/original`. The match terminates at
+ * the first whitespace, `"`, `'`, `<`, or `)` — sufficient because
+ * URLs never embed those characters and the alternatives (parentheses
+ * inside URLs) don't occur in laddr's data.
  */
-function rewriteEmbedHtml(
-  html: string,
+const LADDR_MEDIA_URL_RE =
+  /https?:\/\/codeforphilly\.org\/(?:thumbnail|media\/open|media|sitedata)\/(\d+)(?:\/[^"'<\s)]*)?/g;
+
+/**
+ * Rewrite any laddr media URL in `text` to use the `cfp-media:<id>`
+ * placeholder. Returns the rewritten text plus discovers each
+ * MediaID into `collected`. Third-party URLs (YouTube iframes,
+ * external links) pass through untouched.
+ *
+ * Applied at two layers:
+ *   1. Per-item, to Embed HTML (where attribute-quoted URLs live).
+ *   2. As a final defensive pass over the assembled body (catches
+ *      author-written `![alt](https://codeforphilly.org/...)` inside
+ *      Markdown items that no per-item path would have rewritten).
+ */
+function rewriteLaddrMediaUrls(
+  text: string,
   ownerSlug: string,
   collected: Map<number, BlogMediaAsset>,
 ): string {
-  const re = /https?:\/\/codeforphilly\.org\/(?:thumbnail|media)\/(\d+)\/[^"'<\s)]+/g;
-  return html.replace(re, (_full, idStr: string) => {
+  return text.replace(LADDR_MEDIA_URL_RE, (full, idStr: string) => {
     const mediaId = Number(idStr);
-    if (!Number.isFinite(mediaId)) return _full;
+    if (!Number.isFinite(mediaId)) return full;
     if (!collected.has(mediaId)) {
       collected.set(mediaId, {
         mediaId,
@@ -807,7 +826,7 @@ function assembleBlogBody(
       if (typeof item.Data === 'string' && item.Data.trim().length > 0) {
         // Rewrite legacy media URLs in the HTML to placeholders; third-
         // party URLs (YouTube iframes etc.) pass through untouched.
-        const rewritten = rewriteEmbedHtml(item.Data, ownerSlug, collected);
+        const rewritten = rewriteLaddrMediaUrls(item.Data, ownerSlug, collected);
         blocks.push(rewritten);
       }
     } else {
@@ -816,8 +835,16 @@ function assembleBlogBody(
       );
     }
   }
+  // Final defensive pass over the assembled body — catches inline
+  // `![alt](https://codeforphilly.org/thumbnail/...)` references that
+  // authors wrote directly inside Markdown items rather than via the
+  // structured Media item path. Without this, those URLs would survive
+  // unrewritten and break at cutover.
+  const joined = blocks.join('\n\n');
+  const finalBody = rewriteLaddrMediaUrls(joined, ownerSlug, collected);
+
   return {
-    body: blocks.join('\n\n'),
+    body: finalBody,
     mediaAssets: [...collected.values()],
   };
 }
