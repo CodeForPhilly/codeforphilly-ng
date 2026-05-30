@@ -145,6 +145,7 @@ export async function seedFixtures(repoPath: string): Promise<SeededFixtures> {
         lastName: 'Doe',
         bio: 'A civic technologist.',
         accountLevel: 'user',
+        slackHandle: 'jane-doe',
         createdAt: NOW,
         updatedAt: NOW,
       });

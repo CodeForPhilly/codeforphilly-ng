@@ -156,6 +156,37 @@ export function PersonDetail() {
       </div>
 
       <aside className="space-y-4 text-sm">
+        {(person.slackHandle || person.email) && (
+          <section>
+            <h3 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+              Contact
+            </h3>
+            <ul className="space-y-1">
+              {person.slackHandle && (
+                <li>
+                  <a
+                    href={`https://codeforphilly.slack.com/team/${encodeURIComponent(person.slackHandle)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline hover:no-underline"
+                  >
+                    DM on Slack
+                  </a>
+                </li>
+              )}
+              {person.email && (
+                <li>
+                  <a
+                    href={`mailto:${person.email}`}
+                    className="text-primary underline hover:no-underline"
+                  >
+                    {person.email}
+                  </a>
+                </li>
+              )}
+            </ul>
+          </section>
+        )}
         <section>
           <h3 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
             Member since

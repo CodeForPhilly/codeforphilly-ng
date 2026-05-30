@@ -57,6 +57,12 @@ export interface PersonDetail {
   readonly bio: string | null;
   readonly bioHtml: string;
   readonly accountLevel: string;
+  readonly slackHandle: string | null;
+  /**
+   * Set to the target's email for self/staff callers; null otherwise.
+   * Per specs/screens/person-detail.md authorization table.
+   */
+  readonly email: string | null;
   readonly tags: { topic: TagItem[]; tech: TagItem[] };
   readonly memberships: PersonMembershipSummary[];
   readonly recentUpdates: ProjectUpdateSummary[];
@@ -106,6 +112,12 @@ export function serializePersonDetail(
     /** Caller's accountLevel — used to decide how much accountLevel to expose. */
     callerAccountLevel?: 'user' | 'staff' | 'administrator';
     callerPersonId?: string;
+    /**
+     * The target's email, when the caller is allowed to see it (self or
+     * staff). The service is responsible for the gating + private-store
+     * read; the serializer just passes through whatever's supplied.
+     */
+    visibleEmail?: string | null;
   },
 ): PersonDetail {
   const bioHtml = person.bio ? renderMarkdown(person.bio).html : '';
@@ -161,6 +173,8 @@ export function serializePersonDetail(
     bio: person.bio ?? null,
     bioHtml,
     accountLevel: visibleAccountLevel,
+    slackHandle: person.slackHandle ?? null,
+    email: opts.visibleEmail ?? null,
     tags: { topic: tagsByNamespace.topic, tech: tagsByNamespace.tech },
     memberships,
     recentUpdates,

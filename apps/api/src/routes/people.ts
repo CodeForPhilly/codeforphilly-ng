@@ -104,7 +104,7 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       const { slug } = request.params as { slug: string };
       const caller = getCallerSession(request);
 
-      const person = fastify.services.people.get(slug, caller);
+      const person = await fastify.services.people.get(slug, caller);
       if (!person) {
         throw new ApiNotFoundError(`Person '${slug}' not found`);
       }
@@ -136,7 +136,7 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
     const caller = getCallerSession(request);
-    return ok(fastify.services.people.get(result.value.person.slug, caller));
+    return ok(await fastify.services.people.get(result.value.person.slug, caller));
   });
 
   // DELETE /api/people/:slug (admin-only soft-delete)

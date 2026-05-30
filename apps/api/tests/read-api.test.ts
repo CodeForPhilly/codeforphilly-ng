@@ -266,6 +266,19 @@ describe('GET /api/people/:slug', () => {
     expect(typeof body.data.permissions.canEdit).toBe('boolean');
   });
 
+  it('exposes slackHandle to anonymous callers (public field)', async () => {
+    const res = await app!.inject({ method: 'GET', url: `/api/people/${fixtures.personSlug}` });
+    expect(res.statusCode).toBe(200);
+    const body = json<{ data: { slackHandle: string | null } }>(res);
+    expect(body.data.slackHandle).toBe('jane-doe');
+  });
+
+  it('does NOT expose email to anonymous callers', async () => {
+    const res = await app!.inject({ method: 'GET', url: `/api/people/${fixtures.personSlug}` });
+    const body = json<{ data: { email: string | null } }>(res);
+    expect(body.data.email).toBeNull();
+  });
+
   it('returns 404 for unknown slug', async () => {
     const res = await app!.inject({ method: 'GET', url: '/api/people/nobody' });
     expect(res.statusCode).toBe(404);
