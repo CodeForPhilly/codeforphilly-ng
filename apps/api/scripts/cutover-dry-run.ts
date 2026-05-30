@@ -193,6 +193,7 @@ const ENDPOINT_TO_SHEET: ReadonlyArray<{ path: string; sheet: string }> = [
   { path: '/projects', sheet: 'projects' },
   { path: '/project-updates', sheet: 'project-updates' },
   { path: '/project-buzz', sheet: 'project-buzz' },
+  { path: '/blog', sheet: 'blog-posts' },
 ];
 
 export async function runDryRun(opts: DryRunOptions): Promise<DryRunReport> {
