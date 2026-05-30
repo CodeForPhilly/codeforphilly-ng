@@ -28,6 +28,8 @@ import { TagWriteService } from '../services/tag.write.js';
 import { GitHubAccountService } from '../services/github-account.js';
 import { AccountClaimService } from '../services/account-claim.js';
 import { LoggingNotifier, type Notifier } from '../notify/index.js';
+import { EmailNotifier } from '../notify/email-notifier.js';
+import { Resend } from 'resend';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -63,7 +65,18 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
   // (relevant in tests where multiple buildApp() runs share the module).
   invalidateFacets();
   const fts = buildFtsEngine(state);
-  const notifier: Notifier = new LoggingNotifier(fastify.log);
+  // Email notifier when RESEND_API_KEY is configured; otherwise fall back to
+  // the no-op LoggingNotifier so tests + dev runs work without a real key.
+  // Slack DM is deferred (#95) — when it lands it'll compose alongside email
+  // here or via a CompoundNotifier wrapper.
+  const notifier: Notifier = fastify.config.RESEND_API_KEY
+    ? new EmailNotifier({
+        resend: new Resend(fastify.config.RESEND_API_KEY),
+        fromAddress: fastify.config.CFP_NOTIFICATION_FROM,
+        siteHost: fastify.config.CFP_SITE_HOST,
+        logger: fastify.log,
+      })
+    : new LoggingNotifier(fastify.log);
 
   fastify.decorate('inMemoryState', state);
   fastify.decorate('fts', fts);
