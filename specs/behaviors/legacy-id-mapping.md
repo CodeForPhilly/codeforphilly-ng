@@ -51,6 +51,19 @@ The importer is **not** a production-runtime concern, but it *is* re-runnable. W
 
 After cutover, `legacyId` is read-only data and the importer is no longer run.
 
+## Legacy resources captured at import time, not proxied at runtime
+
+Some legacy data carries references to laddr-hosted **resources** — most prominently, blog post bodies that reference `https://codeforphilly.org/thumbnail/<id>/<dim>` images. These references are a cutover hazard: when laddr is decommissioned, every reference breaks.
+
+The rule: **importers materialize legacy resources at import time** rather than leaving runtime URLs pointing at the legacy host. Two operations apply:
+
+1. **Capture** the bytes — fetch the original from the legacy host, store as a gitsheets attachment scoped to the owning record (`<sheet>/<slug>/<filename>` per [storage.md](storage.md) attachments).
+2. **Rewrite** every reference — scan the text where the reference lives (markdown bodies, HTML blocks, anywhere) and replace the legacy URL with the local `/api/attachments/<key>` URL.
+
+Third-party URLs (YouTube embeds, external sites) pass through untouched — only `codeforphilly.org`-hosted resources need this treatment.
+
+The current importer applies this to blog-post Media + Embed items. Project descriptions, project-update bodies, and person bios *do not* currently reference legacy media URLs in production (verified during cutover-blog work) — but the same import-time capture pattern would apply if they did.
+
 ## Spec coverage of migration mechanics
 
 This file specifies the *contract* — that `legacyId` exists and is unique-where-present, and what URL patterns we resolve through it. The mapping table from each laddr column to each gitsheets field is in [data-model.md#naming-map](../data-model.md#naming-map-laddr--rewrite). The actual import script's behavior (endpoint discovery, pagination, full-tree-replace mechanics, file-naming on the `legacy-import` branch, `--dry-run` UX) is implementation detail and lives in code, not spec.

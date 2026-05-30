@@ -87,11 +87,16 @@ The production import is a snapshot commit on the `legacy-import` branch of
 the production data repo. Private data (emails, password hashes) is **not**
 populated by this importer — see the [account-claim flow](../../specs/behaviors/account-migration.md).
 
-1. Clone the production data repo locally:
+1. **Bare-clone** the production data repo locally — the importer matches
+   the running pod's invariant ([storage.md → "The data clone is bare"](../../specs/behaviors/storage.md))
+   and `openPublicStore` rejects a non-bare path:
 
    ```bash
-   git clone git@github.com:CodeForPhilly/codeforphilly-data.git /scratch/codeforphilly-data
+   git clone --bare git@github.com:CodeForPhilly/codeforphilly-data.git /scratch/codeforphilly-data
    ```
+
+   For one-off imports the convention is to clone into `/tmp` and clean up
+   after pushing — keeps your working data-repo clone clean.
 
 2. Run the importer against the production target — **with `--dry-run` first**:
 
