@@ -27,6 +27,7 @@ import fastifyEnv from '@fastify/env';
 import fastifyCors from '@fastify/cors';
 import fastifyCookie from '@fastify/cookie';
 import fastifyFormbody from '@fastify/formbody';
+import fastifyMultipart from '@fastify/multipart';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 
@@ -112,6 +113,17 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // ----- 3a. Form-body parsing (application/x-www-form-urlencoded) -----
   // Needed for SAML SP-initiated SSO (Slack POSTs AuthnRequest as form data).
   await fastify.register(fastifyFormbody);
+
+  // ----- 3b. Multipart parsing (image uploads) -----
+  // Avatar upload per specs/api/people.md: 5 MB cap, single file field.
+  // Oversized uploads abort streaming and surface as 413.
+  await fastify.register(fastifyMultipart, {
+    limits: {
+      fileSize: 5 * 1024 * 1024,
+      files: 1,
+      fields: 0,
+    },
+  });
 
   // ----- 4. Trace ID (UUIDv7 on every request) -----
   await fastify.register(traceIdPlugin);
