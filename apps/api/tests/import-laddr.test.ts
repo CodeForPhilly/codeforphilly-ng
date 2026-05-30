@@ -389,12 +389,19 @@ describe('translateBlogPost', () => {
       Class: 'BlogPost',
       Handle: 'civic-tech-roundup-2026',
       Title: 'Civic Tech Roundup, May 2026',
-      Body: '# Heading\n\nA blog body.',
       Summary: 'A short blurb.',
       AuthorID: 12,
       Published: 1746028800, // 2025-04-30
       Created: 1746028800,
       Modified: 1746028800,
+      items: [
+        {
+          ID: 100,
+          Class: 'Emergence\\CMS\\Item\\Markdown',
+          Order: 1,
+          Data: '# Heading\n\nA blog body.',
+        },
+      ],
     };
     const bp = translateBlogPost(row, c);
     expect(bp).not.toBeNull();
@@ -409,13 +416,110 @@ describe('translateBlogPost', () => {
     expect(bp!.editedAt).toBeUndefined();
   });
 
-  it('falls back through Title → legacy-<id> when Handle is missing', () => {
+  it('assembles a body from interleaved Markdown / Media / Embed items', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 7,
+      Class: 'BlogPost',
+      Handle: 'multi-item',
+      Title: 'Multi-item Post',
+      Published: 1746028800,
+      items: [
+        {
+          ID: 200,
+          Class: 'Emergence\\CMS\\Item\\Media',
+          Order: 1,
+          Data: { MediaID: 3349, Caption: 'A photo' },
+        },
+        {
+          ID: 201,
+          Class: 'Emergence\\CMS\\Item\\Markdown',
+          Order: 2,
+          Data: 'Some intro markdown.',
+        },
+        {
+          ID: 202,
+          Class: 'Emergence\\CMS\\Item\\Embed',
+          Order: 3,
+          Data: '<iframe src="https://www.youtube.com/embed/abc"></iframe>',
+        },
+      ],
+    };
+    const bp = translateBlogPost(row, c);
+    expect(bp).not.toBeNull();
+    expect(bp!.body).toBe(
+      [
+        '![A photo](https://codeforphilly.org/thumbnail/3349/1920x1920)',
+        'Some intro markdown.',
+        '<iframe src="https://www.youtube.com/embed/abc"></iframe>',
+      ].join('\n\n'),
+    );
+  });
+
+  it('sorts items by Order before assembling', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 8,
+      Class: 'BlogPost',
+      Handle: 'unordered',
+      Title: 'Unordered',
+      Published: 1746028800,
+      items: [
+        { ID: 300, Class: 'Emergence\\CMS\\Item\\Markdown', Order: 2, Data: 'second' },
+        { ID: 301, Class: 'Emergence\\CMS\\Item\\Markdown', Order: 1, Data: 'first' },
+      ],
+    };
+    const bp = translateBlogPost(row, c);
+    expect(bp!.body).toBe('first\n\nsecond');
+  });
+
+  it('returns an empty body when items is absent', () => {
     const c = ctx();
     const row: RawBlogPost = {
       ID: 9,
       Class: 'BlogPost',
+      Handle: 'bodiless',
+      Title: 'Bodiless',
+      Published: 1746028800,
+    };
+    const bp = translateBlogPost(row, c);
+    expect(bp!.body).toBe('');
+  });
+
+  it('warns on unknown Item class but keeps the post', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 10,
+      Class: 'BlogPost',
+      Handle: 'unknown-item',
+      Title: 'Unknown Item',
+      Published: 1746028800,
+      items: [
+        {
+          ID: 400,
+          Class: 'Emergence\\CMS\\Item\\NewType',
+          Order: 1,
+          Data: 'whatever',
+        },
+        {
+          ID: 401,
+          Class: 'Emergence\\CMS\\Item\\Markdown',
+          Order: 2,
+          Data: 'still here',
+        },
+      ],
+    };
+    const bp = translateBlogPost(row, c);
+    expect(bp!.body).toBe('still here');
+    expect(c.warnings.items.some((w) => w.includes('item=400'))).toBe(true);
+  });
+
+  it('falls back through Title → legacy-<id> when Handle is missing', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 11,
+      Class: 'BlogPost',
       Title: 'A Hello Post',
-      Body: 'body',
       Published: 1746028800,
     };
     const bp = translateBlogPost(row, c);
@@ -426,18 +530,17 @@ describe('translateBlogPost', () => {
   it('warns and posts anonymously when AuthorID does not resolve', () => {
     const c = ctx();
     const row: RawBlogPost = {
-      ID: 11,
+      ID: 12,
       Class: 'BlogPost',
       Handle: 'orphan',
       Title: 'Orphan',
-      Body: 'orphan',
       AuthorID: 999,
       Published: 1746028800,
     };
     const bp = translateBlogPost(row, c);
     expect(bp).not.toBeNull();
     expect(bp!.authorId).toBeUndefined();
-    expect(c.warnings.items.some((w) => w.includes('legacyId=11'))).toBe(true);
+    expect(c.warnings.items.some((w) => w.includes('legacyId=12'))).toBe(true);
   });
 
   it('sets editedAt when Modified is >60s after Published', () => {
@@ -447,7 +550,6 @@ describe('translateBlogPost', () => {
       Class: 'BlogPost',
       Handle: 'edited',
       Title: 'Edited',
-      Body: 'edited body',
       Published: 1746028800,
       Modified: 1746028800 + 3600, // +1 hour
     };
@@ -463,7 +565,6 @@ describe('translateBlogPost', () => {
       Class: 'BlogPost',
       Handle: 'long-summary',
       Title: 'Long Summary',
-      Body: 'body',
       Summary: overlong,
       Published: 1746028800,
     };
@@ -653,7 +754,11 @@ function mockRoutes(): MockRoutes {
         ],
       ],
       [
-        '/blog?format=json&limit=200&offset=0',
+        // Importer fetches /blog with `?include=*` so it can read the
+        // structured body items (laddr doesn't expose Body via the flat
+        // JSON fields). `*` is a sub-delim per RFC 3986 and stays
+        // unencoded through URLSearchParams.
+        '/blog?format=json&include=*&limit=200&offset=0',
         [
           envelope(
             [
@@ -662,12 +767,19 @@ function mockRoutes(): MockRoutes {
                 Class: 'BlogPost',
                 Handle: 'hello-philly',
                 Title: 'Hello Philly',
-                Body: '# Hello\n\nFirst blog post.',
                 Summary: 'A short hello.',
                 AuthorID: 10,
                 Published: 1377126953,
                 Created: 1377126953,
                 Modified: 1377126953,
+                items: [
+                  {
+                    ID: 1000,
+                    Class: 'Emergence\\CMS\\Item\\Markdown',
+                    Order: 1,
+                    Data: '# Hello\n\nFirst blog post.',
+                  },
+                ],
               },
             ],
             1,

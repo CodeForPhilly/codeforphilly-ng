@@ -38,6 +38,7 @@ import type {
 
 import type {
   RawBlogPost,
+  RawBlogPostItem,
   RawMembership,
   RawPerson,
   RawProject,
@@ -653,14 +654,79 @@ export function translateBuzz(
 }
 
 /**
+ * Source host used for legacy media URLs in blog bodies. Items of class
+ * `Emergence\CMS\Item\Media` reference a numeric `MediaID` resolved
+ * against laddr's `/thumbnail/<id>/<dimensions>` endpoint; we render
+ * those as `![Caption](https://<host>/thumbnail/<id>/1920x1920)` so the
+ * markdown body stays viewable on its own. Eventually those images
+ * should migrate into the data repo as attachments, but that's a
+ * separate concern from this importer pass.
+ */
+const LADDR_MEDIA_HOST = 'codeforphilly.org';
+const LADDR_MEDIA_DIMENSIONS = '1920x1920';
+
+/**
+ * Assemble a blog post's markdown body from laddr's typed `items` array.
+ * Items are sorted by `Order` (defensive — laddr's JSON tends to come
+ * pre-sorted, but the contract isn't documented).
+ *
+ * Three item classes appear in production:
+ *   - `Emergence\CMS\Item\Markdown` — `Data` is the raw markdown string;
+ *     append verbatim.
+ *   - `Emergence\CMS\Item\Media` — `Data` is `{ MediaID, Caption }`;
+ *     render as a markdown image with the laddr media URL.
+ *   - `Emergence\CMS\Item\Embed` — `Data` is raw HTML (iframes, divs);
+ *     append as a raw HTML block (legal in CommonMark).
+ */
+function assembleBlogBody(
+  items: readonly RawBlogPostItem[] | undefined,
+  warnings: Warnings,
+  legacyId: number,
+): string {
+  if (!items || items.length === 0) return '';
+  const sorted = [...items].sort((a, b) => (a.Order ?? 0) - (b.Order ?? 0));
+  const blocks: string[] = [];
+  for (const item of sorted) {
+    if (item.Class.endsWith('Item\\Markdown')) {
+      if (typeof item.Data === 'string') {
+        blocks.push(item.Data);
+      }
+    } else if (item.Class.endsWith('Item\\Media')) {
+      const data = item.Data;
+      if (data && typeof data === 'object' && 'MediaID' in data) {
+        const mediaId = (data as { MediaID?: unknown }).MediaID;
+        const caption = (data as { Caption?: unknown }).Caption;
+        const captionText =
+          typeof caption === 'string' && caption.trim().length > 0 ? caption.trim() : '';
+        if (typeof mediaId === 'number') {
+          const url = `https://${LADDR_MEDIA_HOST}/thumbnail/${mediaId}/${LADDR_MEDIA_DIMENSIONS}`;
+          blocks.push(`![${captionText}](${url})`);
+        }
+      }
+    } else if (item.Class.endsWith('Item\\Embed')) {
+      if (typeof item.Data === 'string' && item.Data.trim().length > 0) {
+        blocks.push(item.Data);
+      }
+    } else {
+      warnings.push(
+        `[blog-posts] legacyId=${legacyId} item=${item.ID} unknown Class ${JSON.stringify(item.Class)}; skipped`,
+      );
+    }
+  }
+  // Markdown blocks separate cleanly with a blank line. markdownlint
+  // (run on gitsheets serialize) will normalize any drift.
+  return blocks.join('\n\n');
+}
+
+/**
  * Translate a laddr `BlogPost` row into a v1 `BlogPost` record.
  *
  * Slug source priority: `Handle` (laddr's URL-safe identifier) →
- * slugified `Title` → `legacy-<ID>`. Bodies are kept verbatim; the
- * gitsheets markdown format will normalize them via markdownlint on
- * serialize. `AuthorID` resolves via the people-by-legacy map; an
- * unresolved author is recorded as a warning but doesn't block the
- * post (the runtime treats `authorId === null` as anonymous).
+ * slugified `Title` → `legacy-<ID>`. Bodies are assembled from the
+ * row's `items` array (see assembleBlogBody). `AuthorID` resolves via
+ * the people-by-legacy map; an unresolved author is recorded as a
+ * warning but doesn't block the post (the runtime treats
+ * `authorId === null` as anonymous).
  */
 export function translateBlogPost(
   row: RawBlogPost,
@@ -702,7 +768,7 @@ export function translateBlogPost(
       ? epochToIsoOr(row.Modified, createdAt)
       : undefined;
 
-  const body = nonEmptyStr(row.Body) ?? '';
+  const body = assembleBlogBody(row.items, ctx.warnings, legacyId);
   const summary = nonEmptyStr(row.Summary);
   // The schema caps summary at 500 chars; truncate longer laddr summaries
   // rather than failing validation on import.
