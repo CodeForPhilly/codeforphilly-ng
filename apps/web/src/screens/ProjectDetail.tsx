@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { MarkdownView } from '@/components/MarkdownView';
 import { StageProgressBar, StageBadge } from '@/components/StageBadge';
+import { StageInfoDialog } from '@/components/StageInfoDialog';
 import { TagChip } from '@/components/TagChip';
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { ActivityCard, mergeActivity, type ActivityItem } from '@/components/ActivityCard';
@@ -26,6 +27,15 @@ function commitmentLabel(hours: number | null): string {
   return `~${hours} hrs/week`;
 }
 
+function isGithubUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname === 'github.com' || u.hostname.endsWith('.github.com');
+  } catch {
+    return false;
+  }
+}
+
 export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
   const params = useParams();
   const slug = params['slug']!;
@@ -40,6 +50,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
   const [manageMembersOpen, setManageMembersOpen] = useState(false);
   const [interestRole, setInterestRole] = useState<HelpWantedRoleResponse | null>(null);
   const [fillRole, setFillRole] = useState<HelpWantedRoleResponse | null>(null);
+  const [stageInfoOpen, setStageInfoOpen] = useState(false);
 
   // Allow ?openModal=help-wanted (from /help-wanted "Post a role" picker).
   // Use the state-sync pattern so we don't trigger a cascading re-render.
@@ -403,6 +414,19 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
               >
                 Copy link
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  // Copy a pre-formatted Slack message. Spec calls this
+                  // out as either system-share or copy; copy works in every
+                  // browser context without a Web Share API gate.
+                  void navigator.clipboard.writeText(
+                    `Check out ${project.title} on Code for Philly: https://codeforphilly.org/projects/${slug}`,
+                  );
+                }}
+              >
+                Share to Slack
+              </Button>
             </div>
           </section>
 
@@ -424,9 +448,38 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
               <span className="font-medium text-foreground">Stage:</span>
               <StageBadge stage={project.stage} />
             </p>
+            <p>
+              <button
+                type="button"
+                onClick={() => setStageInfoOpen(true)}
+                className="text-primary underline hover:no-underline"
+              >
+                What does this stage mean?
+              </button>
+            </p>
           </section>
+
+          {/* Footer link — Edit on GitHub when developersUrl is a github.com URL */}
+          {project.links.developersUrl && isGithubUrl(project.links.developersUrl) && (
+            <section className="text-xs text-muted-foreground pt-2 border-t border-border">
+              <a
+                href={project.links.developersUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-foreground"
+              >
+                Edit on GitHub →
+              </a>
+            </section>
+          )}
         </aside>
       </div>
+
+      <StageInfoDialog
+        open={stageInfoOpen}
+        onOpenChange={setStageInfoOpen}
+        currentStage={project.stage}
+      />
 
       <PostUpdateModal
         open={updateModalOpen}
