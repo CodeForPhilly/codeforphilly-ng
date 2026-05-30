@@ -9,6 +9,7 @@ import { Home } from '@/screens/Home';
 import { ProjectsIndex } from '@/screens/ProjectsIndex';
 import { ProjectDetail } from '@/screens/ProjectDetail';
 import { ProjectEdit } from '@/screens/ProjectEdit';
+import { ProjectBuzzNew } from '@/screens/ProjectBuzzNew';
 import { PeopleIndex } from '@/screens/PeopleIndex';
 import { PersonDetail } from '@/screens/PersonDetail';
 import { ProfileEdit } from '@/screens/ProfileEdit';
@@ -23,7 +24,6 @@ import { TagsNamespace } from '@/screens/TagsNamespace';
 import { TagDetail } from '@/screens/TagDetail';
 import { Volunteer } from '@/screens/Volunteer';
 import { Sponsor } from '@/screens/Sponsor';
-import { ComingSoon } from '@/pages/ComingSoon';
 import { Contact } from '@/pages/Contact';
 import { StaticPage } from '@/pages/StaticPage';
 import { NotFound } from '@/pages/NotFound';
@@ -45,7 +45,7 @@ const router = createBrowserRouter([
       { path: '/projects/:slug/edit', element: <ProjectEdit mode="edit" /> },
       { path: '/projects/:slug/updates/:number', element: <ProjectDetail anchor="update" /> },
       { path: '/projects/:slug/buzz/:buzzSlug', element: <ProjectDetail anchor="buzz" /> },
-      { path: '/projects/:slug/buzz/new', element: <ComingSoon /> },
+      { path: '/projects/:slug/buzz/new', element: <ProjectBuzzNew /> },
       { path: '/help-wanted', element: <HelpWantedIndex /> },
       { path: '/people', element: <Navigate to="/members" replace /> },
       { path: '/members', element: <PeopleIndex /> },
