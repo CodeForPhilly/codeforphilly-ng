@@ -15,7 +15,7 @@
  * Each test uses a unique remoteAddress so the 10-req/min/IP cap on
  * /api/auth/* doesn't cause one test's setup to fail another test's run.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -513,6 +513,45 @@ describe('GET /api/auth/github/callback — fresh user outcome', () => {
     const accessValue = session!.split(';')[0]!.replace('cfp_session=', '');
     const claims = await verifyAccess(accessValue, JWT_KEY);
     expect(claims.sub).toBe(person!.id);
+  });
+
+  it('fires the welcome notification with the new person + email', async () => {
+    const ip = nextTestIp();
+    const flow = await startFlow(app, '/', ip);
+
+    // Spy on the boot-installed LoggingNotifier (no Resend in tests).
+    // The notifier call is fire-and-forget — we await the OAuth response
+    // first, then assert the spy. The notifier's spawn is synchronous up
+    // to the await inside it, so it's guaranteed to have been called by
+    // the time the route handler returns.
+    mock.setGitHubUser({
+      id: 88888,
+      login: 'welcome-target',
+      name: 'Welcome Target',
+      avatar_url: 'x',
+    });
+    mock.setGitHubEmails([
+      { email: 'welcome-target@example.com', primary: true, verified: true, visibility: 'public' },
+    ]);
+
+    const spy = vi.spyOn(app.notifier, 'notifyWelcomeOnSignup');
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/auth/github/callback?code=abc&state=${encodeURIComponent(flow.state)}`,
+      remoteAddress: ip,
+      cookies: {
+        cfp_oauth_state: flow.stateCookie,
+        cfp_oauth_session: flow.oauthSessionCookie,
+      },
+    });
+    expect(res.statusCode).toBe(302);
+    expect(spy).toHaveBeenCalledWith({
+      email: 'welcome-target@example.com',
+      fullName: 'Welcome Target',
+      slug: 'welcome-target',
+    });
+    spy.mockRestore();
   });
 });
 

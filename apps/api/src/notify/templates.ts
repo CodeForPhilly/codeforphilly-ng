@@ -6,7 +6,11 @@
  * overhead than the strings themselves. URLs are absolute (resolved
  * against the configured siteHost) so links work from email clients.
  */
-import type { HelpWantedFillNotification, HelpWantedInterestNotification } from './index.js';
+import type {
+  HelpWantedFillNotification,
+  HelpWantedInterestNotification,
+  WelcomeNotification,
+} from './index.js';
 
 /** Strip an absolute URL down to scheme + host + path. Useful for log lines. */
 export function buildRoleUrl(siteHost: string, projectSlug: string, roleId: string): string {
@@ -83,6 +87,59 @@ export interface FilledTemplate {
   readonly subject: string;
   readonly text: string;
   readonly html: string;
+}
+
+export interface WelcomeTemplate {
+  readonly subject: string;
+  readonly text: string;
+  readonly html: string;
+}
+
+export function renderWelcomeEmail(
+  n: WelcomeNotification,
+  siteHost: string,
+): WelcomeTemplate {
+  const profileUrl = `https://${siteHost}/members/${encodeURIComponent(n.slug)}`;
+  const projectsUrl = `https://${siteHost}/projects`;
+  const helpWantedUrl = `https://${siteHost}/help-wanted`;
+  const subject = `Welcome to Code for Philly, ${n.fullName}`;
+
+  const text = [
+    `Hey ${n.fullName} — welcome to Code for Philly!`,
+    '',
+    `You're signed in. A few places to start:`,
+    `  - Your profile: ${profileUrl}`,
+    `  - Browse projects: ${projectsUrl}`,
+    `  - Help wanted: ${helpWantedUrl}`,
+    '',
+    `Code for Philly's community lives in Slack — most coordination happens there.`,
+    `Drop into #welcome to introduce yourself.`,
+    '',
+    `— Code for Philly`,
+  ].join('\n');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<body style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 0 auto; padding: 1rem; color: #111;">
+  <p>Hey <strong>${escapeHtml(n.fullName)}</strong> — welcome to Code for Philly!</p>
+  <p>You're signed in. A few places to start:</p>
+  <ul>
+    <li><a href="${profileUrl}">Your profile</a></li>
+    <li><a href="${projectsUrl}">Browse projects</a></li>
+    <li><a href="${helpWantedUrl}">Help wanted</a></li>
+  </ul>
+  <p>
+    Code for Philly's community lives in Slack — most coordination happens there.
+    Drop into #welcome to introduce yourself.
+  </p>
+  <hr style="border: none; border-top: 1px solid #eee; margin: 2rem 0;">
+  <p style="color: #666; font-size: 0.875rem;">
+    You're receiving this because you just signed in to Code for Philly with GitHub.
+  </p>
+</body>
+</html>`;
+
+  return { subject, text, html };
 }
 
 export function renderFilledEmail(

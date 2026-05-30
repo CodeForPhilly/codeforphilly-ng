@@ -30,9 +30,22 @@ export interface HelpWantedFillNotification {
   readonly filledBySlug: string | null;
 }
 
+/**
+ * Welcome notification — fires once per Person on the GitHub OAuth
+ * `create-fresh` outcome (a brand-new signup with no laddr-account-claim
+ * candidates). The email comes from the new PrivateProfile; fullName and
+ * slug from the public Person record.
+ */
+export interface WelcomeNotification {
+  readonly email: string;
+  readonly fullName: string;
+  readonly slug: string;
+}
+
 export interface Notifier {
   notifyHelpWantedInterest(n: HelpWantedInterestNotification): Promise<{ delivered: boolean }>;
   notifyHelpWantedFilled(n: HelpWantedFillNotification): Promise<{ delivered: boolean }>;
+  notifyWelcomeOnSignup(n: WelcomeNotification): Promise<{ delivered: boolean }>;
 }
 
 /**
@@ -53,6 +66,11 @@ export class LoggingNotifier implements Notifier {
 
   async notifyHelpWantedFilled(n: HelpWantedFillNotification): Promise<{ delivered: boolean }> {
     this.#log.info({ kind: 'help-wanted.filled', ...n }, 'help-wanted fill notification');
+    return { delivered: true };
+  }
+
+  async notifyWelcomeOnSignup(n: WelcomeNotification): Promise<{ delivered: boolean }> {
+    this.#log.info({ kind: 'auth.welcome', ...n }, 'welcome notification');
     return { delivered: true };
   }
 }
