@@ -24,6 +24,7 @@ import { TagDetail } from '@/screens/TagDetail';
 import { Volunteer } from '@/screens/Volunteer';
 import { Sponsor } from '@/screens/Sponsor';
 import { ComingSoon } from '@/pages/ComingSoon';
+import { Contact } from '@/pages/Contact';
 import { NotFound } from '@/pages/NotFound';
 import { LoginPlaceholder } from '@/pages/LoginPlaceholder';
 import { AccountClaim } from '@/pages/AccountClaim';
@@ -61,7 +62,7 @@ const router = createBrowserRouter([
       { path: '/account', element: <Account /> },
       { path: '/search', element: <SearchRedirect /> },
       { path: '/pages/:slug', element: <ComingSoon /> },
-      { path: '/contact', element: <ComingSoon /> },
+      { path: '/contact', element: <Contact /> },
       { path: '/login', element: <LoginPlaceholder /> },
       { path: '/account-claim', element: <AccountClaim /> },
       { path: '/account-claim/by-password', element: <AccountClaimByPassword /> },

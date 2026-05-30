@@ -99,4 +99,96 @@ describe('ProjectDetail', () => {
     const chatLink = screen.getByRole('link', { name: /chat channel/i });
     expect(chatLink).toHaveAttribute('href', '/chat?channel=sample');
   });
+
+  it('renders the Share to Slack button alongside Copy link', async () => {
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/projects/:slug" element={<ProjectDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/projects/sample-project'] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^copy link$/i })).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /share to slack/i })).toBeInTheDocument();
+  });
+
+  it('renders "What does this stage mean?" link', async () => {
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/projects/:slug" element={<ProjectDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/projects/sample-project'] },
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /what does this stage mean\?/i }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('does not render Edit on GitHub when developersUrl is absent', async () => {
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/projects/:slug" element={<ProjectDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/projects/sample-project'] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Sample Project', level: 1 })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('link', { name: /edit on github/i })).not.toBeInTheDocument();
+  });
+
+  it('renders Edit on GitHub when developersUrl is a github.com URL', async () => {
+    // Override the fetch mock for this case to add a github developersUrl.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(((input: string) => {
+      if (input.startsWith('/api/auth/me')) return Promise.resolve(new Response(null, { status: 404 }));
+      if (input.includes('/api/projects/sample-project/updates')) {
+        return Promise.resolve(new Response(JSON.stringify(mockPaginated([])), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      if (input.includes('/api/projects/sample-project/buzz')) {
+        return Promise.resolve(new Response(JSON.stringify(mockPaginated([])), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      if (input.includes('/api/projects/sample-project/help-wanted')) {
+        return Promise.resolve(new Response(JSON.stringify(mockPaginated([])), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      if (input.startsWith('/api/projects/sample-project')) {
+        const projectWithGithub = {
+          ...PROJECT,
+          links: { ...PROJECT.links, developersUrl: 'https://github.com/codeforphilly/sample-project' },
+        };
+        return Promise.resolve(
+          new Response(JSON.stringify(mockOk(projectWithGithub)), { status: 200, headers: { 'content-type': 'application/json' } }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    }) as typeof fetch);
+
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/projects/:slug" element={<ProjectDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/projects/sample-project'] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /edit on github/i })).toBeInTheDocument();
+    });
+    expect(screen.getByRole('link', { name: /edit on github/i })).toHaveAttribute(
+      'href',
+      'https://github.com/codeforphilly/sample-project',
+    );
+  });
 });
