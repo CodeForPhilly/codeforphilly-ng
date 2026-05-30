@@ -100,6 +100,7 @@ export function swapInPlace(live: InMemoryState, fresh: InMemoryState): void {
   replaceMapContents(live.projectMemberships, fresh.projectMemberships);
   replaceMapContents(live.projectUpdates, fresh.projectUpdates);
   replaceMapContents(live.projectBuzz, fresh.projectBuzz);
+  replaceMapContents(live.blogPosts, fresh.blogPosts);
   replaceMapContents(live.helpWantedRoles, fresh.helpWantedRoles);
   replaceMapContents(live.helpWantedInterest, fresh.helpWantedInterest);
 
@@ -115,6 +116,8 @@ export function swapInPlace(live: InMemoryState, fresh: InMemoryState): void {
   replaceMapContents(live.updateByProjectAndNumber, fresh.updateByProjectAndNumber);
   replaceMapContents(live.buzzByProject, fresh.buzzByProject);
   replaceMapContents(live.buzzByProjectAndSlug, fresh.buzzByProjectAndSlug);
+  replaceMapContents(live.blogPostIdBySlug, fresh.blogPostIdBySlug);
+  replaceMapContents(live.blogPostIdByLegacyId, fresh.blogPostIdByLegacyId);
   replaceMapContents(live.helpWantedByProject, fresh.helpWantedByProject);
   replaceMapContents(live.tagAssignmentsByTaggable, fresh.tagAssignmentsByTaggable);
   replaceMapContents(live.tagAssignmentsByTag, fresh.tagAssignmentsByTag);

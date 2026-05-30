@@ -8,6 +8,7 @@
  * They're rebuilt from scratch at boot and kept in sync by write-api.
  */
 import type {
+  BlogPost,
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
@@ -32,6 +33,7 @@ export interface InMemoryState {
   projectMemberships: Map<string, ProjectMembership>;
   projectUpdates: Map<string, ProjectUpdate>;
   projectBuzz: Map<string, ProjectBuzz>;
+  blogPosts: Map<string, BlogPost>;
   helpWantedRoles: Map<string, HelpWantedRole>;
   helpWantedInterest: Map<string, HelpWantedInterestExpression>;
 
@@ -82,6 +84,15 @@ export interface InMemoryState {
    */
   buzzIdBySlug: Map<string, string>;
 
+  /** blogPost.slug → blogPost.id. Per specs/data-model.md#blogpost. */
+  blogPostIdBySlug: Map<string, string>;
+  /**
+   * blogPost.legacyId → blogPost.id. Populated only for records carrying a
+   * laddr legacy ID (the importer sets these). Used for importer idempotence
+   * and future legacy `/blog/<numeric-id>` redirects if needed.
+   */
+  blogPostIdByLegacyId: Map<number, string>;
+
   /** projectId → Set<roleId> */
   helpWantedByProject: Map<string, Set<string>>;
 
@@ -119,6 +130,7 @@ export function createEmptyState(): InMemoryState {
     projectMemberships: new Map(),
     projectUpdates: new Map(),
     projectBuzz: new Map(),
+    blogPosts: new Map(),
     helpWantedRoles: new Map(),
     helpWantedInterest: new Map(),
 
@@ -135,6 +147,8 @@ export function createEmptyState(): InMemoryState {
     buzzByProject: new Map(),
     buzzByProjectAndSlug: new Map(),
     buzzIdBySlug: new Map(),
+    blogPostIdBySlug: new Map(),
+    blogPostIdByLegacyId: new Map(),
     helpWantedByProject: new Map(),
     tagAssignmentsByTaggable: new Map(),
     tagAssignmentsByTag: new Map(),
@@ -248,6 +262,22 @@ export function indexProjectBuzz(state: InMemoryState, buzz: ProjectBuzz): void 
   const key = `${buzz.projectId}:${buzz.slug}`;
   state.buzzByProjectAndSlug.set(key, buzz.id);
   state.buzzIdBySlug.set(buzz.slug, buzz.id);
+}
+
+/** Add or replace a blog post and update secondary indices. */
+export function indexBlogPost(state: InMemoryState, post: BlogPost): void {
+  const old = state.blogPosts.get(post.id);
+  if (old) {
+    state.blogPostIdBySlug.delete(old.slug);
+    if (typeof old.legacyId === 'number') {
+      state.blogPostIdByLegacyId.delete(old.legacyId);
+    }
+  }
+  state.blogPosts.set(post.id, post);
+  state.blogPostIdBySlug.set(post.slug, post.id);
+  if (typeof post.legacyId === 'number') {
+    state.blogPostIdByLegacyId.set(post.legacyId, post.id);
+  }
 }
 
 /** Add or replace a help-wanted role and update secondary indices. */

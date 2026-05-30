@@ -53,6 +53,7 @@ import { peopleRoutes } from './routes/people.js';
 import { tagRoutes } from './routes/tags.js';
 import { projectUpdateRoutes } from './routes/projects-updates.js';
 import { projectBuzzRoutes } from './routes/projects-buzz.js';
+import { blogPostRoutes } from './routes/blog-posts.js';
 import { helpWantedRoutes } from './routes/projects-help-wanted.js';
 import { projectMembershipRoutes } from './routes/projects-members.js';
 import { previewRoutes } from './routes/preview.js';
@@ -191,6 +192,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(tagRoutes);
   await fastify.register(projectUpdateRoutes);
   await fastify.register(projectBuzzRoutes);
+  await fastify.register(blogPostRoutes);
   await fastify.register(helpWantedRoutes);
   await fastify.register(projectMembershipRoutes);
   await fastify.register(previewRoutes);

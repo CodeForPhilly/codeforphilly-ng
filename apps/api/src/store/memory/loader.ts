@@ -7,6 +7,7 @@
 import type { PublicStore } from '../public.js';
 import {
   createEmptyState,
+  indexBlogPost,
   indexHelpWantedInterest,
   indexHelpWantedRole,
   indexMembership,
@@ -31,6 +32,7 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
     memberships,
     updates,
     buzzes,
+    blogPosts,
     roles,
     interests,
     slugHistoryRecords,
@@ -42,6 +44,9 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
     publicStore['project-memberships'].queryAll(),
     publicStore['project-updates'].queryAll(),
     publicStore['project-buzz'].queryAll(),
+    // Blog-posts may be absent on data repos that haven't merged the sheet
+    // config PR yet — queryAll returns [] in that case, which is fine.
+    publicStore['blog-posts'].queryAll(),
     publicStore['help-wanted-roles'].queryAll(),
     publicStore['help-wanted-interest'].queryAll(),
     publicStore['slug-history'].queryAll(),
@@ -54,6 +59,7 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
   for (const m of memberships) indexMembership(state, m);
   for (const u of updates) indexProjectUpdate(state, u);
   for (const b of buzzes) indexProjectBuzz(state, b);
+  for (const bp of blogPosts) indexBlogPost(state, bp);
   for (const r of roles) indexHelpWantedRole(state, r);
   for (const i of interests) indexHelpWantedInterest(state, i);
   // Slug-history is filtered for expiry inside indexSlugHistory — records
