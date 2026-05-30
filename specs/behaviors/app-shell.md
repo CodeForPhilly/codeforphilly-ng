@@ -83,7 +83,7 @@ Single search input in the header. Behavior:
 
 - Placeholder: "Search projects, members, tags…"
 - On focus, expands to fit the available space
-- As the user types (debounced 200ms), a dropdown shows up to 8 results across types — matches laddr's site-wide search but in a typeahead form instead of a full results page
+- As the user types (debounced 200ms), a dropdown shows up to 12 results across types (4 per category, see groups below) — matches laddr's site-wide search but in a typeahead form instead of a full results page
 - Result groups:
   - "Projects" — `GET /api/projects?q=...&perPage=4`
   - "Members" — `GET /api/people?q=...&perPage=4`
@@ -124,6 +124,7 @@ Three columns at ≥ md, stacked below.
 - Hackathons → `/pages/hackathons`
 - Members → `/members`
 - Help Wanted → `/help-wanted`
+- Blog → `/blog`
 
 ### Column 2: About
 

@@ -383,7 +383,7 @@ This composite path makes "things with tag X" a single directory traversal in th
 |-------|------|-------|
 | id | uuid | |
 | tagId | uuid | |
-| taggableType | enum | `project` \| `person` \| `help_wanted_role` |
+| taggableType | enum | `project` \| `person` \| `help_wanted_role` \| `blog_post` |
 | taggableId | uuid | |
 | assignedById | uuid nullable | references people.id |
 | createdAt | iso8601 | |

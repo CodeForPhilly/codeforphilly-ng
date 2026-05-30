@@ -177,11 +177,21 @@ Runtime configuration (sealed-secrets in our cluster):
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth app credentials — see [api/auth.md](api/auth.md) |
 | `CFP_JWT_SIGNING_KEY` | HS256 key for session JWTs |
 | `SAML_PRIVATE_KEY` / `SAML_CERTIFICATE` | Slack SAML IdP cert chain — see [api/saml.md](api/saml.md) |
+| `SLACK_TEAM_HOST` | Slack workspace host (default `codeforphilly.slack.com`). Used by the `/chat` redirect ([api/chat](screens/chat.md)) and the SAML SP entity binding. |
+| `RESEND_API_KEY` | Optional. When set, mutates the notifier from the no-op `LoggingNotifier` to the live `EmailNotifier` (Resend SDK). |
+| `CFP_NOTIFICATION_FROM` | Required when `RESEND_API_KEY` is set; the `From:` address on outbound mail. |
+| `CFP_SITE_HOST` | Public site host (e.g., `codeforphilly.org`) — used by notifiers to build canonical URLs in email bodies. |
+| `CFP_DATA_RELOAD_SECRET` | Bearer token gating `POST /api/_internal/reload-data` — the hot-reload webhook. Optional in dev; required in prod. |
 
 On pod start the entrypoint:
 
 1. Runs `git clone` / `git fetch && git reset --hard origin/main` against `CFP_DATA_REMOTE` to populate the data-repo working tree
 2. Boots the API, which loads the gitsheets state and the private-storage `.jsonl` files into memory
+
+Health endpoints:
+
+- `GET /api/health` — liveness; returns 200 with build metadata as long as the process is up.
+- `GET /api/health/ready` — readiness; returns 200 only after the public + private stores have loaded AND the boot-time reconcile has completed. The k8s `readinessProbe` is wired to this so the Service stops routing traffic to a pod that's still loading state.
 
 On every public-side commit the API pushes asynchronously to `CFP_DATA_REMOTE`. On every private-side mutation the API PUTs the relevant `.jsonl` to the bucket synchronously. See the dual-write coordination notes in [behaviors/private-storage.md](behaviors/private-storage.md).
 
