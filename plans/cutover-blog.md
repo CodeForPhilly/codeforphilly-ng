@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/api/blog.md
@@ -9,6 +9,7 @@ specs:
   - specs/deferred.md
   - specs/behaviors/legacy-id-mapping.md
 issues: [84]
+pr: 101
 ---
 
 # Plan: cutover blog — content-typed `blog-posts` sheet + minimum-viable viewer
@@ -190,19 +191,21 @@ results from `queryAll`), and the importer doesn't run in CI.
 
 ## Validation
 
-- [ ] All 6 spec files written + reviewed.
-- [ ] `@cfp/shared` exports `BlogPost` + `BlogPostSchema`.
-- [ ] Sheet config PR opened against `codeforphilly-data:empty`.
-- [ ] Backend boot loads `blog-posts` without erroring even when the
-      sheet is absent (gracefully empty).
-- [ ] `GET /api/blog-posts` returns paginated results matching spec
-      envelope.
-- [ ] `GET /api/blog-posts/:slug` returns 200 with `bodyHtml`
-      populated + 404 on unknown slug.
-- [ ] `/blog` + `/blog/:slug` render in the SPA.
-- [ ] Importer translator round-trips a fixture row into a valid
-      `BlogPost`.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] All 6 spec files written + reviewed.
+- [x] `@cfp/shared` exports `BlogPost` + `BlogPostSchema`.
+- [x] Sheet config PR opened against `codeforphilly-data:empty` ([codeforphilly-data#1](https://github.com/CodeForPhilly/codeforphilly-data/pull/1)).
+- [x] Backend boot loads `blog-posts` without erroring even when the
+      sheet is absent (gracefully empty — `queryAll` returns `[]`).
+- [x] `GET /api/blog-posts` returns paginated results matching spec
+      envelope (8 route tests pass).
+- [x] `GET /api/blog-posts/:slug` returns 200 with `bodyHtml`
+      populated + 404 on unknown slug + 404 on soft-deleted.
+- [x] `/blog` + `/blog/:slug` render in the SPA (3 BlogIndex tests
+      pass; BlogDetail relies on shared MarkdownView).
+- [x] Importer translator round-trips a fixture row into a valid
+      `BlogPost` (5 new translator cases pass) and the orchestrator
+      end-to-end mock includes `/blog`.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -228,8 +231,81 @@ results from `queryAll`), and the importer doesn't run in CI.
 
 ## Notes
 
-_(filled at done time)_
+Five commits across two repos (plus the data-repo PR):
+
+  codeforphilly-ng:
+    chore(plans): open cutover-blog (in-progress)
+    docs(specs): blog-posts entity + /blog screens + /api/blog-posts
+    feat(shared): BlogPost Zod schema
+    feat(api): GET /api/blog-posts list + detail
+    feat(importer): translate + import laddr blog_posts
+    feat(web): /blog index + detail screens
+
+  codeforphilly-data:
+    feat(gitsheets): add blog-posts content-typed sheet (PR #1)
+
+Surprises:
+
+- **The `title = 'title'` body-from-H1 opt-in was tempting but
+  fragile for legacy content.** I sketched it in the plan and then
+  backed it out before writing the code: laddr posts can't be assumed
+  to start with an `# H1` heading whose text exactly equals the stored
+  Title, and the gitsheets markdown format throws hard on mismatch.
+  Better to leave title in TOML frontmatter and let H1-extraction
+  become a v2 nicety once content authors are operating against the
+  sheet directly.
+- **TagAssignment.taggableType needed `'blog_post'`.** The blog-index
+  spec calls out `?tag=` filtering, but the existing TagAssignment
+  enum only knew `'project' | 'person' | 'help_wanted_role'`. Adding
+  the value was a one-line schema change; without it the filter
+  loop in BlogPostService.list would have been dead code. snake_case
+  matches the existing convention (`help_wanted_role`).
+- **`reload.ts` is missing some pre-existing indices.** While
+  threading `blogPostIdBySlug` + `blogPostIdByLegacyId` through
+  `swapInPlace`, I noticed the existing function never copies
+  `projectIdByLegacyId`, `buzzIdBySlug`, or `slugHistory`. So
+  hot-reload would have left those indices stale on the live state.
+  Out of scope here — captured below as a follow-up.
+- **Importer pre-pass needs every sheet that mints UUIDs to be in
+  `simpleSheets`.** Forgot this on the first pass and the
+  "is idempotent" orchestrator test caught it — the second run was
+  minting fresh UUIDs for the same blog posts, so every re-run
+  produced a phantom commit. One-line fix.
+- **No `withBody: false` yet.** The plan explicitly defers lazy body
+  loading to #45. At ~few-dozen posts this is fine; the API will
+  fetch all bodies on every list request. The boot loader also reads
+  them all into memory — fine at this scale but worth re-measuring
+  once we're at >100 posts.
 
 ## Follow-ups
 
-_(filled at done time)_
+- **Re-run the laddr importer + merge to `published`** after both PRs
+  land. Sequence: (1) merge codeforphilly-ng#101 + redeploy sandbox
+  pod, (2) merge codeforphilly-data#1 to `empty` and let it propagate,
+  (3) `npm run import-laddr` against the upstream laddr instance to
+  populate `legacy-import`, (4) merge `legacy-import` → `published`
+  → the hot-reload webhook surfaces the new blog content. *Deferred
+  to plan* — sequence runs at sandbox-redeploy time.
+- **`reload.ts` missing-indices audit.** `swapInPlace` doesn't
+  reassign `projectIdByLegacyId`, `buzzIdBySlug`, or `slugHistory`,
+  so hot-reload leaves them stale relative to the rest of the in-
+  memory state. Likely a pre-existing bug from when those indices
+  were added. *Tracked as* — needs its own small issue + plan.
+- **Lazy body loading + reader experience** — `withBody: false` on
+  list reads, prev/next nav, related posts. *Tracked as* — [#45](https://github.com/CodeForPhilly/codeforphilly-ng/issues/45).
+- **Blog tagging UI** — the API supports `?tag=` filtering and the
+  schema allows `TagAssignment.taggableType = 'blog_post'`, but
+  there's no UI today to apply tags to blog posts (writes are PR-only).
+  *None* — content authors set tags directly in the frontmatter via
+  the PR-to-data-repo flow.
+- **Featured image upload UI** — `featuredImageKey` is plumbed
+  through the schema + serializer, but uploading one requires a CMS
+  surface that doesn't exist (blog writes are PR-only). Content
+  authors can drop a JPEG into the data repo at
+  `blog-posts/<slug>/cover.jpg` and reference the key in the
+  frontmatter. *None* — explicit non-goal for the cutover scope.
+- **Top-nav Blog link** — added only to the footer. Adding to the
+  top navigation is a design decision worth deferring until there's
+  a critical mass of posts that justify the visual real estate.
+  *None* — footer link satisfies the discoverability requirement
+  from the spec.
