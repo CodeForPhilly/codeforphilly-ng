@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: [screen-gaps-phase1]
 specs:
   - specs/screens/person-detail.md
 issues: [83]
+pr: 103
 ---
 
 # Plan: screen-gaps phase 2 — PersonDetail email + slackHandle
@@ -60,12 +61,12 @@ If neither is set, the Contact section doesn't render.
 
 ## Validation
 
-- [ ] PersonDetail API response includes `slackHandle` for everyone (null when absent).
-- [ ] PersonDetail API response includes `email` for self + staff only.
-- [ ] PersonDetail screen renders Slack DM link when `slackHandle` is set.
-- [ ] PersonDetail screen renders mailto link when `email` is present.
-- [ ] Anonymous caller never sees `email` in the JSON response or the screen.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] PersonDetail API response includes `slackHandle` for everyone (null when absent).
+- [x] PersonDetail API response includes `email` for self + staff only.
+- [x] PersonDetail screen renders Slack DM link when `slackHandle` is set.
+- [x] PersonDetail screen renders mailto link when `email` is present.
+- [x] Anonymous caller never sees `email` in the JSON response or the screen.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -75,8 +76,34 @@ If neither is set, the Contact section doesn't render.
 
 ## Notes
 
-*(filled at done time)*
+Three commits: plan-open, backend (serializer + service + plugin DI + route awaits + seed fixture + 3 new read-api tests), SPA (PersonDetail Contact sidebar + 3 new screen tests).
+
+Surprises:
+
+- **The seed fixture didn't have a `slackHandle` set.** Adding one to
+  the Jane Doe fixture (rather than seeding a separate person via
+  `seedRawToml`) was simpler and didn't break any pre-existing tests
+  — they all assert against fields they care about, not the absence
+  of other fields. Now every test that touches the fixture has a
+  public slackHandle to assert against if it wants to.
+- **`PersonService.get` had only two callers.** Both in
+  `apps/api/src/routes/people.ts` — the GET handler and the
+  PATCH-then-refetch site. Easy mechanical await additions. No
+  other consumer in the codebase reads through `services.people.get`.
+- **The Contact section hides itself when both fields are absent.**
+  This keeps the sidebar identical to today for the long tail of
+  legacy profiles that have neither slackHandle nor email visible
+  to the caller. Validated by the first PersonDetail.test.tsx case.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Phase 3 — `/pages/:slug` content rendering.** Mission, Leadership,
+  CoC, Hackathons need a content directory + a route that reads +
+  renders markdown server-side. *Deferred to plan* — `plans/static-pages.md`.
+- **Phase 4 — `/projects/:slug/buzz/new` create form.** API endpoint
+  exists; just the SPA form is missing. *Deferred to plan* —
+  `plans/buzz-new-form.md`.
+- **`slackHandle` write surface.** Today the field is read-only
+  server-side; the ProfileEdit screen doesn't expose it. Tracking
+  separately if/when content-author UX for this becomes a priority.
+  *None* — not blocking #83 closure.
