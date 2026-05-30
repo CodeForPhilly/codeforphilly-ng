@@ -388,10 +388,13 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
 
   log(`[import] fetching blog from ${opts.sourceHost}`);
   const blogPosts: BlogPost[] = [];
+  // `?include=*` is the only way to get the body content — laddr stores
+  // it as a typed `items` array on `AbstractContent`, not as a flat Body
+  // field. translateBlogPost assembles markdown from those items.
   for await (const row of fetchAllPages<RawBlogPost>(
     '/blog',
     RawBlogPostSchema,
-    {},
+    { include: '*' },
     fetchOpts,
   )) {
     const bp = translateBlogPost(row, ctx);

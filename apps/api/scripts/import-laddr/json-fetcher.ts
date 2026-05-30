@@ -151,12 +151,36 @@ export const RawProjectBuzzSchema = z
 export type RawProjectBuzz = z.infer<typeof RawProjectBuzzSchema>;
 
 /**
+ * One item in a blog post's body. Laddr's `Emergence\CMS\AbstractContent`
+ * stores body as an ordered list of typed items rather than a single
+ * markdown string. Three item classes appear in production: Markdown
+ * (raw markdown), Media (image reference), Embed (raw HTML — iframes etc.).
+ *
+ * Surfaced only when the request asks `?include=*`.
+ */
+export const RawBlogPostItemSchema = z
+  .object({
+    ID: z.number().int().positive(),
+    Class: z.string(),
+    Order: z.number().int().optional(),
+    // Markdown items: Data is a string. Media items: Data is an object
+    // ({ MediaID, Caption }). Embed items: Data is a string (raw HTML).
+    Data: z.unknown().optional(),
+  })
+  .passthrough();
+export type RawBlogPostItem = z.infer<typeof RawBlogPostItemSchema>;
+
+/**
  * Blog post — laddr's `BlogPost` class. The field set is best-effort
  * against laddr's `BlogRequestHandler` template output; unknown fields
  * pass through.
  *
- *   ID, Class, Handle (slug), Title, Body, Summary,
+ *   ID, Class, Handle (slug), Title, Summary,
  *   AuthorID, Published (epoch), Modified (epoch), Created (epoch)
+ *
+ * Body is *not* a top-level field in laddr's JSON. The body content
+ * lives in `items` (only surfaced when the request uses `?include=*`)
+ * as an ordered list of typed content blocks.
  */
 export const RawBlogPostSchema = z
   .object({
@@ -164,12 +188,13 @@ export const RawBlogPostSchema = z
     Class: z.string(),
     Handle: z.string().nullable().optional(),
     Title: z.string().nullable().optional(),
-    Body: z.string().nullable().optional(),
     Summary: z.string().nullable().optional(),
     AuthorID: z.number().int().nullable().optional(),
     Published: z.number().int().nullable().optional(),
     Created: z.number().int().nullable().optional(),
     Modified: z.number().int().nullable().optional(),
+    /** Present when the request asks `?include=*`. */
+    items: z.array(RawBlogPostItemSchema).optional(),
   })
   .passthrough();
 export type RawBlogPost = z.infer<typeof RawBlogPostSchema>;
