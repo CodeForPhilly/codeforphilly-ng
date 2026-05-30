@@ -1,11 +1,12 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/screens/project-detail.md
   - specs/behaviors/project-stages.md
   - specs/behaviors/app-shell.md
 issues: [83]
+pr: 102
 ---
 
 # Plan: screen-gaps phase 1 — ProjectDetail + /contact wins
@@ -81,11 +82,11 @@ Replace `<ComingSoon />` at the `/contact` route with a simple page rendering a 
 
 ## Validation
 
-- [ ] ProjectDetail renders both "Copy link" and "Share to Slack" buttons.
-- [ ] ProjectDetail renders "Edit on GitHub" only when `developersUrl` is a github.com URL.
-- [ ] "What does this stage mean?" opens a modal listing all seven stages with descriptions, highlighting the current stage.
-- [ ] `/contact` is no longer a ComingSoon page — renders mailto link.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] ProjectDetail renders both "Copy link" and "Share to Slack" buttons.
+- [x] ProjectDetail renders "Edit on GitHub" only when `developersUrl` is a github.com URL.
+- [x] "What does this stage mean?" opens a modal listing all seven stages with descriptions, highlighting the current stage.
+- [x] `/contact` is no longer a ComingSoon page — renders mailto link.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -94,8 +95,51 @@ Replace `<ComingSoon />` at the `/contact` route with a simple page rendering a 
 
 ## Notes
 
-_(filled at done time)_
+Three commits: plan-open, ProjectDetail enhancements, Contact page.
+
+Surprises:
+
+- **Stage descriptions already in `STAGES` constant.** `StageBadge.tsx`
+  exports a `STAGES` record that already mirrors
+  `specs/behaviors/project-stages.md` exactly — labels, descriptions,
+  ranks, progress percentages, colors. The new modal just reads from
+  this constant rather than introducing a parallel copy. The spec→
+  code drift risk is bounded: any update to the spec only needs to
+  touch one place in the SPA.
+- **Home "Start a Project" was already correct.** The #83 audit
+  listed it as a gap (the card should route signed-in users to
+  `/projects/create`), but the code at `apps/web/src/screens/Home.tsx:134`
+  already does exactly that. Marked the audit note as outdated in
+  the plan rather than removing it — useful context for future-me
+  to understand why no Home change appears in this PR.
+- **GitHub URL detection via `new URL()`.** The naive
+  `developersUrl.startsWith('https://github.com/')` check would miss
+  `http://github.com/...` and accept `https://github.com.evil.com`.
+  `URL.parse` + hostname check (`'github.com' || endsWith('.github.com')`)
+  is the safer shape.
+- **Web Share API not used.** Spec said "system share or copy". I
+  considered `navigator.share` (gated by capability detection +
+  fallback to copy) but the copy-only path is simpler, works in
+  every browser, and the difference is invisible to users on
+  desktop. If mobile usage starts mattering, swap in the Share API
+  with copy as fallback.
 
 ## Follow-ups
 
-_(filled at done time)_
+- **Phase 2 — PersonDetail email + slackHandle.** Cross-cuts the API
+  serializer (`apps/api/src/services/serializers/person.ts` needs to
+  surface `PrivateProfile.email` for self/staff and `Person.slackHandle`
+  for everyone) and the screen. Separate plan because it touches the
+  permissions model. *Deferred to plan* — `plans/screen-gaps-phase2.md`
+  to-be-written.
+- **Phase 3 — `/pages/:slug` content rendering.** Requires
+  `apps/web/src/content/pages/` directory with markdown for Mission,
+  Leadership, CoC, Hackathons + a route that reads + renders them.
+  *Deferred to plan* — `plans/static-pages.md` to-be-written.
+- **Phase 4 — `/projects/:slug/buzz/new` create form.** Needs a real
+  form bound to `POST /api/projects/:slug/buzz`. The API endpoint
+  exists; just the SPA form is missing. *Deferred to plan* —
+  `plans/buzz-new-form.md` to-be-written.
+- **Web Share API integration.** The Share-to-Slack button could
+  use `navigator.share` on mobile with copy fallback. *None* — not
+  worth the gate logic until mobile usage data warrants it.
