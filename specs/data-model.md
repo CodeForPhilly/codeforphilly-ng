@@ -28,7 +28,9 @@ Person ──*── ProjectMembership ──*── Project
                                           HelpWantedRole (one-to-many)
                                           HelpWantedInterestExpression (one-to-many)
 
-Tag ──── TagAssignment ──── (Project | Person | HelpWantedRole)
+BlogPost ──── authored-by ──── Person      (0:1; staff-authored long-form posts)
+
+Tag ──── TagAssignment ──── (Project | Person | HelpWantedRole | BlogPost)
                               polymorphic via taggableType + taggableId
 
 Person ── has ── Revocation               (0:many; revoked JWT IDs)
@@ -278,6 +280,39 @@ Markdown updates posted by project members. Was laddr's `project_updates`. No ve
 
 **Uniqueness:** `(projectId, number)`.
 
+## BlogPost
+
+Staff-authored long-form posts at `/blog`. Was laddr's `blog_posts`. Stored as a **content-typed** gitsheets sheet: on-disk artifacts are Hugo-style markdown (`+++` TOML frontmatter + body), one `.md` file per slug. Writes happen via PR to the data repo (not a runtime CMS). See [api/blog.md](api/blog.md), [screens/blog-index.md](screens/blog-index.md), [screens/blog-detail.md](screens/blog-detail.md).
+
+**Sheet:** `blog-posts`
+**Path template:** `blog-posts/${slug}.md`
+**Format:** `markdown` (gitsheets `[gitsheet.format]` with `type = 'markdown'`, `body = 'body'`)
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | |
+| legacyId | int nullable | laddr `blog_posts.ID`. Per [behaviors/legacy-id-mapping.md](behaviors/legacy-id-mapping.md). |
+| slug | string | unique. URL: `/blog/<slug>`. Used as the filename (`<slug>.md`). |
+| title | string | display title; 1-200 chars. |
+| summary | string nullable | short markdown blurb (≤500 chars) for the index card. |
+| authorId | uuid nullable | references `people.id`; null if the author was deleted or never set. |
+| postedAt | iso8601 | publish timestamp; primary sort key for the index. |
+| editedAt | iso8601 nullable | last meaningful edit; surfaces as "Edited <relative>" on the detail screen when it differs from `postedAt`. |
+| featuredImageKey | string nullable | gitsheets attachment key (e.g., `blog-posts/<slug>/cover.jpg`). Served via `GET /api/attachments/:key`. |
+| deletedAt | iso8601 nullable | soft-delete; excluded from API responses. |
+| body | string | markdown body — the **content** of the file, separated from frontmatter by `+++` per the gitsheets content-typed convention. |
+| createdAt | iso8601 | |
+| updatedAt | iso8601 | |
+
+**Secondary in-memory indices:**
+
+- `blogPostIdBySlug: Map<slug, id>` — slug → id for route resolution
+- `blogPostIdByLegacyId: Map<int, id>` — for importer idempotence and (future) legacy URL redirects
+
+**Uniqueness:** `slug` (global). `legacyId` is unique-where-present.
+
+**Lazy body loading is deferred to [#45](https://github.com/CodeForPhilly/codeforphilly-ng/issues/45)** — initial implementation loads full bodies on every list query. Acceptable at current scale (<100 posts).
+
 ## ProjectBuzz
 
 External media / press / "buzz" about a project. Was laddr's `project_buzz`.
@@ -444,12 +479,13 @@ See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log) for t
 | ProjectUpdate | Person | many-to-one (author) | `ProjectUpdate.authorId` |
 | ProjectBuzz | Project | many-to-one | `ProjectBuzz.projectId` |
 | ProjectBuzz | Person | many-to-one (postedBy) | `ProjectBuzz.postedById` |
+| BlogPost | Person | many-to-one (author) | `BlogPost.authorId` |
 | HelpWantedRole | Project | many-to-one | `HelpWantedRole.projectId` |
 | HelpWantedRole | Person | many-to-one (postedBy / filledBy) | `HelpWantedRole.postedById`, `filledById` |
 | HelpWantedInterestExpression | HelpWantedRole | many-to-one | `roleId` |
 | HelpWantedInterestExpression | Person | many-to-one | `personId` |
 | TagAssignment | Tag | many-to-one | `tagId` |
-| TagAssignment | Project \| Person \| HelpWantedRole | polymorphic | `taggableType + taggableId` |
+| TagAssignment | Project \| Person \| HelpWantedRole \| BlogPost | polymorphic | `taggableType + taggableId` |
 
 Cascading deletes are not enforced by gitsheets; the API's mutation services delete dependent records as part of the same write-and-commit operation (see [behaviors/storage.md](behaviors/storage.md) for atomicity). For project delete this means: in one mutation, write the project's tombstone (`deletedAt`) and (for cascade-on-hard-delete) the dependent project-memberships, project-updates, project-buzz, help-wanted-roles, and tag-assignments are removed.
 
@@ -468,6 +504,10 @@ Cascading deletes are not enforced by gitsheets; the API's mutation services del
 | `project_updates.Number` | `ProjectUpdate.number` |
 | `project_buzz.Headline` / `URL` / `Published` / `Summary` / `ImageID` | `ProjectBuzz.headline` / `url` / `publishedAt` / `summary` / `imageKey` |
 | `tags.Handle` (e.g., `topic.transit`) | `tags.namespace = 'topic'`, `tags.slug = 'transit'` |
+| `blog_posts.ID` | `blog-posts` record's `id` (uuid) + `legacyId` (int) |
+| `blog_posts.Handle` | `BlogPost.slug` |
+| `blog_posts.Title` / `Summary` / `Body` | `BlogPost.title` / `summary` / `body` |
+| `blog_posts.AuthorID` / `Published` / `Modified` | `BlogPost.authorId` / `postedAt` / `editedAt` |
 | `tag_items.ContextClass` / `ContextID` | `tag-assignments.taggableType` / `taggableId` |
 | `Emergence\People\Person.Username` | `Person.slug` (public) — also seeds the immutable `slackSamlNameId` for Slack SSO stability |
 | `Emergence\People\Person.Email` | **`PrivateProfile.email`** in the private store (not in the public gitsheets repo) |

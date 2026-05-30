@@ -17,6 +17,7 @@ import { PersonService } from '../services/person.js';
 import { TagService } from '../services/tag.js';
 import { ProjectUpdateService } from '../services/project-update.js';
 import { ProjectBuzzService } from '../services/project-buzz.js';
+import { BlogPostService } from '../services/blog-post.js';
 import { HelpWantedService } from '../services/help-wanted.js';
 import { ProjectWriteService } from '../services/project.write.js';
 import { ProjectMembershipWriteService } from '../services/project-membership.write.js';
@@ -39,6 +40,7 @@ declare module 'fastify' {
       tags: TagService;
       projectUpdates: ProjectUpdateService;
       projectBuzz: ProjectBuzzService;
+      blogPosts: BlogPostService;
       helpWanted: HelpWantedService;
       // Write services
       projectsWrite: ProjectWriteService;
@@ -89,6 +91,7 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
     tags: new TagService(state),
     projectUpdates: new ProjectUpdateService(state),
     projectBuzz: new ProjectBuzzService(state),
+    blogPosts: new BlogPostService(state),
     helpWanted: new HelpWantedService(state, fts),
     projectsWrite: new ProjectWriteService(state),
     projectMembershipsWrite: new ProjectMembershipWriteService(state),

@@ -6,7 +6,7 @@ The rewrite migrates records from the live laddr site at `codeforphilly.org` int
 
 ## Applies To
 
-- [data-model.md](../data-model.md) — `legacyId` field on `people`, `projects`, `project-updates`, `project-buzz`, `tags` (the migrated sheets where laddr's auto-increment IDs were ever referenced externally; `project-memberships` is *not* in this list — laddr's `project_members.ID` never escaped to URLs)
+- [data-model.md](../data-model.md) — `legacyId` field on `people`, `projects`, `project-updates`, `project-buzz`, `tags`, `blog-posts` (the migrated sheets where laddr's auto-increment IDs were ever referenced externally; `project-memberships` is *not* in this list — laddr's `project_members.ID` never escaped to URLs)
 - The re-runnable importer (`apps/api/scripts/import-laddr.ts` — implementation, not spec) which pulls the public dataset via laddr's `?format=json` endpoints
 - The web layer's legacy-URL redirect handler (described below)
 - [behaviors/storage.md](storage.md) — the import lands as snapshot commits on a `legacy-import` branch, which the operator merges into `main` to integrate updates

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { openRepo, openStore } from 'gitsheets';
 import type { Repository, StandardSchemaV1, Store, StoreTx, ValidatorMap } from 'gitsheets';
 import {
+  BlogPostSchema,
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
   PersonSchema,
@@ -17,6 +18,7 @@ import {
   TagSchema,
 } from '@cfp/shared/schemas';
 import type {
+  BlogPost,
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
@@ -49,6 +51,7 @@ type PublicValidators = {
   readonly 'project-memberships': StandardSchemaV1<unknown, ProjectMembership>;
   readonly 'project-updates': StandardSchemaV1<unknown, ProjectUpdate>;
   readonly 'project-buzz': StandardSchemaV1<unknown, ProjectBuzz>;
+  readonly 'blog-posts': StandardSchemaV1<unknown, BlogPost>;
   readonly 'help-wanted-roles': StandardSchemaV1<unknown, HelpWantedRole>;
   readonly 'help-wanted-interest': StandardSchemaV1<unknown, HelpWantedInterestExpression>;
   readonly tags: StandardSchemaV1<unknown, Tag>;
@@ -98,6 +101,7 @@ export async function openPublicStore(
     'project-memberships': asValidator<ProjectMembership>(ProjectMembershipSchema),
     'project-updates': asValidator<ProjectUpdate>(ProjectUpdateSchema),
     'project-buzz': asValidator<ProjectBuzz>(ProjectBuzzSchema),
+    'blog-posts': asValidator<BlogPost>(BlogPostSchema),
     'help-wanted-roles': asValidator<HelpWantedRole>(HelpWantedRoleSchema),
     'help-wanted-interest': asValidator<HelpWantedInterestExpression>(HelpWantedInterestExpressionSchema),
     tags: asValidator<Tag>(TagSchema),

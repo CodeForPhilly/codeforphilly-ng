@@ -148,6 +148,11 @@ function makeMockFetch(): typeof fetch {
           JSON.stringify(envelope([], 0, 200, 0)),
           { status: 200 },
         );
+      case '/blog':
+        return new Response(
+          JSON.stringify(envelope([], 0, 200, 0)),
+          { status: 200 },
+        );
       default:
         return new Response(`Not found: ${key}`, { status: 404 });
     }

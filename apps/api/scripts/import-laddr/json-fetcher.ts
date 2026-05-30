@@ -18,6 +18,7 @@
  *                                        embed tag + membership joins.
  *   /project-updates?format=json       — flat list, 517 records
  *   /project-buzz?format=json          — flat list, 113 records
+ *   /blog?format=json                  — laddr's BlogRequestHandler list endpoint
  *
  * There are no `/project-memberships` or `/tag-assignments` list endpoints;
  * those come from the project-list `include` parameter (memberships) and
@@ -148,6 +149,30 @@ export const RawProjectBuzzSchema = z
   })
   .passthrough();
 export type RawProjectBuzz = z.infer<typeof RawProjectBuzzSchema>;
+
+/**
+ * Blog post — laddr's `BlogPost` class. The field set is best-effort
+ * against laddr's `BlogRequestHandler` template output; unknown fields
+ * pass through.
+ *
+ *   ID, Class, Handle (slug), Title, Body, Summary,
+ *   AuthorID, Published (epoch), Modified (epoch), Created (epoch)
+ */
+export const RawBlogPostSchema = z
+  .object({
+    ID: z.number().int().positive(),
+    Class: z.string(),
+    Handle: z.string().nullable().optional(),
+    Title: z.string().nullable().optional(),
+    Body: z.string().nullable().optional(),
+    Summary: z.string().nullable().optional(),
+    AuthorID: z.number().int().nullable().optional(),
+    Published: z.number().int().nullable().optional(),
+    Created: z.number().int().nullable().optional(),
+    Modified: z.number().int().nullable().optional(),
+  })
+  .passthrough();
+export type RawBlogPost = z.infer<typeof RawBlogPostSchema>;
 
 // ---------------------------------------------------------------------------
 // Fetcher

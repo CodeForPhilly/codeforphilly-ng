@@ -37,6 +37,7 @@ import { promisify } from 'node:util';
 const exec = promisify(execFile);
 
 import {
+  BlogPostSchema,
   PersonSchema,
   ProjectBuzzSchema,
   ProjectMembershipSchema,
@@ -46,6 +47,7 @@ import {
   TagSchema,
 } from '@cfp/shared/schemas';
 import type {
+  BlogPost,
   Person,
   Project,
   ProjectBuzz,
@@ -58,12 +60,14 @@ import type {
 import { openPublicStore, type PublicStore } from '../../src/store/public.js';
 import {
   fetchAllPages,
+  RawBlogPostSchema,
   RawPersonSchema,
   RawProjectBuzzSchema,
   RawProjectSchema,
   RawProjectUpdateSchema,
   RawTagSchema,
   type FetchOptions,
+  type RawBlogPost,
   type RawPerson,
   type RawProject,
   type RawProjectBuzz,
@@ -73,6 +77,7 @@ import {
 import {
   newExistingIds,
   newIdMaps,
+  translateBlogPost,
   translateBuzz,
   translateMembership,
   translatePerson,
@@ -163,6 +168,7 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
     'project-memberships': blank(),
     'project-updates': blank(),
     'project-buzz': blank(),
+    'blog-posts': blank(),
     'tag-assignments': blank(),
   };
 
@@ -380,6 +386,31 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
     }
   }
 
+  log(`[import] fetching blog from ${opts.sourceHost}`);
+  const blogPosts: BlogPost[] = [];
+  for await (const row of fetchAllPages<RawBlogPost>(
+    '/blog',
+    RawBlogPostSchema,
+    {},
+    fetchOpts,
+  )) {
+    const bp = translateBlogPost(row, ctx);
+    if (bp === null) {
+      counts['blog-posts']!.skipped++;
+      continue;
+    }
+    const parsedBp = parseOrSkip(
+      'blog-posts',
+      () => BlogPostSchema.parse(bp),
+      counts,
+      warnings,
+    );
+    if (parsedBp) {
+      blogPosts.push(parsedBp);
+      counts['blog-posts']!.imported++;
+    }
+  }
+
   // -------------------------------------------------------------------------
   // 2. Dry-run: report and return without touching the repo.
   // -------------------------------------------------------------------------
@@ -471,6 +502,12 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
         await tx['project-buzz'].upsert({ ...record, projectSlug } as ProjectBuzz);
       }
 
+      log(`[import] clear + upsert blog-posts (${blogPosts.length})`);
+      await tx['blog-posts'].clear();
+      for (const post of blogPosts) {
+        await tx['blog-posts'].upsert(post);
+      }
+
       log(`[import] clear + upsert tag-assignments (${tagAssignments.length})`);
       await tx['tag-assignments'].clear();
       for (const ta of tagAssignments) await tx['tag-assignments'].upsert(ta);
@@ -510,6 +547,7 @@ function buildCommitMessage(p: CommitParams): string {
     `${c['project-memberships']!.imported} project-memberships`,
     `${c['project-updates']!.imported} project-updates`,
     `${c['project-buzz']!.imported} project-buzz`,
+    `${c['blog-posts']!.imported} blog-posts`,
     `${c['tags']!.imported} tags`,
     `${c['tag-assignments']!.imported} tag-assignments`,
   ].join(', ');
@@ -622,7 +660,7 @@ async function collectExistingIds(
   const projectLegacyByUuid = new Map<string, number>();
   const tagLegacyByUuid = new Map<string, number>();
 
-  const simpleSheets = ['people', 'projects', 'tags', 'project-updates', 'project-buzz'] as const;
+  const simpleSheets = ['people', 'projects', 'tags', 'project-updates', 'project-buzz', 'blog-posts'] as const;
   for (const sheetName of simpleSheets) {
     const sheet = store[sheetName] as { query: () => AsyncIterable<Record<string, unknown>> };
     for await (const record of sheet.query()) {

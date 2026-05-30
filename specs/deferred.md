@@ -128,8 +128,9 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 ### Blog (`/blog`) as a user-facing CMS
 
 - **What:** Long-form posts via Emergence CMS's `BlogPost` class — a database-backed editor inside the site, available to a user role.
-- **Replaced by:** **Staff-authored markdown files in the code repo** at `apps/web/src/content/blog/<slug>.md`. New posts ship via a PR; the web layer renders them at `/blog/<slug>` and a `/blog` index page. Same convention as the static `/pages/*` content.
-- **Why:** Post velocity has been near-zero for years; a database-backed CMS with user logins is overkill. Markdown-in-repo gives version control, PR review, no auth surface, and lets the same toolchain handle every long-form text on the site.
+- **Replaced by:** A **content-typed gitsheets sheet** (`.gitsheets/blog-posts.toml` with `[gitsheet.format] type = 'markdown' body = 'body'`) — on-disk artifacts are Hugo-style markdown files (`+++` TOML frontmatter + body), one per slug, served via `GET /api/blog-posts` + the existing in-memory state machinery. Writes happen via PR to the data repo. See [api/blog.md](api/blog.md), [screens/blog-index.md](screens/blog-index.md), [screens/blog-detail.md](screens/blog-detail.md), [data-model.md → BlogPost](data-model.md#blogpost).
+- **Why:** Post velocity has been near-zero for years; a database-backed CMS with user logins is overkill. Markdown bodies in a content-typed sheet keep the PR-review ergonomics of files-in-code-repo while sitting on the same runtime + import pipeline as the rest of the data model. Authors get attribution via `authorId`, posts ride the data snapshot, and the API serves through the existing in-memory state with no Vite-bundle bloat for the index. The original "files in `apps/web/src/content/blog/`" replacement was drafted before gitsheets v1.2 made content-typed records viable; that approach is superseded by this one.
+- **Status:** Initial implementation landed via [#84](https://github.com/CodeForPhilly/codeforphilly-ng/issues/84) — full bodies loaded at boot. Lazy body loading (`queryAll({ withBody: false })`) and the richer reader experience are tracked in [#45](https://github.com/CodeForPhilly/codeforphilly-ng/issues/45).
 
 ### Email/password authentication
 

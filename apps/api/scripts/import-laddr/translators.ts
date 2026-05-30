@@ -26,6 +26,7 @@
 import { uuidv7 } from 'uuidv7';
 
 import type {
+  BlogPost,
   Person,
   Project,
   ProjectBuzz,
@@ -36,6 +37,7 @@ import type {
 } from '@cfp/shared/schemas';
 
 import type {
+  RawBlogPost,
   RawMembership,
   RawPerson,
   RawProject,
@@ -647,6 +649,78 @@ export function translateBuzz(
       updatedAt,
     },
     projectLegacyId,
+  };
+}
+
+/**
+ * Translate a laddr `BlogPost` row into a v1 `BlogPost` record.
+ *
+ * Slug source priority: `Handle` (laddr's URL-safe identifier) →
+ * slugified `Title` → `legacy-<ID>`. Bodies are kept verbatim; the
+ * gitsheets markdown format will normalize them via markdownlint on
+ * serialize. `AuthorID` resolves via the people-by-legacy map; an
+ * unresolved author is recorded as a warning but doesn't block the
+ * post (the runtime treats `authorId === null` as anonymous).
+ */
+export function translateBlogPost(
+  row: RawBlogPost,
+  ctx: TranslateCtx,
+): BlogPost | null {
+  const legacyId = row.ID;
+
+  const handle = nonEmptyStr(row.Handle);
+  const title = nonEmptyStr(row.Title) ?? `Untitled Post #${legacyId}`;
+  const slugSource = handle ?? title;
+  const slug = safeSlug(slugSource, 'blog-posts', 100, false, {
+    idMaps: ctx.idMaps,
+    warnings: ctx.warnings,
+    legacyId,
+  });
+
+  const id = idFor(ctx, `blog-posts/${legacyId}`);
+
+  const authorLegacy = typeof row.AuthorID === 'number' ? row.AuthorID : null;
+  const authorId =
+    authorLegacy !== null ? ctx.idMaps.personByLegacy.get(authorLegacy) ?? null : null;
+  if (authorLegacy !== null && authorId === null) {
+    ctx.warnings.push(
+      `[blog-posts] legacyId=${legacyId} author=${authorLegacy} unresolved; posting anonymously`,
+    );
+  }
+
+  const createdAt = epochToIsoOr(row.Created, ctx.now);
+  const updatedAt = epochToIsoOr(row.Modified, createdAt);
+  // postedAt prefers laddr's Published timestamp; falls back to Created so
+  // posts that lack an explicit publish date still sort sensibly.
+  const postedAt = epochToIsoOr(row.Published, createdAt);
+  // editedAt only surfaces when Modified is meaningfully after Published
+  // (>60s gap) — otherwise it'd duplicate postedAt for every post.
+  const editedAt =
+    typeof row.Modified === 'number' &&
+    typeof row.Published === 'number' &&
+    row.Modified - row.Published > 60
+      ? epochToIsoOr(row.Modified, createdAt)
+      : undefined;
+
+  const body = nonEmptyStr(row.Body) ?? '';
+  const summary = nonEmptyStr(row.Summary);
+  // The schema caps summary at 500 chars; truncate longer laddr summaries
+  // rather than failing validation on import.
+  const truncatedSummary =
+    summary === null ? undefined : summary.length > 500 ? summary.slice(0, 497) + '…' : summary;
+
+  return {
+    id,
+    legacyId,
+    slug,
+    title,
+    summary: truncatedSummary,
+    authorId: authorId ?? undefined,
+    postedAt,
+    editedAt,
+    body,
+    createdAt,
+    updatedAt,
   };
 }
 
