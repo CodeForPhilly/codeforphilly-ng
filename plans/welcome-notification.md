@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/api/auth.md
 issues: [43]
+pr: 99
 ---
 
 # Plan: Welcome notification on fresh OAuth signup
@@ -84,12 +85,12 @@ Wiring-level test: the existing `github-oauth.test.ts` covers the `create-fresh`
 
 ## Validation
 
-- [ ] Three Notifier impls (interface + LoggingNotifier + EmailNotifier) all have the new method.
-- [ ] EmailNotifier sends with the right Resend payload (subject + text + html + to).
-- [ ] Welcome template HTML-escapes `fullName`.
-- [ ] OAuth `create-fresh` path fires the notifier (verified via spy in github-oauth.test.ts).
-- [ ] Existing OAuth tests continue to pass (the notifier call is fire-and-forget; doesn't change response shape).
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] Three Notifier impls (interface + LoggingNotifier + EmailNotifier) all have `notifyWelcomeOnSignup`.
+- [x] EmailNotifier sends with the right Resend payload (subject + text + html + to).
+- [x] Welcome template HTML-escapes `fullName` (test asserts `<script>` becomes `&lt;script&gt;`).
+- [x] OAuth `create-fresh` path fires the notifier via spy assertion in github-oauth.test.ts — payload matches `{ email, fullName, slug }`.
+- [x] Existing OAuth tests pass (15 pre-existing + 1 new = 16 in that file).
+- [x] 310/310 API tests pass; `npm run type-check && npm run lint` clean.
 
 ## Risks / unknowns
 
@@ -100,8 +101,16 @@ Wiring-level test: the existing `github-oauth.test.ts` covers the `create-fresh`
 
 ## Notes
 
-*(filled at done time)*
+One-shot implementation across two commits (plan + impl/tests).
+
+Surprises:
+
+- **`encodeURIComponent` for the profile-link slug.** Slugs are `[a-z0-9-]` per the spec so they never need encoding today, but the template uses `encodeURIComponent` defensively. Test asserts that a hypothetical slug with spaces produces `name%20with%20spaces` in the href, which gives the template the same robustness as the existing interest/filled renderers.
+- **Spy timing in the OAuth test.** Fire-and-forget worried me — would the spy assertion race the route handler's return? But `void notifier.notifyWelcomeOnSignup(...)` synchronously invokes the function (queuing the promise) before the next statement runs. By the time the route handler resolves and the test awaits the response, the spy has been called at least once. The Resend HTTPS send happens later in the promise chain; we don't await it.
+- **No new env needed.** The notifier already had a `siteHost` from `CFP_SITE_HOST` (added in #82's email-notifier wiring); the welcome template reuses it for the profile/projects/help-wanted links. Zero new config.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Slack #welcome bump.** Once Slack DM lands (#95), the welcome path could DM the new user with a #welcome channel invite link. Out of scope here; tracked alongside the Slack notifier work.
+- **Email verification reminder.** If the GitHub primary email later fails delivery (Resend bounces it), today the user has no recovery path beyond editing their profile. Tied to the bounce-webhook follow-up from #82.
+- **A/B-able copy.** The body is currently hardcoded. If marketing ever wants to experiment, lift into a small key/value content table in a future plan. *Deferred* — premature for v1.
