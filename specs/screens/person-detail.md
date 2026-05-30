@@ -43,7 +43,7 @@ Heading "Recent updates" — last 5 ProjectUpdate items authored by this person,
 
 ### Sidebar (right, ≥ lg)
 
-- "Contact" — Slack DM link if `slackHandle` (deferred field) is set; otherwise hidden in v1
+- "Contact" — Slack DM link if `slackHandle` is set; email shown for self + staff (per the Authorization table below); section hidden when both are absent.
 - "Member since" date
 - For self: "Manage account" link to `/account` (settings spec deferred; covered in account.md when written)
 - For staff: "Audit log" link (deferred)

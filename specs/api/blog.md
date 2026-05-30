@@ -57,6 +57,7 @@ Standard 404 envelope (per [conventions.md](conventions.md)). Slug-history redir
   "postedAt": "2026-05-15T18:00:00Z",
   "editedAt": "2026-05-16T09:30:00Z",  // null when unedited
   "featuredImageKey": "blog-posts/civic-tech-roundup-2026/cover.jpg",  // or null
+  "featuredImageUrl": "/api/attachments/blog-posts/civic-tech-roundup-2026/cover.jpg",  // or null — derived from featuredImageKey
   "body": "Markdown source",
   "bodyHtml": "<p>...</p>",            // sanitized HTML, server-rendered
   "createdAt": "...",

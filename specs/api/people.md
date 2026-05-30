@@ -12,6 +12,7 @@ See [data-model.md](../data-model.md#person).
 | `GET` | `/api/people/:slug` | public | Fetch a single person's profile. |
 | `PATCH` | `/api/people/:slug` | self \| staff | Update profile. |
 | `POST` | `/api/people/:slug/avatar` | self \| staff | Upload an avatar image (multipart). |
+| `PATCH` | `/api/people/:slug/newsletter` | self \| staff | Update newsletter opt-in state (private-store mutation; no public commit). |
 | `DELETE` | `/api/people/:slug` | administrator | Soft-delete (close account). |
 
 ## GET /api/people
