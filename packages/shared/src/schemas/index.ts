@@ -13,6 +13,9 @@ export type { ProjectUpdate } from './project-update.js';
 export { ProjectBuzzSchema } from './project-buzz.js';
 export type { ProjectBuzz } from './project-buzz.js';
 
+export { BlogPostSchema } from './blog-post.js';
+export type { BlogPost } from './blog-post.js';
+
 export { TagSchema } from './tag.js';
 export type { Tag } from './tag.js';
 

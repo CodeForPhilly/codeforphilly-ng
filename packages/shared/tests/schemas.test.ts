@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BlogPostSchema,
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
   LegacyPasswordCredentialSchema,
@@ -183,6 +184,62 @@ describe('ProjectUpdateSchema', () => {
       number: 1,
       createdAt: now,
       updatedAt: now,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('BlogPostSchema', () => {
+  const baseBlogPost = {
+    id: uuid,
+    slug: 'civic-tech-roundup-2026',
+    title: 'Civic Tech Roundup, May 2026',
+    postedAt: now,
+    body: '# Hello\n\nA blog post body.',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  it('accepts a minimal valid post', () => {
+    const result = BlogPostSchema.safeParse(baseBlogPost);
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts an empty body (drafts arriving from the importer)', () => {
+    const result = BlogPostSchema.safeParse({ ...baseBlogPost, body: '' });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts full optional fields', () => {
+    const result = BlogPostSchema.safeParse({
+      ...baseBlogPost,
+      legacyId: 42,
+      summary: 'A short blurb.',
+      authorId: uuid2,
+      editedAt: now,
+      featuredImageKey: 'blog-posts/civic-tech-roundup-2026/cover.jpg',
+      deletedAt: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects empty title', () => {
+    const result = BlogPostSchema.safeParse({ ...baseBlogPost, title: '' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an over-long title', () => {
+    const result = BlogPostSchema.safeParse({
+      ...baseBlogPost,
+      title: 'x'.repeat(201),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an over-long summary', () => {
+    const result = BlogPostSchema.safeParse({
+      ...baseBlogPost,
+      summary: 'x'.repeat(501),
     });
     expect(result.success).toBe(false);
   });
