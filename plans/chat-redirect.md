@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/screens/chat.md
 issues: [79]
+pr: 100
 ---
 
 # Plan: /chat Slack redirect
@@ -60,11 +61,11 @@ The host is hardcoded from env (`fastify.config.SLACK_TEAM_HOST`, already exists
 
 ## Validation
 
-- [ ] Route registered, 302s match the spec table.
-- [ ] Channel regex matches `Project.chatChannel`.
-- [ ] Invalid channels fall back to root + emit a warn log.
-- [ ] Existing 310 API tests still pass.
-- [ ] `npm run type-check && npm run lint` clean.
+- [x] Route registered, 302s match the spec table.
+- [x] Channel regex matches `Project.chatChannel`.
+- [x] Invalid channels fall back to root + emit a warn log.
+- [x] All tests pass — 319 API + 30 web + 69 shared.
+- [x] `npm run type-check && npm run lint` clean.
 
 ## Risks / unknowns
 
@@ -73,8 +74,41 @@ The host is hardcoded from env (`fastify.config.SLACK_TEAM_HOST`, already exists
 
 ## Notes
 
-_(filled at done time)_
+Three commits: plan-open, feat (route + tests), closeout. The route
+itself is ~50 lines including the JSDoc — the bulk of the work was
+nailing the channel regex semantics so it matches what `Project.chatChannel`
+already enforces, and writing the test sweep that exercises the
+fall-back paths (empty, uppercase, slashes, leading hyphen, over-long).
+
+Surprises:
+
+- **Channel-regex hoist not needed.** I considered importing the
+  `Project.chatChannel` Zod regex from `packages/shared/src/schemas/project.ts`
+  so the two stay in lockstep, but Zod doesn't expose its underlying
+  `RegExp` cleanly without `.shape` plumbing. A duplicated literal with
+  a comment pointing at the canonical source is plainly the right
+  trade-off here — the regex is one line, will rarely change, and any
+  drift would be caught the next time someone adds a `Project.chatChannel`
+  case to the route tests.
+- **`request.query` typing.** Fastify's JSON-Schema querystring
+  validator gives the handler a properly-typed `request.query` only
+  when the JSON Schema's TypeScript-Provider is wired up. We don't
+  have that across the codebase yet — every other route does
+  `(request.query as { ... })`. Followed the established pattern
+  rather than introducing TypeBox here.
+- **`/api/chat` 404s as expected.** The route is registered without
+  the `/api` prefix (Fastify's prefix only applies to plugin-scoped
+  routes, and this route is registered at the app root). A test asserts
+  that `/api/chat` returns 404 so future-me doesn't wonder whether it
+  needed `/api/chat` for the spec.
 
 ## Follow-ups
 
-_(filled at done time)_
+- **Slack channel directory.** Eventually the spec'd Volunteer screen
+  may want a typeahead of valid channels. Out of scope here; would be
+  a separate enhancement on top of an actual Slack-integration story.
+  *None* — not worth tracking until there's a real ask.
+- **Per-channel analytics.** Knowing which `?channel=` deep-links get
+  used would inform what to feature on the SPA. Tiny — could wrap the
+  log line with a metric tag. *Deferred to plan* — bundle with the
+  next observability pass if/when we wire metrics.
