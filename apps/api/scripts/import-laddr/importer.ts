@@ -660,7 +660,7 @@ async function collectExistingIds(
   const projectLegacyByUuid = new Map<string, number>();
   const tagLegacyByUuid = new Map<string, number>();
 
-  const simpleSheets = ['people', 'projects', 'tags', 'project-updates', 'project-buzz'] as const;
+  const simpleSheets = ['people', 'projects', 'tags', 'project-updates', 'project-buzz', 'blog-posts'] as const;
   for (const sheetName of simpleSheets) {
     const sheet = store[sheetName] as { query: () => AsyncIterable<Record<string, unknown>> };
     for await (const record of sheet.query()) {

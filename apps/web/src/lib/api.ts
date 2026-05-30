@@ -268,6 +268,22 @@ export interface ProjectUpdateResponse {
   readonly updatedAt: string;
 }
 
+export interface BlogPostResponse {
+  readonly id: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly summary: string | null;
+  readonly author: PersonAvatar | null;
+  readonly postedAt: string;
+  readonly editedAt: string | null;
+  readonly featuredImageKey: string | null;
+  readonly featuredImageUrl: string | null;
+  readonly body: string;
+  readonly bodyHtml: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 export interface BuzzPermissions {
   readonly canEdit: boolean;
   readonly canDelete: boolean;
@@ -688,6 +704,12 @@ export const api = {
   projectBuzz: {
     feed: (params: FeedParams = {}): Promise<PaginatedEnvelope<ProjectBuzzResponse>> =>
       request(`/api/project-buzz${buildQuery(params)}`),
+  },
+  blogPosts: {
+    list: (params: FeedParams = {}): Promise<PaginatedEnvelope<BlogPostResponse>> =>
+      request(`/api/blog-posts${buildQuery(params)}`),
+    bySlug: (slug: string): Promise<SuccessEnvelope<BlogPostResponse>> =>
+      request(`/api/blog-posts/${encodeURIComponent(slug)}`),
   },
   auth: {
     sessions: (): Promise<SuccessEnvelope<SessionListItem[]>> => request(`/api/auth/sessions`),

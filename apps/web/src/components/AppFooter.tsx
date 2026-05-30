@@ -124,6 +124,11 @@ export function AppFooter() {
                   Help Wanted
                 </Link>
               </li>
+              <li>
+                <Link to="/blog" className="hover:text-foreground transition-colors">
+                  Blog
+                </Link>
+              </li>
             </ul>
           </div>
 

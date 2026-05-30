@@ -16,6 +16,8 @@ import { Account } from '@/screens/Account';
 import { HelpWantedIndex } from '@/screens/HelpWantedIndex';
 import { ProjectUpdatesFeed } from '@/screens/ProjectUpdatesFeed';
 import { ProjectBuzzFeed } from '@/screens/ProjectBuzzFeed';
+import { BlogIndex } from '@/screens/BlogIndex';
+import { BlogDetail } from '@/screens/BlogDetail';
 import { TagsOverview } from '@/screens/TagsOverview';
 import { TagsNamespace } from '@/screens/TagsNamespace';
 import { TagDetail } from '@/screens/TagDetail';
@@ -49,6 +51,8 @@ const router = createBrowserRouter([
       { path: '/members/:slug/edit', element: <ProfileEdit /> },
       { path: '/project-updates', element: <ProjectUpdatesFeed /> },
       { path: '/project-buzz', element: <ProjectBuzzFeed /> },
+      { path: '/blog', element: <BlogIndex /> },
+      { path: '/blog/:slug', element: <BlogDetail /> },
       { path: '/tags', element: <TagsOverview /> },
       { path: '/tags/:namespace', element: <TagsNamespace /> },
       { path: '/tags/:namespace/:slug', element: <TagDetail /> },

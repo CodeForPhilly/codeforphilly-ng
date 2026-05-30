@@ -26,11 +26,13 @@ import {
   newExistingIds,
   newIdMaps,
   splitTagHandle,
+  translateBlogPost,
   translatePerson,
   translateProject,
   translateTag,
   type TranslateCtx,
 } from '../scripts/import-laddr/translators.js';
+import type { RawBlogPost } from '../scripts/import-laddr/json-fetcher.js';
 
 const exec = promisify(execFile);
 
@@ -377,6 +379,100 @@ describe('translateProject', () => {
   });
 });
 
+describe('translateBlogPost', () => {
+  it('maps the canonical happy-path row', () => {
+    const c = ctx();
+    // Author needs to be resolvable through idMaps.
+    c.idMaps.personByLegacy.set(12, '01951a3c-0000-7000-8000-000000000012');
+    const row: RawBlogPost = {
+      ID: 5,
+      Class: 'BlogPost',
+      Handle: 'civic-tech-roundup-2026',
+      Title: 'Civic Tech Roundup, May 2026',
+      Body: '# Heading\n\nA blog body.',
+      Summary: 'A short blurb.',
+      AuthorID: 12,
+      Published: 1746028800, // 2025-04-30
+      Created: 1746028800,
+      Modified: 1746028800,
+    };
+    const bp = translateBlogPost(row, c);
+    expect(bp).not.toBeNull();
+    expect(bp!.slug).toBe('civic-tech-roundup-2026');
+    expect(bp!.title).toBe('Civic Tech Roundup, May 2026');
+    expect(bp!.body).toBe('# Heading\n\nA blog body.');
+    expect(bp!.summary).toBe('A short blurb.');
+    expect(bp!.legacyId).toBe(5);
+    expect(bp!.authorId).toBe('01951a3c-0000-7000-8000-000000000012');
+    expect(bp!.postedAt).toBe('2025-04-30T16:00:00.000Z');
+    // No edit-window gap → editedAt undefined.
+    expect(bp!.editedAt).toBeUndefined();
+  });
+
+  it('falls back through Title → legacy-<id> when Handle is missing', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 9,
+      Class: 'BlogPost',
+      Title: 'A Hello Post',
+      Body: 'body',
+      Published: 1746028800,
+    };
+    const bp = translateBlogPost(row, c);
+    expect(bp).not.toBeNull();
+    expect(bp!.slug).toBe('a-hello-post');
+  });
+
+  it('warns and posts anonymously when AuthorID does not resolve', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 11,
+      Class: 'BlogPost',
+      Handle: 'orphan',
+      Title: 'Orphan',
+      Body: 'orphan',
+      AuthorID: 999,
+      Published: 1746028800,
+    };
+    const bp = translateBlogPost(row, c);
+    expect(bp).not.toBeNull();
+    expect(bp!.authorId).toBeUndefined();
+    expect(c.warnings.items.some((w) => w.includes('legacyId=11'))).toBe(true);
+  });
+
+  it('sets editedAt when Modified is >60s after Published', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 17,
+      Class: 'BlogPost',
+      Handle: 'edited',
+      Title: 'Edited',
+      Body: 'edited body',
+      Published: 1746028800,
+      Modified: 1746028800 + 3600, // +1 hour
+    };
+    const bp = translateBlogPost(row, c);
+    expect(bp!.editedAt).toBe('2025-04-30T17:00:00.000Z');
+  });
+
+  it('truncates an over-long summary to 500 chars with an ellipsis', () => {
+    const c = ctx();
+    const overlong = 'x'.repeat(600);
+    const row: RawBlogPost = {
+      ID: 23,
+      Class: 'BlogPost',
+      Handle: 'long-summary',
+      Title: 'Long Summary',
+      Body: 'body',
+      Summary: overlong,
+      Published: 1746028800,
+    };
+    const bp = translateBlogPost(row, c);
+    expect(bp!.summary?.length).toBe(498); // 497 + ellipsis (one codepoint)
+    expect(bp!.summary?.endsWith('…')).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // End-to-end orchestrator (using the in-memory fetch mock)
 // ---------------------------------------------------------------------------
@@ -414,6 +510,10 @@ async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> 
       "root = 'project-updates'\npath = '${{ projectSlug }}/${{ number }}'\n",
     ],
     ['project-buzz', "root = 'project-buzz'\npath = '${{ projectSlug }}/${{ slug }}'\n"],
+    [
+      'blog-posts',
+      "root = 'blog-posts'\npath = '${{ slug }}'\n\n[gitsheet.format]\ntype = 'markdown'\nbody = 'body'\n",
+    ],
     [
       'tag-assignments',
       "root = 'tag-assignments'\npath = '${{ taggableType }}/${{ taggableId }}/${{ tagId }}'\n",
@@ -544,6 +644,30 @@ function mockRoutes(): MockRoutes {
                 URL: 'https://news.example.com/transit-app',
                 Published: 1377126953,
                 Created: 1377126953,
+              },
+            ],
+            1,
+            200,
+            0,
+          ),
+        ],
+      ],
+      [
+        '/blog?format=json&limit=200&offset=0',
+        [
+          envelope(
+            [
+              {
+                ID: 900,
+                Class: 'BlogPost',
+                Handle: 'hello-philly',
+                Title: 'Hello Philly',
+                Body: '# Hello\n\nFirst blog post.',
+                Summary: 'A short hello.',
+                AuthorID: 10,
+                Published: 1377126953,
+                Created: 1377126953,
+                Modified: 1377126953,
               },
             ],
             1,
