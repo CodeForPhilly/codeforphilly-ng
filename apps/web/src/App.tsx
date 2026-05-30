@@ -25,6 +25,7 @@ import { Volunteer } from '@/screens/Volunteer';
 import { Sponsor } from '@/screens/Sponsor';
 import { ComingSoon } from '@/pages/ComingSoon';
 import { Contact } from '@/pages/Contact';
+import { StaticPage } from '@/pages/StaticPage';
 import { NotFound } from '@/pages/NotFound';
 import { LoginPlaceholder } from '@/pages/LoginPlaceholder';
 import { AccountClaim } from '@/pages/AccountClaim';
@@ -61,7 +62,7 @@ const router = createBrowserRouter([
       { path: '/sponsor', element: <Sponsor /> },
       { path: '/account', element: <Account /> },
       { path: '/search', element: <SearchRedirect /> },
-      { path: '/pages/:slug', element: <ComingSoon /> },
+      { path: '/pages/:slug', element: <StaticPage /> },
       { path: '/contact', element: <Contact /> },
       { path: '/login', element: <LoginPlaceholder /> },
       { path: '/account-claim', element: <AccountClaim /> },
