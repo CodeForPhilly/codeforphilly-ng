@@ -87,7 +87,7 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
   const githubAccount = new GitHubAccountService(state);
   fastify.decorate('services', {
     projects: new ProjectService(state, fts),
-    people: new PersonService(state, fts),
+    people: new PersonService(state, fts, fastify.store.private),
     tags: new TagService(state),
     projectUpdates: new ProjectUpdateService(state),
     projectBuzz: new ProjectBuzzService(state),

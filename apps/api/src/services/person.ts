@@ -4,6 +4,7 @@
 import type { Person, Project, ProjectMembership, ProjectUpdate } from '@cfp/shared/schemas';
 import type { InMemoryState } from '../store/memory/state.js';
 import type { FtsEngine } from '../store/fts.js';
+import type { PrivateStore } from '../store/private/interface.js';
 import { getPeopleFacets, type PeopleFacets } from '../store/memory/facets.js';
 import type { CallerSession } from './permissions.js';
 import { computePersonPermissions } from './permissions.js';
@@ -60,10 +61,12 @@ function comparePeople(a: Person, b: Person, sortSpec: Array<{ key: string; desc
 export class PersonService {
   readonly #state: InMemoryState;
   readonly #fts: FtsEngine;
+  readonly #privateStore: PrivateStore;
 
-  constructor(state: InMemoryState, fts: FtsEngine) {
+  constructor(state: InMemoryState, fts: FtsEngine, privateStore: PrivateStore) {
     this.#state = state;
     this.#fts = fts;
+    this.#privateStore = privateStore;
   }
 
   list(
@@ -133,7 +136,7 @@ export class PersonService {
     return { items, totalItems, facets };
   }
 
-  get(slug: string, caller?: CallerSession): PersonDetail | null {
+  async get(slug: string, caller?: CallerSession): Promise<PersonDetail | null> {
     const personId = this.#state.personIdBySlug.get(slug);
     if (!personId) return null;
     const person = this.#state.people.get(personId);
@@ -155,6 +158,16 @@ export class PersonService {
 
     const permissions = computePersonPermissions(caller, person);
 
+    // email is gated to self + staff per specs/screens/person-detail.md.
+    // The private-store read only happens when the caller is allowed to
+    // see it — anonymous reads stay free of any private-store touch.
+    const isSelf = caller?.id === person.id;
+    let visibleEmail: string | null = null;
+    if (isSelf || isStaff) {
+      const profile = await this.#privateStore.getProfile(person.id);
+      visibleEmail = profile?.email ?? null;
+    }
+
     return serializePersonDetail(person, {
       memberships,
       projectsMap,
@@ -165,6 +178,7 @@ export class PersonService {
       permissions,
       callerAccountLevel: caller?.accountLevel,
       callerPersonId: caller?.id,
+      visibleEmail,
     });
   }
 
