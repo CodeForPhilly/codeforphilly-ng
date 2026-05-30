@@ -403,17 +403,69 @@ describe('translateBlogPost', () => {
         },
       ],
     };
-    const bp = translateBlogPost(row, c);
-    expect(bp).not.toBeNull();
-    expect(bp!.slug).toBe('civic-tech-roundup-2026');
-    expect(bp!.title).toBe('Civic Tech Roundup, May 2026');
-    expect(bp!.body).toBe('# Heading\n\nA blog body.');
-    expect(bp!.summary).toBe('A short blurb.');
-    expect(bp!.legacyId).toBe(5);
-    expect(bp!.authorId).toBe('01951a3c-0000-7000-8000-000000000012');
-    expect(bp!.postedAt).toBe('2025-04-30T16:00:00.000Z');
+    const t = translateBlogPost(row, c);
+    expect(t).not.toBeNull();
+    expect(t!.record.slug).toBe('civic-tech-roundup-2026');
+    expect(t!.record.title).toBe('Civic Tech Roundup, May 2026');
+    expect(t!.record.body).toBe('# Heading\n\nA blog body.');
+    expect(t!.record.summary).toBe('A short blurb.');
+    expect(t!.record.legacyId).toBe(5);
+    expect(t!.record.authorId).toBe('01951a3c-0000-7000-8000-000000000012');
+    expect(t!.record.postedAt).toBe('2025-04-30T16:00:00.000Z');
     // No edit-window gap → editedAt undefined.
-    expect(bp!.editedAt).toBeUndefined();
+    expect(t!.record.editedAt).toBeUndefined();
+    // No media in this body — empty asset plan.
+    expect(t!.mediaAssets).toEqual([]);
+  });
+
+  it('emits placeholder URL + asset plan for a Media item', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 6,
+      Class: 'BlogPost',
+      Handle: 'one-photo',
+      Title: 'One Photo',
+      Published: 1746028800,
+      items: [
+        {
+          ID: 200,
+          Class: 'Emergence\\CMS\\Item\\Media',
+          Order: 1,
+          Data: { MediaID: 3349, Caption: '2023 Launchpad kick-off' },
+        },
+      ],
+    };
+    const t = translateBlogPost(row, c);
+    expect(t!.record.body).toBe('![2023 Launchpad kick-off](cfp-media:3349)');
+    expect(t!.mediaAssets).toEqual([
+      {
+        mediaId: 3349,
+        captionSlug: '2023-launchpad-kick-off',
+        ownerSlug: 'one-photo',
+        sourceUrl: 'https://codeforphilly.org/media/3349/original',
+      },
+    ]);
+  });
+
+  it('falls back to captionSlug "image" when Caption is empty', () => {
+    const c = ctx();
+    const row: RawBlogPost = {
+      ID: 7,
+      Class: 'BlogPost',
+      Handle: 'no-caption',
+      Title: 'No Caption',
+      Published: 1746028800,
+      items: [
+        {
+          ID: 210,
+          Class: 'Emergence\\CMS\\Item\\Media',
+          Order: 1,
+          Data: { MediaID: 5050, Caption: '' },
+        },
+      ],
+    };
+    const t = translateBlogPost(row, c);
+    expect(t!.mediaAssets[0]!.captionSlug).toBe('image');
   });
 
   it('assembles a body from interleaved Markdown / Media / Embed items', () => {
@@ -441,19 +493,26 @@ describe('translateBlogPost', () => {
           ID: 202,
           Class: 'Emergence\\CMS\\Item\\Embed',
           Order: 3,
-          Data: '<iframe src="https://www.youtube.com/embed/abc"></iframe>',
+          Data:
+            '<iframe src="https://www.youtube.com/embed/abc"></iframe>' +
+            '<img src="https://codeforphilly.org/thumbnail/1634/200x200">',
         },
       ],
     };
-    const bp = translateBlogPost(row, c);
-    expect(bp).not.toBeNull();
-    expect(bp!.body).toBe(
+    const t = translateBlogPost(row, c);
+    expect(t).not.toBeNull();
+    expect(t!.record.body).toBe(
       [
-        '![A photo](https://codeforphilly.org/thumbnail/3349/1920x1920)',
+        '![A photo](cfp-media:3349)',
         'Some intro markdown.',
-        '<iframe src="https://www.youtube.com/embed/abc"></iframe>',
+        '<iframe src="https://www.youtube.com/embed/abc"></iframe>' +
+          '<img src="cfp-media:1634">',
       ].join('\n\n'),
     );
+    // 3349 from the Media item + 1634 from the Embed scan.
+    expect(t!.mediaAssets.map((a) => a.mediaId).sort()).toEqual([1634, 3349]);
+    // YouTube iframe URL is third-party — not in the asset plan.
+    expect(t!.mediaAssets.find((a) => a.sourceUrl.includes('youtube'))).toBeUndefined();
   });
 
   it('sorts items by Order before assembling', () => {
@@ -469,11 +528,11 @@ describe('translateBlogPost', () => {
         { ID: 301, Class: 'Emergence\\CMS\\Item\\Markdown', Order: 1, Data: 'first' },
       ],
     };
-    const bp = translateBlogPost(row, c);
-    expect(bp!.body).toBe('first\n\nsecond');
+    const t = translateBlogPost(row, c);
+    expect(t!.record.body).toBe('first\n\nsecond');
   });
 
-  it('returns an empty body when items is absent', () => {
+  it('returns an empty body + no assets when items is absent', () => {
     const c = ctx();
     const row: RawBlogPost = {
       ID: 9,
@@ -482,8 +541,9 @@ describe('translateBlogPost', () => {
       Title: 'Bodiless',
       Published: 1746028800,
     };
-    const bp = translateBlogPost(row, c);
-    expect(bp!.body).toBe('');
+    const t = translateBlogPost(row, c);
+    expect(t!.record.body).toBe('');
+    expect(t!.mediaAssets).toEqual([]);
   });
 
   it('warns on unknown Item class but keeps the post', () => {
@@ -509,8 +569,8 @@ describe('translateBlogPost', () => {
         },
       ],
     };
-    const bp = translateBlogPost(row, c);
-    expect(bp!.body).toBe('still here');
+    const t = translateBlogPost(row, c);
+    expect(t!.record.body).toBe('still here');
     expect(c.warnings.items.some((w) => w.includes('item=400'))).toBe(true);
   });
 
@@ -522,9 +582,9 @@ describe('translateBlogPost', () => {
       Title: 'A Hello Post',
       Published: 1746028800,
     };
-    const bp = translateBlogPost(row, c);
-    expect(bp).not.toBeNull();
-    expect(bp!.slug).toBe('a-hello-post');
+    const t = translateBlogPost(row, c);
+    expect(t).not.toBeNull();
+    expect(t!.record.slug).toBe('a-hello-post');
   });
 
   it('warns and posts anonymously when AuthorID does not resolve', () => {
@@ -537,9 +597,9 @@ describe('translateBlogPost', () => {
       AuthorID: 999,
       Published: 1746028800,
     };
-    const bp = translateBlogPost(row, c);
-    expect(bp).not.toBeNull();
-    expect(bp!.authorId).toBeUndefined();
+    const t = translateBlogPost(row, c);
+    expect(t).not.toBeNull();
+    expect(t!.record.authorId).toBeUndefined();
     expect(c.warnings.items.some((w) => w.includes('legacyId=12'))).toBe(true);
   });
 
@@ -553,8 +613,8 @@ describe('translateBlogPost', () => {
       Published: 1746028800,
       Modified: 1746028800 + 3600, // +1 hour
     };
-    const bp = translateBlogPost(row, c);
-    expect(bp!.editedAt).toBe('2025-04-30T17:00:00.000Z');
+    const t = translateBlogPost(row, c);
+    expect(t!.record.editedAt).toBe('2025-04-30T17:00:00.000Z');
   });
 
   it('truncates an over-long summary to 500 chars with an ellipsis', () => {
@@ -568,9 +628,9 @@ describe('translateBlogPost', () => {
       Summary: overlong,
       Published: 1746028800,
     };
-    const bp = translateBlogPost(row, c);
-    expect(bp!.summary?.length).toBe(498); // 497 + ellipsis (one codepoint)
-    expect(bp!.summary?.endsWith('…')).toBe(true);
+    const t = translateBlogPost(row, c);
+    expect(t!.record.summary?.length).toBe(498); // 497 + ellipsis (one codepoint)
+    expect(t!.record.summary?.endsWith('…')).toBe(true);
   });
 });
 

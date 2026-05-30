@@ -655,15 +655,92 @@ export function translateBuzz(
 
 /**
  * Source host used for legacy media URLs in blog bodies. Items of class
- * `Emergence\CMS\Item\Media` reference a numeric `MediaID` resolved
- * against laddr's `/thumbnail/<id>/<dimensions>` endpoint; we render
- * those as `![Caption](https://<host>/thumbnail/<id>/1920x1920)` so the
- * markdown body stays viewable on its own. Eventually those images
- * should migrate into the data repo as attachments, but that's a
- * separate concern from this importer pass.
+ * `Emergence\CMS\Item\Media` reference a numeric `MediaID`. The importer
+ * fetches the **original** bytes from `https://<host>/media/<id>/original`
+ * at import time and stores them as gitsheets attachments scoped to the
+ * owning blog post. Runtime resizing (so a thumbnail card doesn't pull
+ * the full original) is tracked separately in
+ * https://github.com/CodeForPhilly/codeforphilly-ng/issues/108.
  */
 const LADDR_MEDIA_HOST = 'codeforphilly.org';
-const LADDR_MEDIA_DIMENSIONS = '1920x1920';
+
+/**
+ * Build the legacy laddr URL to fetch a media item's original bytes.
+ * Exported for the importer's pre-fetch phase.
+ */
+export function laddrMediaUrl(mediaId: number): string {
+  return `https://${LADDR_MEDIA_HOST}/media/${mediaId}/original`;
+}
+
+/**
+ * Sentinel placeholder format embedded in the markdown body at translate
+ * time. The importer's pre-fetch phase replaces each placeholder with the
+ * final `/api/attachments/blog-posts/<slug>/<filename>` URL once it knows
+ * the file extension (derived from the response Content-Type).
+ *
+ * Placeholder form: `cfp-media:<MediaID>`. Used as a URL substring inside
+ * `![](...)` markdown image syntax and inside Embed HTML `src` attributes.
+ */
+export function mediaPlaceholderUrl(mediaId: number): string {
+  return `cfp-media:${mediaId}`;
+}
+
+/**
+ * Slugify a string for use as a filename component. Simpler than `safeSlug` —
+ * no collision tracking, no warning side-effects; the call sites disambiguate
+ * via the MediaID suffix.
+ */
+function slugifyForFilename(input: string, maxLen = 80): string {
+  const cleaned = input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (cleaned.length === 0) return 'image';
+  return cleaned.slice(0, maxLen).replace(/-+$/, '');
+}
+
+export interface BlogMediaAsset {
+  /** laddr's numeric MediaID. */
+  readonly mediaId: number;
+  /** Caption slug component (without the `-<mediaId>` suffix or extension). */
+  readonly captionSlug: string;
+  /** Owning post's slug — determines the attachment subdirectory. */
+  readonly ownerSlug: string;
+  /** Where to fetch the original bytes from. */
+  readonly sourceUrl: string;
+}
+
+/**
+ * Scan an Embed item's raw HTML for legacy laddr media URLs and rewrite
+ * them inline to use the placeholder. Returns the rewritten HTML plus a
+ * list of asset descriptors discovered. Third-party URLs (YouTube iframes,
+ * external links) are left alone.
+ *
+ * URL pattern matched: `https?://codeforphilly.org/(thumbnail|media)/<id>/...`
+ * up to the first whitespace, `"`, `'`, `<`, or `)`. The MediaID is the
+ * capture group used to dedupe and key the asset; the path tail after the
+ * ID is discarded since we always fetch via `/media/<id>/original`.
+ */
+function rewriteEmbedHtml(
+  html: string,
+  ownerSlug: string,
+  collected: Map<number, BlogMediaAsset>,
+): string {
+  const re = /https?:\/\/codeforphilly\.org\/(?:thumbnail|media)\/(\d+)\/[^"'<\s)]+/g;
+  return html.replace(re, (_full, idStr: string) => {
+    const mediaId = Number(idStr);
+    if (!Number.isFinite(mediaId)) return _full;
+    if (!collected.has(mediaId)) {
+      collected.set(mediaId, {
+        mediaId,
+        captionSlug: 'image',
+        ownerSlug,
+        sourceUrl: laddrMediaUrl(mediaId),
+      });
+    }
+    return mediaPlaceholderUrl(mediaId);
+  });
+}
 
 /**
  * Assemble a blog post's markdown body from laddr's typed `items` array.
@@ -674,18 +751,28 @@ const LADDR_MEDIA_DIMENSIONS = '1920x1920';
  *   - `Emergence\CMS\Item\Markdown` — `Data` is the raw markdown string;
  *     append verbatim.
  *   - `Emergence\CMS\Item\Media` — `Data` is `{ MediaID, Caption }`;
- *     render as a markdown image with the laddr media URL.
- *   - `Emergence\CMS\Item\Embed` — `Data` is raw HTML (iframes, divs);
- *     append as a raw HTML block (legal in CommonMark).
+ *     render as a markdown image with a placeholder URL that the
+ *     importer's pre-fetch phase will resolve to a final
+ *     `/api/attachments/blog-posts/<slug>/<filename>` URL.
+ *   - `Emergence\CMS\Item\Embed` — `Data` is raw HTML (iframes, divs).
+ *     Append as a raw HTML block (legal in CommonMark); embedded
+ *     references to codeforphilly.org media URLs get rewritten to
+ *     placeholders inline.
+ *
+ * Returns the assembled body plus a deduped map of discovered media
+ * assets — same MediaID referenced twice (e.g., in two embeds) becomes
+ * one attachment.
  */
 function assembleBlogBody(
   items: readonly RawBlogPostItem[] | undefined,
   warnings: Warnings,
   legacyId: number,
-): string {
-  if (!items || items.length === 0) return '';
+  ownerSlug: string,
+): { body: string; mediaAssets: BlogMediaAsset[] } {
+  if (!items || items.length === 0) return { body: '', mediaAssets: [] };
   const sorted = [...items].sort((a, b) => (a.Order ?? 0) - (b.Order ?? 0));
   const blocks: string[] = [];
+  const collected = new Map<number, BlogMediaAsset>();
   for (const item of sorted) {
     if (item.Class.endsWith('Item\\Markdown')) {
       if (typeof item.Data === 'string') {
@@ -699,13 +786,29 @@ function assembleBlogBody(
         const captionText =
           typeof caption === 'string' && caption.trim().length > 0 ? caption.trim() : '';
         if (typeof mediaId === 'number') {
-          const url = `https://${LADDR_MEDIA_HOST}/thumbnail/${mediaId}/${LADDR_MEDIA_DIMENSIONS}`;
+          // Captioned items keep their caption in the slug component;
+          // un-captioned items fall back to "image". A subsequent
+          // reference to the same MediaID (rare) keeps the first
+          // caption seen.
+          if (!collected.has(mediaId)) {
+            collected.set(mediaId, {
+              mediaId,
+              captionSlug:
+                captionText.length > 0 ? slugifyForFilename(captionText) : 'image',
+              ownerSlug,
+              sourceUrl: laddrMediaUrl(mediaId),
+            });
+          }
+          const url = mediaPlaceholderUrl(mediaId);
           blocks.push(`![${captionText}](${url})`);
         }
       }
     } else if (item.Class.endsWith('Item\\Embed')) {
       if (typeof item.Data === 'string' && item.Data.trim().length > 0) {
-        blocks.push(item.Data);
+        // Rewrite legacy media URLs in the HTML to placeholders; third-
+        // party URLs (YouTube iframes etc.) pass through untouched.
+        const rewritten = rewriteEmbedHtml(item.Data, ownerSlug, collected);
+        blocks.push(rewritten);
       }
     } else {
       warnings.push(
@@ -713,25 +816,39 @@ function assembleBlogBody(
       );
     }
   }
-  // Markdown blocks separate cleanly with a blank line. markdownlint
-  // (run on gitsheets serialize) will normalize any drift.
-  return blocks.join('\n\n');
+  return {
+    body: blocks.join('\n\n'),
+    mediaAssets: [...collected.values()],
+  };
+}
+
+export interface BlogPostTranslation {
+  /** The validated record (still has placeholder URLs in `.body`). */
+  readonly record: BlogPost;
+  /**
+   * Media assets the importer needs to fetch + commit as attachments.
+   * Each item's `mediaId` corresponds to a `cfp-media:<mediaId>`
+   * placeholder occurrence in `record.body`.
+   */
+  readonly mediaAssets: readonly BlogMediaAsset[];
 }
 
 /**
- * Translate a laddr `BlogPost` row into a v1 `BlogPost` record.
+ * Translate a laddr `BlogPost` row into a v1 `BlogPost` record plus a
+ * media-asset plan.
  *
  * Slug source priority: `Handle` (laddr's URL-safe identifier) →
- * slugified `Title` → `legacy-<ID>`. Bodies are assembled from the
- * row's `items` array (see assembleBlogBody). `AuthorID` resolves via
- * the people-by-legacy map; an unresolved author is recorded as a
- * warning but doesn't block the post (the runtime treats
- * `authorId === null` as anonymous).
+ * slugified `Title` → `legacy-<ID>`. Bodies are assembled from the row's
+ * `items` array via `assembleBlogBody` — media references emit
+ * placeholder URLs (`cfp-media:<mediaId>`) that the importer resolves
+ * after fetching the bytes. `AuthorID` resolves via the people-by-legacy
+ * map; an unresolved author is recorded as a warning but doesn't block
+ * the post (runtime treats `authorId === null` as anonymous).
  */
 export function translateBlogPost(
   row: RawBlogPost,
   ctx: TranslateCtx,
-): BlogPost | null {
+): BlogPostTranslation | null {
   const legacyId = row.ID;
 
   const handle = nonEmptyStr(row.Handle);
@@ -768,14 +885,14 @@ export function translateBlogPost(
       ? epochToIsoOr(row.Modified, createdAt)
       : undefined;
 
-  const body = assembleBlogBody(row.items, ctx.warnings, legacyId);
+  const { body, mediaAssets } = assembleBlogBody(row.items, ctx.warnings, legacyId, slug);
   const summary = nonEmptyStr(row.Summary);
   // The schema caps summary at 500 chars; truncate longer laddr summaries
   // rather than failing validation on import.
   const truncatedSummary =
     summary === null ? undefined : summary.length > 500 ? summary.slice(0, 497) + '…' : summary;
 
-  return {
+  const record: BlogPost = {
     id,
     legacyId,
     slug,
@@ -788,6 +905,7 @@ export function translateBlogPost(
     createdAt,
     updatedAt,
   };
+  return { record, mediaAssets };
 }
 
 export interface TagAssignmentResult {
