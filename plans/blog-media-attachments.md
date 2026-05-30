@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/storage.md
   - specs/data-model.md
 issues: []
+pr: 109
 ---
 
 # Plan: capture blog post media as gitsheets attachments
@@ -101,12 +102,12 @@ Unknown content-type → warn + skip the asset (markdown link will 404, but the 
 
 ## Validation
 
-- [ ] Every `Item\Media` reference in the imported `blog-posts/*.md` files resolves to `/api/attachments/blog-posts/<slug>/<filename>`.
-- [ ] No `codeforphilly.org/(thumbnail|media)/...` URLs remain in any blog-post body.
-- [ ] Attachment bytes land in the data repo (a fresh clone has the assets without network access).
-- [ ] Filenames are human-readable when captions are present.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
-- [ ] Sandbox redeploy → re-import → merge to `published` → SPA renders blog posts with images served from the new pod.
+- [x] Every `Item\Media` reference in the imported `blog-posts/*.md` files resolves to `/api/attachments/blog-posts/<slug>/<filename>`.
+- [x] No `codeforphilly.org/(thumbnail|media)/...` URLs remain in any blog-post body.
+- [x] Attachment bytes land in the data repo (verified post-merge against the live pod).
+- [x] Filenames are human-readable when captions are present.
+- [x] `npm run type-check && npm run lint && npm test` clean — 340 API + all web + shared tests pass.
+- [x] Sandbox redeploy → re-import → merge to `published` → SPA renders blog posts with images served from the new pod.
 
 ## Risks / unknowns
 
@@ -117,8 +118,43 @@ Unknown content-type → warn + skip the asset (markdown link will 404, but the 
 
 ## Notes
 
-_(filled at done time)_
+Two commits: plan-open, impl + tests.
+
+Surprises:
+
+- **Translator return shape carried a real refactor.** Going from
+  `translateBlogPost(): BlogPost | null` to `(): { record,
+  mediaAssets } | null` rippled into the orchestrator's call site +
+  9 test assertions. The `.record.` prefix everywhere is a bit
+  verbose; future-me may want a destructured `{ record: bp, ... }`
+  alias at the top of each test. Worth flagging if a similar
+  refactor is needed for project-buzz.
+- **`?include=*` returns 28 fields per row vs. 17 without.** Mostly
+  Author/Creator/Modifier expansions (the polymorphic identity refs)
+  plus the `items` array. The Zod schema just `.passthrough()`es
+  them, so no shape work. But payload size doubles — 138 posts at
+  ~30 KB each (was ~15 KB). Still trivial.
+- **Filename collisions don't happen.** Each post has its own
+  subdir. Same MediaID across two different posts produces two
+  attachments (one per owner) — the git object DB dedupes the
+  bytes by content hash, so the actual repo cost is metadata
+  overhead per reference, not bytes.
+- **Placeholder substitution via `String.split().join()`.** Picked
+  over regex because the placeholder string `cfp-media:<id>` is a
+  literal — no regex-escape concern, and `split-join` is O(n) and
+  always-safe.
 
 ## Follow-ups
 
-_(filled at done time)_
+- **Runtime thumbnail service** — currently a 200×200 blog index card
+  pulls a full 2MB original. *Tracked as* —
+  [#108](https://github.com/CodeForPhilly/codeforphilly-ng/issues/108).
+- **Wire `featuredImageKey` to use the same attachment scheme.** The
+  schema field exists but the importer doesn't surface it (laddr's
+  JSON doesn't carry a "featured image" concept per blog post). If
+  someone wants a hero image on the detail screen, they'd pick the
+  first `Item\Media` from the body. *None* — let blog content
+  authors set it explicitly post-cutover via a future CMS surface.
+- **Lazy body loading.** When post count grows past ~100 the
+  full-bodies-in-memory cost becomes worth reconsidering. *Deferred
+  to plan* — `#45` already tracks this.
