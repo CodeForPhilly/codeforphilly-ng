@@ -205,6 +205,10 @@ export interface PersonDetail {
   readonly bio: string | null;
   readonly bioHtml: string;
   readonly accountLevel: string;
+  /** Public slack handle; renders as a DM link when present. */
+  readonly slackHandle: string | null;
+  /** Set for self + staff callers per specs/screens/person-detail.md. */
+  readonly email: string | null;
   readonly tags: { topic: TagItem[]; tech: TagItem[] };
   readonly memberships: PersonMembershipSummary[];
   readonly recentUpdates: ProjectUpdateSummary[];
