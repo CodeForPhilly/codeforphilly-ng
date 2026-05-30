@@ -75,6 +75,7 @@ import {
   type RawTag,
 } from './json-fetcher.js';
 import {
+  mediaPlaceholderUrl,
   newExistingIds,
   newIdMaps,
   translateBlogPost,
@@ -85,10 +86,12 @@ import {
   translateTag,
   translateTagAssignment,
   translateUpdate,
+  type BlogMediaAsset,
   type ExistingIds,
   type TranslateCtx,
   type Warnings,
 } from './translators.js';
+import { BlobObject } from 'hologit';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -182,6 +185,9 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   //    against the last even when nothing changed upstream.
   // -------------------------------------------------------------------------
   let store: PublicStore | null = null;
+  // Gitsheets Repository — needed to write attachment blobs via
+  // BlobObject.write into the underlying git object DB.
+  let publicRepo: Awaited<ReturnType<typeof openPublicStore>>['repo'] | null = null;
   let existingIds: ExistingIds;
 
   if (opts.dryRun) {
@@ -191,6 +197,7 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
     await ensureBranchCheckedOut(repo, branch, initialParent);
     const opened = await openPublicStore(repo);
     store = opened.store;
+    publicRepo = opened.repo;
     existingIds = await collectExistingIds(store, log);
   }
 
@@ -387,29 +394,33 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   }
 
   log(`[import] fetching blog from ${opts.sourceHost}`);
-  const blogPosts: BlogPost[] = [];
   // `?include=*` is the only way to get the body content — laddr stores
   // it as a typed `items` array on `AbstractContent`, not as a flat Body
-  // field. translateBlogPost assembles markdown from those items.
+  // field. translateBlogPost assembles markdown from those items and
+  // returns the record alongside a media-asset plan.
+  const blogTranslations: Array<{
+    record: BlogPost;
+    mediaAssets: readonly BlogMediaAsset[];
+  }> = [];
   for await (const row of fetchAllPages<RawBlogPost>(
     '/blog',
     RawBlogPostSchema,
     { include: '*' },
     fetchOpts,
   )) {
-    const bp = translateBlogPost(row, ctx);
-    if (bp === null) {
+    const t = translateBlogPost(row, ctx);
+    if (t === null) {
       counts['blog-posts']!.skipped++;
       continue;
     }
-    const parsedBp = parseOrSkip(
+    const parsedRecord = parseOrSkip(
       'blog-posts',
-      () => BlogPostSchema.parse(bp),
+      () => BlogPostSchema.parse(t.record),
       counts,
       warnings,
     );
-    if (parsedBp) {
-      blogPosts.push(parsedBp);
+    if (parsedRecord) {
+      blogTranslations.push({ record: parsedRecord, mediaAssets: t.mediaAssets });
       counts['blog-posts']!.imported++;
     }
   }
@@ -428,6 +439,26 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
       noChanges: false,
     };
   }
+
+  // -------------------------------------------------------------------------
+  // 2a. Pre-fetch blog post media assets.
+  //
+  // Each translated blog post may reference some number of laddr Media
+  // items by their numeric MediaID. We fetch the original bytes for each
+  // referenced MediaID, derive a content-type-aware filename, and rewrite
+  // the placeholder URLs in each post's body (`cfp-media:<id>`) to the
+  // final `/api/attachments/blog-posts/<slug>/<filename>` URL.
+  //
+  // Failed fetches don't block the import — the markdown link will 404
+  // at serve time, but the post itself still imports with the rest of
+  // its body intact.
+  // -------------------------------------------------------------------------
+  const mediaArtifactsBySlug = await fetchAndMaterializeBlogMedia(
+    blogTranslations,
+    fetchOpts,
+    log,
+    warnings,
+  );
 
   // -------------------------------------------------------------------------
   // 3. One atomic gitsheets transaction:
@@ -505,10 +536,31 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
         await tx['project-buzz'].upsert({ ...record, projectSlug } as ProjectBuzz);
       }
 
-      log(`[import] clear + upsert blog-posts (${blogPosts.length})`);
+      log(
+        `[import] clear + upsert blog-posts (${blogTranslations.length}) + media attachments`,
+      );
       await tx['blog-posts'].clear();
-      for (const post of blogPosts) {
-        await tx['blog-posts'].upsert(post);
+      if (publicRepo === null) {
+        throw new Error('[import-laddr] internal: publicRepo not opened');
+      }
+      const hologit = publicRepo.hologitRepo;
+      for (const { record } of blogTranslations) {
+        const artifacts = mediaArtifactsBySlug.get(record.slug) ?? [];
+        if (artifacts.length > 0) {
+          const blobs: Record<string, BlobObject> = {};
+          for (const a of artifacts) {
+            // BlobObject.write hashes the buffer into the git object DB.
+            // Same `as unknown as string` cast as the avatar route — the
+            // declared signature is too narrow; the underlying
+            // git-client `$putBlob` accepts Buffer at runtime.
+            blobs[a.filename] = await BlobObject.write(
+              hologit,
+              a.bytes as unknown as string,
+            );
+          }
+          await tx['blog-posts'].setAttachments(record, blobs);
+        }
+        await tx['blog-posts'].upsert(record);
       }
 
       log(`[import] clear + upsert tag-assignments (${tagAssignments.length})`);
@@ -729,4 +781,198 @@ async function collectExistingIds(
 
   log(`[import] pre-pass: preserved ${count} record UUIDs from previous snapshot`);
   return ids;
+}
+
+// ---------------------------------------------------------------------------
+// Blog media pre-fetch + materialization
+// ---------------------------------------------------------------------------
+
+/**
+ * One materialized attachment ready to be written into the gitsheets tree.
+ */
+interface BlogMediaArtifact {
+  /** Filename (with extension) — relative to `blog-posts/<slug>/`. */
+  readonly filename: string;
+  /** Original bytes. */
+  readonly bytes: Buffer;
+}
+
+/** Content-Type → file extension. Unknown types → null (skipped). */
+const EXT_BY_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+  'image/svg+xml': 'svg',
+};
+
+function extFromContentType(contentType: string | null): string | null {
+  if (!contentType) return null;
+  // `image/jpeg; charset=…` → `image/jpeg`.
+  const base = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+  return EXT_BY_MIME[base] ?? null;
+}
+
+/**
+ * Fetch one media asset's bytes + content-type. Returns null on any
+ * non-2xx or unexpected error — the import shouldn't abort because one
+ * image disappeared upstream.
+ */
+async function fetchMediaBytes(
+  url: string,
+  fetchImpl: typeof fetch,
+  userAgent: string,
+): Promise<{ bytes: Buffer; contentType: string | null } | null> {
+  try {
+    const res = await fetchImpl(url, {
+      headers: { 'User-Agent': userAgent },
+    });
+    if (!res.ok) return null;
+    const ab = await res.arrayBuffer();
+    return {
+      bytes: Buffer.from(ab),
+      contentType: res.headers.get('content-type'),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch every distinct media asset referenced across all blog posts,
+ * derive the final filename per asset, then rewrite each post's body to
+ * replace `cfp-media:<id>` placeholders with the final
+ * `/api/attachments/blog-posts/<slug>/<filename>` URL.
+ *
+ * Returns the map of artifacts keyed by post slug, ready for the
+ * transact callback to wire into gitsheets via setAttachments.
+ *
+ * Same MediaID can appear in multiple posts (rare but possible). Each
+ * post gets its own copy of the asset under its own subdir — the
+ * git object DB dedupes the bytes by content hash, so the repo size
+ * cost is the metadata overhead per reference, not the bytes.
+ *
+ * Concurrency: 4 parallel fetches at a time (a politeness compromise
+ * — fewer would slow imports; more would hammer laddr). The JSON
+ * fetcher's per-page `delayMs` doesn't apply here since these are
+ * binary endpoints, not paged JSON.
+ */
+async function fetchAndMaterializeBlogMedia(
+  blogTranslations: Array<{ record: BlogPost; mediaAssets: readonly BlogMediaAsset[] }>,
+  fetchOpts: FetchOptions,
+  log: (msg: string) => void,
+  warnings: Warnings,
+): Promise<Map<string, BlogMediaArtifact[]>> {
+  const fetchImpl = fetchOpts.fetchImpl ?? fetch;
+  const userAgent = fetchOpts.userAgent ?? 'cfp-importer/dev';
+
+  // Flatten so we can drive parallel fetches across all posts.
+  const flat: Array<{
+    ownerSlug: string;
+    asset: BlogMediaAsset;
+  }> = [];
+  for (const { record, mediaAssets } of blogTranslations) {
+    for (const asset of mediaAssets) {
+      flat.push({ ownerSlug: record.slug, asset });
+    }
+  }
+
+  log(`[import] fetching ${flat.length} blog media assets`);
+
+  /** What the fetch loop produces per asset. */
+  interface FetchedAsset {
+    readonly ownerSlug: string;
+    readonly asset: BlogMediaAsset;
+    readonly bytes: Buffer | null;
+    readonly ext: string | null;
+  }
+
+  const results: FetchedAsset[] = [];
+  const CONCURRENCY = 4;
+  let cursor = 0;
+  const workers: Promise<void>[] = [];
+  for (let w = 0; w < CONCURRENCY; w++) {
+    workers.push(
+      (async () => {
+        while (true) {
+          const idx = cursor++;
+          if (idx >= flat.length) return;
+          const entry = flat[idx]!;
+          const fetched = await fetchMediaBytes(entry.asset.sourceUrl, fetchImpl, userAgent);
+          if (fetched === null) {
+            warnings.push(
+              `[blog-posts] media fetch failed: ${entry.asset.sourceUrl} (referenced by /${entry.ownerSlug})`,
+            );
+            results.push({
+              ownerSlug: entry.ownerSlug,
+              asset: entry.asset,
+              bytes: null,
+              ext: null,
+            });
+            continue;
+          }
+          const ext = extFromContentType(fetched.contentType);
+          if (ext === null) {
+            warnings.push(
+              `[blog-posts] media ${entry.asset.sourceUrl} returned unsupported Content-Type ${JSON.stringify(fetched.contentType)}; skipped`,
+            );
+            results.push({
+              ownerSlug: entry.ownerSlug,
+              asset: entry.asset,
+              bytes: null,
+              ext: null,
+            });
+            continue;
+          }
+          results.push({
+            ownerSlug: entry.ownerSlug,
+            asset: entry.asset,
+            bytes: fetched.bytes,
+            ext,
+          });
+        }
+      })(),
+    );
+  }
+  await Promise.all(workers);
+
+  // Build the placeholder → final URL substitution table per post, plus
+  // the artifact list keyed by post slug.
+  const artifactsBySlug = new Map<string, BlogMediaArtifact[]>();
+  const substitutionByPost = new Map<string, Map<string, string>>();
+  for (const r of results) {
+    if (r.bytes === null || r.ext === null) continue;
+    const filename = `${r.asset.captionSlug}-${r.asset.mediaId}.${r.ext}`;
+    const finalUrl = `/api/attachments/blog-posts/${r.ownerSlug}/${filename}`;
+
+    let arts = artifactsBySlug.get(r.ownerSlug);
+    if (!arts) {
+      arts = [];
+      artifactsBySlug.set(r.ownerSlug, arts);
+    }
+    arts.push({ filename, bytes: r.bytes });
+
+    let subs = substitutionByPost.get(r.ownerSlug);
+    if (!subs) {
+      subs = new Map();
+      substitutionByPost.set(r.ownerSlug, subs);
+    }
+    subs.set(mediaPlaceholderUrl(r.asset.mediaId), finalUrl);
+  }
+
+  // Walk records and substitute placeholders in their bodies.
+  for (const t of blogTranslations) {
+    const subs = substitutionByPost.get(t.record.slug);
+    if (!subs || subs.size === 0) continue;
+    let body = t.record.body;
+    for (const [placeholder, finalUrl] of subs) {
+      body = body.split(placeholder).join(finalUrl);
+    }
+    // Mutate the record in place — it's been Zod-validated already and
+    // the schema just requires `body: string`, no need to reparse.
+    (t.record as { body: string }).body = body;
+  }
+
+  return artifactsBySlug;
 }
