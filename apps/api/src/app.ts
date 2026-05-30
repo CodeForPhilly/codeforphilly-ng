@@ -57,6 +57,7 @@ import { helpWantedRoutes } from './routes/projects-help-wanted.js';
 import { projectMembershipRoutes } from './routes/projects-members.js';
 import { previewRoutes } from './routes/preview.js';
 import { attachmentRoutes } from './routes/attachments.js';
+import { chatRoutes } from './routes/chat.js';
 import { samlRoutes } from './routes/saml.js';
 import { internalRoutes } from './routes/internal.js';
 
@@ -194,6 +195,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(projectMembershipRoutes);
   await fastify.register(previewRoutes);
   await fastify.register(attachmentRoutes);
+  await fastify.register(chatRoutes);
   await fastify.register(samlRoutes);
   await fastify.register(internalRoutes);
 
