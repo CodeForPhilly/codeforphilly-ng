@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: [screen-gaps-phase2]
 specs:
   - specs/behaviors/app-shell.md
 issues: [83]
+pr: 104
 ---
 
 # Plan: screen-gaps phase 3 — static `/pages/:slug` content
@@ -69,11 +70,11 @@ Reuse the existing typographic styles from `MarkdownView.tsx` (a `prose` contain
 
 ## Validation
 
-- [ ] `npm install marked` lands as its own commit.
-- [ ] `apps/web/src/content/pages/` has 4 markdown files.
-- [ ] `/pages/mission`, `/pages/leadership`, `/pages/code-of-conduct`, `/pages/hackathons` all render their content.
-- [ ] `/pages/nonexistent` renders the NotFound screen.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] `npm install marked` lands as its own commit.
+- [x] `apps/web/src/content/pages/` has 4 markdown files.
+- [x] `/pages/mission`, `/pages/leadership`, `/pages/code-of-conduct`, `/pages/hackathons` all render their content.
+- [x] `/pages/nonexistent` renders the NotFound screen.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -83,8 +84,38 @@ Reuse the existing typographic styles from `MarkdownView.tsx` (a `prose` contain
 
 ## Notes
 
-*(filled at done time)*
+Three commits: plan-open, `npm install marked` (with the exact
+command in the body, per the generated-files-commit-first convention),
+content + StaticPage + tests.
+
+Surprises:
+
+- **`marked.parse` is sync-by-default in v18.** Earlier versions
+  returned `string | Promise<string>` depending on extension config;
+  v18+ defaults to sync unless a custom async extension is registered.
+  The `{ async: false }` arg is belt-and-suspenders.
+- **The `prose` class duplication.** `MarkdownView.tsx` and
+  `StaticPage.tsx` carry similar Tailwind `prose` configs. Considered
+  extracting to a shared wrapper, but the consumers diverge subtly:
+  `MarkdownView` is for compact embedded markdown (project overviews,
+  update bodies) and uses `prose-sm`; `StaticPage` is for full-width
+  documentation and uses `prose-sm sm:prose-base`. Plus heading scales
+  differ. Three-similar-lines vs. premature abstraction — kept the
+  copy.
+- **No DOMPurify dance.** Static-page content is build-time-static
+  source; no XSS surface. `dangerouslySetInnerHTML` is the right tool
+  here even though the name reads scary.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Port real copy from the legacy site.** Each of the four pages
+  carries placeholder text that names itself as such. The real text
+  lives at `codeforphilly.org/site-root/pages/`. *Tracked as* —
+  content-PR task; will file a tracking issue when content review
+  has someone owning it.
+- **Phase 4 — `/projects/:slug/buzz/new` form** stays the last open
+  piece of [#83](https://github.com/CodeForPhilly/codeforphilly-ng/issues/83). *Deferred to plan* — `plans/buzz-new-form.md`.
+- **MDX upgrade.** If `/pages/leadership` ever needs to render
+  embedded React components (e.g., a live leadership-roster card),
+  swap to `@mdx-js/rollup`. *None* for v1 — pure markdown is
+  sufficient.
