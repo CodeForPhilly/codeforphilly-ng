@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/help-wanted-roles.md
   - specs/api/projects-help-wanted.md
 issues: [82]
+pr: 98
 ---
 
 # Plan: Real notifier — email-only first cut
@@ -115,13 +116,14 @@ Logging fallback keeps tests + dev working without setup.
 
 ## Validation
 
-- [ ] `EmailNotifier.notifyHelpWantedInterest` calls Resend with the right payload.
-- [ ] Missing maintainer email → `delivered: false`, no Resend call, warning logged.
-- [ ] Resend SDK throwing → `delivered: false`, error logged, **request still returns 202** (verified at route level).
-- [ ] When `RESEND_API_KEY` is unset, the services plugin installs `LoggingNotifier` instead — existing tests unaffected.
-- [ ] `CFP_NOTIFICATION_FROM` env defaults sensibly.
-- [ ] Templates render with the expected interpolations (snapshot or assertion tests).
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] `EmailNotifier.notifyHelpWantedInterest` calls Resend with the right payload (subject + text + html + maintainer email + sender).
+- [x] Missing maintainer email → `delivered: false`, no Resend call, warning logged.
+- [x] Resend SDK throwing → `delivered: false`, error logged.
+- [x] Resend reporting `{ error }` (e.g. unverified sender domain) → `delivered: false`, error logged.
+- [x] When `RESEND_API_KEY` is unset, services plugin installs `LoggingNotifier` — all 290 pre-existing API tests unaffected.
+- [x] `CFP_NOTIFICATION_FROM` defaults to `"Code for Philly <notifications@codeforphilly.org>"` via env JSON schema.
+- [x] Templates: interest body interpolates name/slug/role/project/message; HTML escapes user content (`<script>` → `&lt;script&gt;`); message blockquote omitted when message is null. Filled body names the filler when set; omits the link when null.
+- [x] `npm run type-check && npm run lint` clean; 302/302 API tests pass (290 pre-existing + 11 new + 1 already counted from earlier batches).
 
 ## Risks / unknowns
 
@@ -132,8 +134,19 @@ Logging fallback keeps tests + dev working without setup.
 
 ## Notes
 
-*(filled at done time)*
+Four implementation commits — status-flip + resend dep + impl + closeout.
+
+Surprises:
+
+- **HTML escaping was load-bearing.** Templates pull `interestedPersonFullName`, `roleTitle`, etc. straight from user-provided fields. Without escaping, a maliciously-named role title (`<script>alert(1)</script>`) would render as live HTML in the maintainer's email client. Added a small `escapeHtml()` helper + an explicit test that confirms `<script>` becomes `&lt;script&gt;` in the output.
+- **Resend SDK's two failure shapes.** The SDK can either throw (network blip, malformed args) OR resolve with `{ data: null, error: { message } }` (Resend's API rejected the send — e.g. unverified sender domain). Both paths translate to `delivered: false`; the error log lines differ slightly so operators can distinguish them.
+- **Unset-API-key fallback was the right call.** Falling back to `LoggingNotifier` when `RESEND_API_KEY` is absent kept every existing test passing without configuration. Also means an operator can deploy this code without setting up Resend first; notifications drop to logs silently until the secret lands.
+- **`Resend.emails.send` takes both `text` and `html`.** Sending both gives email clients that prefer plain-text the same content; some inbox apps' preview panes also render text first.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Newsletter export endpoint.** The user-facing per-account `newsletter` field is wired (PATCH /api/people/:slug/newsletter), but there's no staff export to feed an actual newsletter sender. Spec exists in `behaviors/private-storage.md → listAllProfiles`; not part of this issue.
+- **Bounce / complaint webhooks.** Resend can POST delivery events back to us; we don't subscribe. A dead maintainer email silently fails. Worth doing if/when we surface "your contact email looks broken" UI on the project page.
+- **PII redaction in logs.** Notifier logs the maintainer's email on Resend failure. Write-only path (no API surface that exposes it), but worth tightening to hash+domain when we do a broader PII-in-logs sweep.
+- **Slack DM channel** — tracked at [#95](https://github.com/CodeForPhilly/codeforphilly-ng/issues/95). Depends on deeper Slack integration trust (separate spec). When it lands, compose alongside EmailNotifier via a CompoundNotifier.
+- **Templating engine.** Inline string concatenation is fine for two short templates. If we add 3+ more notification kinds (welcome on signup, auto-aging reminders), pull templates into a small TS-native template module rather than dragging in mjml/handlebars.
