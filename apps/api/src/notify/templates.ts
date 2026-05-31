@@ -9,6 +9,7 @@
 import type {
   HelpWantedFillNotification,
   HelpWantedInterestNotification,
+  PasswordResetNotification,
   WelcomeNotification,
 } from './index.js';
 
@@ -182,6 +183,85 @@ export function renderFilledEmail(
   <p style="color: #666; font-size: 0.875rem;">
     You're receiving this because you're the maintainer of
     ${escapeHtml(n.projectTitle)} on Code for Philly.
+  </p>
+</body>
+</html>`;
+
+  return { subject, text, html };
+}
+
+export interface PasswordResetTemplate {
+  readonly subject: string;
+  readonly text: string;
+  readonly html: string;
+}
+
+/**
+ * Render a password-reset email. The `siteHost` is needed to build the
+ * reset link; the token rides in the URL fragment so it doesn't end up
+ * in HTTP referer headers when the user clicks through.
+ *
+ * Per specs/api/auth.md `POST /api/auth/password-reset/request`.
+ */
+export function renderPasswordResetEmail(
+  n: PasswordResetNotification,
+  siteHost: string,
+): PasswordResetTemplate {
+  const resetUrl = `https://${siteHost}/login/reset?token=${encodeURIComponent(n.token)}`;
+  const subject = `Reset your Code for Philly password`;
+  const expiresDate = new Date(n.expiresAt);
+  const expiresHuman = expiresDate.toLocaleString('en-US', {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const text = [
+    `Hey ${n.fullName},`,
+    '',
+    `Someone requested a password reset for your Code for Philly account.`,
+    `If that was you, click the link below to set a new password.`,
+    `If it wasn't, you can safely ignore this email — your account is fine.`,
+    '',
+    `Reset link: ${resetUrl}`,
+    '',
+    `This link expires at ${expiresHuman} UTC (about 1 hour from when we sent it).`,
+    '',
+    `If you've forgotten your password and have a GitHub account that uses the same email,`,
+    `you can also sign in directly with GitHub at https://${siteHost}/login.`,
+    '',
+    `— Code for Philly`,
+  ].join('\n');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<body style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 0 auto; padding: 1rem; color: #111;">
+  <p>Hey <strong>${escapeHtml(n.fullName)}</strong>,</p>
+  <p>
+    Someone requested a password reset for your Code for Philly account.
+    If that was you, click the button below to set a new password.
+    If it wasn't, you can safely ignore this email — your account is fine.
+  </p>
+  <p style="text-align: center; margin: 1.5rem 0;">
+    <a href="${resetUrl}" style="display: inline-block; padding: 0.75rem 1.5rem; background: #0366d6; color: white; text-decoration: none; border-radius: 0.25rem;">
+      Reset password
+    </a>
+  </p>
+  <p style="color: #666; font-size: 0.875rem;">
+    Or paste this link into your browser:<br>
+    <a href="${resetUrl}" style="word-break: break-all;">${escapeHtml(resetUrl)}</a>
+  </p>
+  <p style="color: #666; font-size: 0.875rem;">
+    This link expires at ${escapeHtml(expiresHuman)} UTC (about 1 hour from when we sent it).
+  </p>
+  <hr style="border: none; border-top: 1px solid #eee; margin: 2rem 0;">
+  <p style="color: #666; font-size: 0.875rem;">
+    Already have a GitHub account that uses the same email? You can sign in
+    directly with GitHub at <a href="https://${siteHost}/login">https://${siteHost}/login</a>
+    instead.
   </p>
 </body>
 </html>`;

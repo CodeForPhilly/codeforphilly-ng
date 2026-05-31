@@ -1,6 +1,7 @@
 import type {
   AccountClaimRequest,
   LegacyPasswordCredential,
+  PasswordToken,
   PrivateProfile,
 } from '@cfp/shared/schemas';
 
@@ -53,6 +54,11 @@ export interface PrivateStore {
   putLegacyPassword(cred: LegacyPasswordCredential): Promise<void>;
   deleteLegacyPassword(personId: string): Promise<void>;
   countLegacyPasswords(): Promise<number>;
+
+  // --- Password-reset tokens ---
+  getPasswordToken(tokenHash: string): Promise<PasswordToken | null>;
+  putPasswordToken(token: PasswordToken): Promise<void>;
+  deletePasswordToken(tokenHash: string): Promise<void>;
 
   // --- Account-claim requests ---
   getClaimRequest(requestId: string): Promise<AccountClaimRequest | null>;

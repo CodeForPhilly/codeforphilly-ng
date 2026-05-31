@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import {
   Card,
   CardContent,
@@ -265,6 +265,13 @@ function LegacyPasswordLogin({ onSuccess }: LegacyPasswordLoginProps) {
       >
         {submitting ? 'Signing in…' : 'Sign in'}
       </Button>
+
+      <Link
+        to="/login/forgot"
+        className="text-sm text-muted-foreground hover:text-foreground underline-offset-2 hover:underline self-center"
+      >
+        Forgot your password?
+      </Link>
     </form>
   );
 }

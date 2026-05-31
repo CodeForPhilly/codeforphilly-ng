@@ -10,6 +10,7 @@
  *   GET  /api/auth/sessions
  *   POST /api/auth/sessions/:jti/revoke
  */
+import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { errors as JoseErrors } from 'jose';
 import { ok } from '../lib/response.js';
@@ -30,7 +31,7 @@ import {
   verifyLegacyPassword,
 } from '../auth/legacy-password.js';
 import type { SessionMeta } from '../auth/session-metadata.js';
-import type { LegacyPasswordCredential } from '@cfp/shared/schemas';
+import type { LegacyPasswordCredential, PasswordToken } from '@cfp/shared/schemas';
 import {
   generateCsrfState,
   generatePkceVerifier,
@@ -366,6 +367,168 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         { loginMethod: 'legacy_password' },
       );
       await persistSessionMetadata(fastify, request, tokens.refreshJti, personId);
+
+      setSessionCookies(
+        reply,
+        { access: tokens.access, refresh: tokens.refresh },
+        fastify.config.NODE_ENV,
+      );
+
+      return ok({ person });
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /api/auth/password-reset/request — email a one-time reset link
+  // ---------------------------------------------------------------------------
+  //
+  // Spec: specs/api/auth.md `POST /api/auth/password-reset/request`. Always
+  // returns 202 regardless of whether the address resolved — anti-enumeration.
+  // The notifier send is fire-and-forget so wall-clock timing across all
+  // "did nothing" branches matches the "queued an email" branch.
+  // ---------------------------------------------------------------------------
+
+  fastify.post(
+    '/api/auth/password-reset/request',
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'Request a password-reset link',
+        body: {
+          type: 'object',
+          properties: {
+            usernameOrEmail: { type: 'string', minLength: 1 },
+          },
+          required: ['usernameOrEmail'],
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { usernameOrEmail } = request.body as { usernameOrEmail: string };
+      const trimmed = usernameOrEmail.trim();
+
+      // Resolve to a personId. Same convention as /api/auth/login: slug
+      // first, then email if it looks like one.
+      let personId = fastify.inMemoryState.personIdBySlug.get(trimmed.toLowerCase()) ?? null;
+      if (!personId && trimmed.includes('@')) {
+        personId = await fastify.store.private.findPersonIdByEmail(trimmed.toLowerCase());
+      }
+
+      // Three silent no-ops, all converging to 202: unresolved person,
+      // deleted person, or no LegacyPasswordCredential on file. The last
+      // matters because specs/api/auth.md § Notes guarantees that
+      // password-reset never *creates* a credential for a person who
+      // doesn't already have one — GitHub-only signups can't reset into
+      // a password account.
+      const person = personId ? fastify.inMemoryState.people.get(personId) : null;
+      const cred = personId ? await fastify.store.private.getLegacyPassword(personId) : null;
+      const profile = personId ? await fastify.store.private.getProfile(personId) : null;
+
+      if (personId && person && !person.deletedAt && cred && profile?.email) {
+        const plaintext = randomBytes(32).toString('base64url');
+        const tokenHash = createHash('sha256').update(plaintext).digest('hex');
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
+        const tokenRecord: PasswordToken = {
+          tokenHash,
+          personId,
+          issuedAt: now.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+          usedAt: null,
+        };
+        await fastify.store.private.putPasswordToken(tokenRecord);
+
+        // Fire-and-forget — never block the response on Resend latency.
+        void fastify.notifier
+          .notifyPasswordReset({
+            email: profile.email,
+            fullName: person.fullName,
+            slug: person.slug,
+            token: plaintext,
+            expiresAt: expiresAt.toISOString(),
+          })
+          .catch((err) => {
+            fastify.log.error({ err, slug: person.slug }, 'password-reset notification threw');
+          });
+      }
+
+      return reply.code(202).send(ok({ delivered: true }));
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /api/auth/password-reset/confirm — consume token + set new password
+  // ---------------------------------------------------------------------------
+  //
+  // Spec: specs/api/auth.md `POST /api/auth/password-reset/confirm`. All
+  // failure modes — unknown token, expired token, already-used token,
+  // missing person, missing credential — collapse to a uniform 401
+  // `invalid_token` so an attacker can't distinguish.
+  //
+  // Successful confirm mints a session with loginMethod 'password_reset'
+  // so the SPA can recognize this path and surface the "link GitHub for
+  // faster sign-in" prompt on the first /account view.
+  // ---------------------------------------------------------------------------
+
+  fastify.post(
+    '/api/auth/password-reset/confirm',
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'Confirm a password reset',
+        body: {
+          type: 'object',
+          properties: {
+            token: { type: 'string', minLength: 1 },
+            password: { type: 'string', minLength: 8 },
+          },
+          required: ['token', 'password'],
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token, password } = request.body as { token: string; password: string };
+
+      const tokenHash = createHash('sha256').update(token).digest('hex');
+      const record = await fastify.store.private.getPasswordToken(tokenHash);
+
+      const now = new Date();
+      if (!record || record.usedAt || new Date(record.expiresAt) <= now) {
+        throw new UnauthenticatedError('Invalid or expired token', 'invalid_token');
+      }
+
+      const person = fastify.inMemoryState.people.get(record.personId);
+      if (!person || person.deletedAt) {
+        throw new UnauthenticatedError('Invalid or expired token', 'invalid_token');
+      }
+
+      const existing = await fastify.store.private.getLegacyPassword(record.personId);
+      if (!existing) {
+        // Per specs/api/auth.md § Notes: password-reset never *creates*
+        // a credential for a person who doesn't already have one.
+        throw new UnauthenticatedError('Invalid or expired token', 'invalid_token');
+      }
+
+      const newHash = await rehashPassword(password);
+      const updated: LegacyPasswordCredential = {
+        ...existing,
+        passwordHash: newHash,
+        lastUsedAt: now.toISOString(),
+      };
+      await fastify.store.private.putLegacyPassword(updated);
+
+      const consumed: PasswordToken = { ...record, usedAt: now.toISOString() };
+      await fastify.store.private.putPasswordToken(consumed);
+
+      const tokens = await issueSession(
+        record.personId,
+        person.accountLevel,
+        fastify.config.CFP_JWT_SIGNING_KEY,
+        { loginMethod: 'password_reset' },
+      );
+      await persistSessionMetadata(fastify, request, tokens.refreshJti, record.personId);
 
       setSessionCookies(
         reply,

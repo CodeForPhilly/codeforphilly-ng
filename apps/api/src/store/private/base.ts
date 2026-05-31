@@ -1,11 +1,13 @@
 import {
   AccountClaimRequestSchema,
   LegacyPasswordCredentialSchema,
+  PasswordTokenSchema,
   PrivateProfileSchema,
 } from '@cfp/shared/schemas';
 import type {
   AccountClaimRequest,
   LegacyPasswordCredential,
+  PasswordToken,
   PrivateProfile,
 } from '@cfp/shared/schemas';
 import type { PrivateIndices, PrivateStore, PrivateStoreTx } from './interface.js';
@@ -19,6 +21,7 @@ import type { PrivateIndices, PrivateStore, PrivateStoreTx } from './interface.j
 export abstract class BasePrivateStore implements PrivateStore {
   protected profiles: Map<string, PrivateProfile> = new Map();
   protected legacyPasswords: Map<string, LegacyPasswordCredential> = new Map();
+  protected passwordTokens: Map<string, PasswordToken> = new Map();
   protected claimRequests: Map<string, AccountClaimRequest> = new Map();
 
   readonly indices: PrivateIndices = {
@@ -36,6 +39,7 @@ export abstract class BasePrivateStore implements PrivateStore {
     await Promise.all([
       this.loadProfiles(),
       this.loadLegacyPasswords(),
+      this.loadPasswordTokens(),
       this.loadClaimRequests(),
     ]);
     this.rebuildIndices();
@@ -58,6 +62,11 @@ export abstract class BasePrivateStore implements PrivateStore {
   private async loadClaimRequests(): Promise<void> {
     const raw = await this.readRaw('account-claim-requests.jsonl');
     this.claimRequests = parseJsonl(raw, AccountClaimRequestSchema, 'id');
+  }
+
+  private async loadPasswordTokens(): Promise<void> {
+    const raw = await this.readRaw('password-tokens.jsonl');
+    this.passwordTokens = parseJsonl(raw, PasswordTokenSchema, 'tokenHash');
   }
 
   private rebuildIndices(): void {
@@ -117,6 +126,21 @@ export abstract class BasePrivateStore implements PrivateStore {
 
   async countLegacyPasswords(): Promise<number> {
     return this.legacyPasswords.size;
+  }
+
+  async getPasswordToken(tokenHash: string): Promise<PasswordToken | null> {
+    return this.passwordTokens.get(tokenHash) ?? null;
+  }
+
+  async putPasswordToken(token: PasswordToken): Promise<void> {
+    const parsed = PasswordTokenSchema.parse(token);
+    this.passwordTokens.set(parsed.tokenHash, parsed);
+    await this.flushPasswordTokens();
+  }
+
+  async deletePasswordToken(tokenHash: string): Promise<void> {
+    this.passwordTokens.delete(tokenHash);
+    await this.flushPasswordTokens();
   }
 
   async getClaimRequest(requestId: string): Promise<AccountClaimRequest | null> {
@@ -258,12 +282,17 @@ export abstract class BasePrivateStore implements PrivateStore {
     const lines = [...this.claimRequests.values()].map((r) => JSON.stringify(r)).join('\n');
     await this.writeRaw('account-claim-requests.jsonl', lines ? lines + '\n' : '');
   }
+
+  protected async flushPasswordTokens(): Promise<void> {
+    const lines = [...this.passwordTokens.values()].map((t) => JSON.stringify(t)).join('\n');
+    await this.writeRaw('password-tokens.jsonl', lines ? lines + '\n' : '');
+  }
 }
 
 function parseJsonl<T>(
   raw: string | null,
   schema: { parse: (input: unknown) => T },
-  keyField: 'personId' | 'id' = 'personId',
+  keyField: 'personId' | 'id' | 'tokenHash' = 'personId',
 ): Map<string, T> {
   const map = new Map<string, T>();
   if (!raw) return map;

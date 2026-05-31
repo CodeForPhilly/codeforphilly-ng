@@ -40,5 +40,8 @@ export type { PrivateProfile, Newsletter } from './private-profile.js';
 export { LegacyPasswordCredentialSchema } from './legacy-password-credential.js';
 export type { LegacyPasswordCredential } from './legacy-password-credential.js';
 
+export { PasswordTokenSchema } from './password-token.js';
+export type { PasswordToken } from './password-token.js';
+
 export { AccountClaimRequestSchema } from './account-claim-request.js';
 export type { AccountClaimRequest } from './account-claim-request.js';
