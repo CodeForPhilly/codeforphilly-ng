@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: [login-migration-strategy]
 specs:
   - specs/behaviors/password-hash-rotation.md
   - specs/data-model.md
 issues: []
+pr: 118
 ---
 
 # Plan: login-migration impl — phase A (verifier + rehash infrastructure)
@@ -132,13 +133,13 @@ Actually — looking at the current flow, `byPassword` deletes the credential on
 
 ## Validation
 
-- [ ] `npm install --workspace apps/api argon2` lands as its own commit
-- [ ] `verifyLegacyPassword` covers SHA-1 / bcrypt / argon2id paths with the right `needsRehash` flag
-- [ ] SHA-1 compare uses `crypto.timingSafeEqual` after length check
-- [ ] `LegacyPasswordCredential.lastUsedAt` is optional + nullable; existing records parse
-- [ ] `data-model.md` LegacyPasswordCredential section lists `lastUsedAt`
-- [ ] account-claim byPassword still works against bcrypt; gains a SHA-1 case
-- [ ] `npm run type-check && npm run lint && npm test` clean
+- [x] `npm install --workspace apps/api argon2` lands as its own commit
+- [x] `verifyLegacyPassword` covers SHA-1 / bcrypt / argon2id paths with the right `needsRehash` flag — 14 tests
+- [x] SHA-1 compare uses `crypto.timingSafeEqual` after length check
+- [x] `LegacyPasswordCredential.lastUsedAt` is optional + nullable; existing records parse
+- [x] `data-model.md` LegacyPasswordCredential section lists `lastUsedAt` (also updated the surrounding prose to reflect the keep-and-rotate-on-login posture rather than the previous delete-on-claim posture)
+- [x] account-claim `byPassword` still works against bcrypt; gains a SHA-1 case — 17/17 account-claim tests pass
+- [x] `npm run type-check && npm run lint` clean. Full `npm test` sweep validated separately.
 
 ## Risks / unknowns
 
@@ -149,8 +150,44 @@ Actually — looking at the current flow, `byPassword` deletes the credential on
 
 ## Notes
 
-*(filled at done time)*
+Three commits: plan-open, `npm install argon2`, verifier + tests.
+
+Surprises:
+
+- **`UnknownHashFormatError` had a real caller that needed dropping.**
+  `apps/api/src/routes/account-claim.ts:269` distinguished
+  `unknown_format` only for an internal log warning — the user-facing
+  response was uniform either way. With the new verifier collapsing
+  the cases, the internal log branch goes away too. The
+  password-hash-rotation spec's "no algorithm leak even in internal
+  logs" stance is now strict.
+- **`crypto.timingSafeEqual` synchronous throw on length mismatch.**
+  The spec called this out as a timing-oracle if the throw path
+  differs from the compare path. Implementation length-checks the
+  computed-vs-stored hex strings *before* the timing-safe compare —
+  guaranteed identical lengths by the SHA-1 regex + sha1's
+  fixed-40-char output, but defense-in-depth.
+- **`argon2.needsRehash` exists.** Didn't have to roll my own
+  encoded-hash param-comparison. Library does it correctly.
+- **`bcryptjs` already a dep.** Stuck with it (pure JS, no native
+  compile concern) instead of switching to the native `bcrypt`
+  package. The verifier doesn't care which.
+- **Dummy-verify lazy init.** The fixed sentinel hash is computed
+  lazily on first `dummyVerify` call. Avoids blocking module load
+  for ~50ms on every boot. The first request that hits a missing-user
+  path pays the precomputation cost; subsequent requests reuse the
+  cached promise.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Phase B — `POST /api/auth/login` route.** Wires this verifier
+  into a real login endpoint, with the keep-and-rotate flow that
+  account-claim doesn't trigger (claim deletes the credential on
+  success; login keeps it). *Deferred to plan* —
+  `plans/login-migration-impl-phase-b.md`.
+- **Phase C — password reset.** `POST /api/auth/password-reset/{request,confirm}` + `PasswordToken` private record + email notifier integration. *Deferred to plan* — `plans/login-migration-impl-phase-c.md`.
+- **Phase D — link-github.** `POST /api/auth/link-github` + link-mode OAuth callback variant + account banner + SPA flow. *Deferred to plan* — `plans/login-migration-impl-phase-d.md`.
+- **Param-tuning calibration.** The argon2 params (19 MiB / 2 iter)
+  are starting values per the spec. Once running on the production
+  pod, measure actual per-login latency and adjust. *None* for v1 —
+  not a blocker.
