@@ -41,7 +41,7 @@ import {
   signOAuthSession,
   verifyOAuthSession,
 } from '../auth/oauth-session-cookie.js';
-import { buildAuthorizeUrl, completeCallback } from '../auth/github-oauth.js';
+import { buildAuthorizeUrl, completeCallback, completeLinkCallback } from '../auth/github-oauth.js';
 
 function clientIp(request: FastifyRequest): string {
   const forwarded = request.headers['x-forwarded-for'];
@@ -73,6 +73,10 @@ function callbackRedirectUri(request: FastifyRequest): string {
 
 function loginErrorRedirect(reply: FastifyReply, code: string): FastifyReply {
   return reply.redirect(`/login?error=${encodeURIComponent(code)}`);
+}
+
+function accountErrorRedirect(reply: FastifyReply, code: string): FastifyReply {
+  return reply.redirect(`/account?error=${encodeURIComponent(code)}`);
 }
 
 async function persistSessionMetadata(
@@ -207,9 +211,32 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         return loginErrorRedirect(reply, 'oauth_state_mismatch');
       }
 
+      const isLinkMode = sessionClaims.mode === 'link';
+
       if (!query.code) {
         clearOAuthCookies(reply);
-        return loginErrorRedirect(reply, 'github_unreachable');
+        return isLinkMode
+          ? accountErrorRedirect(reply, 'github_unreachable')
+          : loginErrorRedirect(reply, 'github_unreachable');
+      }
+
+      // Link mode: completely separate pipeline. No matching, no session
+      // mint — just bind the GitHub identity to the named Person and
+      // redirect back to /account.
+      if (isLinkMode && sessionClaims.linkPersonId) {
+        const linkOutcome = await completeLinkCallback({
+          fastify,
+          request,
+          code: query.code,
+          codeVerifier: sessionClaims.codeVerifier,
+          redirectUri: callbackRedirectUri(request),
+          linkPersonId: sessionClaims.linkPersonId,
+        });
+        clearOAuthCookies(reply);
+        if (linkOutcome.kind === 'error') {
+          return accountErrorRedirect(reply, linkOutcome.code);
+        }
+        return reply.redirect('/account?linked=github');
       }
 
       // Pipeline: code → token → user/emails → match → outcome.
@@ -271,6 +298,81 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         // anonymous. Returned as null for the SPA to treat uniformly.
         lastLoginMethod: session.loginMethod ?? null,
       });
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /api/auth/link-github — initiate GitHub-link flow for current session
+  // ---------------------------------------------------------------------------
+  //
+  // Per specs/api/auth.md `POST /api/auth/link-github`. Auth-required. Signs
+  // a link-mode `cfp_oauth_session` cookie carrying the current personId,
+  // then 302s to GitHub OAuth. The callback at `/api/auth/github/callback`
+  // recognizes the mode and binds the GitHub identity to the signed-in
+  // Person instead of minting a new session.
+  // ---------------------------------------------------------------------------
+
+  fastify.post(
+    '/api/auth/link-github',
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'Link the current session to a GitHub identity',
+        querystring: {
+          type: 'object',
+          properties: { return: { type: 'string' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      requireAuth(request, ['user']);
+      const cfg = fastify.config;
+      if (!cfg.GITHUB_OAUTH_CLIENT_ID || !cfg.GITHUB_OAUTH_CLIENT_SECRET) {
+        return accountErrorRedirect(reply, 'github_unreachable');
+      }
+
+      const personId = request.session.person?.id;
+      if (!personId) {
+        // requireAuth above already throws on no session; this is purely
+        // a type-narrowing guard for the linePersonId argument below.
+        throw new UnauthenticatedError('No session', 'no_session');
+      }
+
+      // Fast-fail before round-tripping to GitHub if already linked.
+      const person = fastify.inMemoryState.people.get(personId);
+      if (person && typeof person.githubUserId === 'number') {
+        return accountErrorRedirect(reply, 'github_already_linked');
+      }
+
+      const { return: returnParam } = request.query as { return?: string };
+      const returnPath = safeReturnPath(returnParam) === '/' ? '/account' : safeReturnPath(returnParam);
+
+      const state = generateCsrfState();
+      const codeVerifier = generatePkceVerifier();
+      const codeChallenge = pkceChallengeFromVerifier(codeVerifier);
+
+      const sessionToken = await signOAuthSession(
+        {
+          state,
+          codeVerifier,
+          return: returnPath,
+          mode: 'link',
+          linkPersonId: personId,
+        },
+        cfg.CFP_JWT_SIGNING_KEY,
+      );
+
+      setOAuthStateCookie(reply, state, cfg.NODE_ENV);
+      setOAuthSessionCookie(reply, sessionToken, cfg.NODE_ENV);
+
+      const url = buildAuthorizeUrl({
+        clientId: cfg.GITHUB_OAUTH_CLIENT_ID,
+        redirectUri: callbackRedirectUri(request),
+        state,
+        codeChallenge,
+      });
+
+      return reply.redirect(url);
     },
   );
 

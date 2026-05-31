@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -25,10 +25,40 @@ function parseUA(ua: string): string {
   return os ? `${browser} on ${os}` : browser;
 }
 
+const LINK_GITHUB_ERROR_MESSAGES: Record<string, string> = {
+  github_already_linked: 'Your account is already connected to GitHub.',
+  github_id_in_use_elsewhere:
+    'That GitHub account is already connected to a different Code for Philly account. Email accounts@codeforphilly.org if this is a mistake.',
+  github_unreachable: 'We could not reach GitHub. Please try again in a moment.',
+  oauth_state_mismatch: 'Something went wrong with the GitHub link flow. Please try again.',
+  oauth_session_invalid: 'Something went wrong with the GitHub link flow. Please try again.',
+};
+
 export function Account() {
-  const { person, loading, signOut, reload } = useAuth();
+  const { person, loading, signOut, reload, hasGitHubLink, lastLoginMethod } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Toast on /account?linked=github or ?error=<code> from the link-flow
+  // callback, then strip the param so reloading doesn't re-toast.
+  useEffect(() => {
+    const linked = searchParams.get('linked');
+    const errorCode = searchParams.get('error');
+    if (linked === 'github') {
+      toast.success('GitHub account connected.');
+      void reload();
+      const next = new URLSearchParams(searchParams);
+      next.delete('linked');
+      setSearchParams(next, { replace: true });
+    } else if (errorCode && errorCode in LINK_GITHUB_ERROR_MESSAGES) {
+      toast.error(LINK_GITHUB_ERROR_MESSAGES[errorCode]!);
+      const next = new URLSearchParams(searchParams);
+      next.delete('error');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams, reload]);
 
   const sessionsQ = useQuery({
     queryKey: ['auth-sessions'],
@@ -85,17 +115,52 @@ export function Account() {
 
   const sessions = sessionsQ.data?.data ?? [];
 
+  const showConnectGitHubBanner =
+    !bannerDismissed &&
+    !hasGitHubLink &&
+    (lastLoginMethod === 'legacy_password' || lastLoginMethod === 'password_reset');
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl space-y-6">
       <h1 className="text-2xl font-bold">Account Settings</h1>
+
+      {showConnectGitHubBanner && (
+        <div
+          role="region"
+          aria-label="Connect GitHub"
+          className="rounded-md border border-primary/40 bg-primary/5 p-4 flex flex-col sm:flex-row sm:items-center gap-3"
+        >
+          <div className="flex-1 text-sm">
+            <p className="font-medium">Connect your GitHub account</p>
+            <p className="text-muted-foreground mt-1">
+              Faster sign-in next time, and one less password to remember. Code
+              for Philly plans to retire password sign-in eventually — link
+              GitHub now to stay ahead.
+            </p>
+          </div>
+          <form method="POST" action="/api/auth/link-github" className="shrink-0">
+            <Button type="submit">Connect GitHub</Button>
+          </form>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setBannerDismissed(true)}
+            aria-label="Dismiss"
+          >
+            Dismiss
+          </Button>
+        </div>
+      )}
 
       {/* Identity */}
       <Card>
         <CardHeader>
           <CardTitle>Identity</CardTitle>
           <CardDescription>
-            Your sign-in identity is sourced from GitHub. To change your name or
-            email, update them on GitHub and sign back in.
+            {hasGitHubLink
+              ? 'Your sign-in identity is sourced from GitHub. To change your name or email, update them on GitHub and sign back in.'
+              : 'Connect a GitHub account to use GitHub sign-in. You can still use your existing password until you do.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
@@ -103,18 +168,26 @@ export function Account() {
             <div>
               <div className="font-medium">GitHub</div>
               <div className="text-xs text-muted-foreground">
-                Connected — primary identity
+                {hasGitHubLink ? 'Connected — primary identity' : 'Not connected'}
               </div>
             </div>
-            <Button asChild size="sm" variant="outline">
-              <a
-                href="https://github.com/settings"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Manage on GitHub →
-              </a>
-            </Button>
+            {hasGitHubLink ? (
+              <Button asChild size="sm" variant="outline">
+                <a
+                  href="https://github.com/settings"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Manage on GitHub →
+                </a>
+              </Button>
+            ) : (
+              <form method="POST" action="/api/auth/link-github">
+                <Button type="submit" size="sm">
+                  Connect GitHub
+                </Button>
+              </form>
+            )}
           </div>
           <div className="border-t border-border pt-3">
             <div className="font-medium">Slack</div>

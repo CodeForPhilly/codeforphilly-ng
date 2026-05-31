@@ -57,6 +57,110 @@ export type CallbackErrorCode =
   | 'github_unreachable'
   | 'email_unverified';
 
+/**
+ * Outcomes for the link-github callback. Mirrors `CallbackOutcome` but
+ * with the link-specific error codes from specs/api/auth.md.
+ */
+export type LinkCallbackOutcome =
+  | { kind: 'linked'; personId: string }
+  | { kind: 'error'; code: LinkCallbackErrorCode };
+
+export type LinkCallbackErrorCode =
+  | 'github_unreachable'
+  | 'github_already_linked'
+  | 'github_id_in_use_elsewhere';
+
+export interface CompleteLinkCallbackParams {
+  readonly fastify: FastifyInstance;
+  readonly request: FastifyRequest;
+  readonly code: string;
+  readonly codeVerifier: string;
+  readonly redirectUri: string;
+  readonly linkPersonId: string;
+}
+
+/**
+ * Run the link-mode OAuth callback pipeline. Differs from
+ * `completeCallback`:
+ *   - No matching; the target Person is named in the cookie.
+ *   - Two conflict cases: the calling Person already has a link, or
+ *     the GitHub identity is bound to a different Person.
+ *   - No session minted; the user is already signed-in.
+ *
+ * The callback route is responsible for redirecting to
+ * `/account?linked=github` on success or `/account?error=<code>` on
+ * any of the error outcomes.
+ */
+export async function completeLinkCallback(
+  params: CompleteLinkCallbackParams,
+): Promise<LinkCallbackOutcome> {
+  const { fastify, request, code, codeVerifier, redirectUri, linkPersonId } = params;
+  const cfg = fastify.config;
+
+  if (!cfg.GITHUB_OAUTH_CLIENT_ID || !cfg.GITHUB_OAUTH_CLIENT_SECRET) {
+    return { kind: 'error', code: 'github_unreachable' };
+  }
+
+  const linkingPerson = fastify.inMemoryState.people.get(linkPersonId);
+  if (!linkingPerson || linkingPerson.deletedAt) {
+    // The cookie pointed at a person who no longer exists or is deleted.
+    // Treat as github_unreachable for the user — this should be very rare
+    // (cookie is 10m and Persons rarely vanish in that window).
+    return { kind: 'error', code: 'github_unreachable' };
+  }
+  if (typeof linkingPerson.githubUserId === 'number') {
+    return { kind: 'error', code: 'github_already_linked' };
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = await exchangeCodeForToken({
+      clientId: cfg.GITHUB_OAUTH_CLIENT_ID,
+      clientSecret: cfg.GITHUB_OAUTH_CLIENT_SECRET,
+      code,
+      codeVerifier,
+      redirectUri,
+    });
+  } catch (err) {
+    fastify.log.warn({ err }, 'link-github: token exchange failed');
+    return { kind: 'error', code: 'github_unreachable' };
+  }
+
+  let identity: ResolvedGitHubIdentity;
+  try {
+    const [ghUser, rawEmails] = await Promise.all([
+      fetchGitHubUser(accessToken),
+      fetchGitHubEmails(accessToken),
+    ]);
+    identity = resolveIdentitySnapshot(ghUser, rawEmails);
+  } catch (err) {
+    fastify.log.warn({ err }, 'link-github: user/emails fetch failed');
+    return { kind: 'error', code: 'github_unreachable' };
+  }
+
+  // Conflict: this GitHub identity is bound to a different Person.
+  for (const person of fastify.inMemoryState.people.values()) {
+    if (person.githubUserId === identity.id && person.id !== linkPersonId) {
+      return { kind: 'error', code: 'github_id_in_use_elsewhere' };
+    }
+  }
+
+  const result = await fastify.store.transact(
+    buildTransactionOptions({
+      request,
+      action: 'person.github-link',
+      subjectType: 'person',
+      subjectId: linkPersonId,
+      subjectSlug: linkingPerson.slug,
+      responseCode: 302,
+    }),
+    async (tx) => fastify.services.githubAccount.linkToExisting(tx, linkingPerson, identity),
+  );
+  result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+
+  return { kind: 'linked', personId: linkPersonId };
+}
+
 export interface CompleteCallbackParams {
   readonly fastify: FastifyInstance;
   readonly request: FastifyRequest;
