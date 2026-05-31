@@ -42,10 +42,26 @@ export interface WelcomeNotification {
   readonly slug: string;
 }
 
+/**
+ * Password-reset notification — fires from `POST /api/auth/password-reset/request`
+ * when the requested user resolves to a Person with an email on file. The
+ * `token` is the plaintext (the private store keeps only its hash); it
+ * leaves the system only via this email send.
+ */
+export interface PasswordResetNotification {
+  readonly email: string;
+  readonly fullName: string;
+  readonly slug: string;
+  readonly token: string;
+  /** Expiry timestamp (ISO 8601), surfaced in the email body. */
+  readonly expiresAt: string;
+}
+
 export interface Notifier {
   notifyHelpWantedInterest(n: HelpWantedInterestNotification): Promise<{ delivered: boolean }>;
   notifyHelpWantedFilled(n: HelpWantedFillNotification): Promise<{ delivered: boolean }>;
   notifyWelcomeOnSignup(n: WelcomeNotification): Promise<{ delivered: boolean }>;
+  notifyPasswordReset(n: PasswordResetNotification): Promise<{ delivered: boolean }>;
 }
 
 /**
@@ -71,6 +87,17 @@ export class LoggingNotifier implements Notifier {
 
   async notifyWelcomeOnSignup(n: WelcomeNotification): Promise<{ delivered: boolean }> {
     this.#log.info({ kind: 'auth.welcome', ...n }, 'welcome notification');
+    return { delivered: true };
+  }
+
+  async notifyPasswordReset(n: PasswordResetNotification): Promise<{ delivered: boolean }> {
+    // Log the slug + email but NOT the token — even in dev logs, we don't
+    // want plaintext password-reset tokens persisted anywhere. The token
+    // is visible via the live email channel only.
+    this.#log.info(
+      { kind: 'auth.password-reset', email: n.email, slug: n.slug, expiresAt: n.expiresAt },
+      'password-reset notification (token redacted)',
+    );
     return { delivered: true };
   }
 }

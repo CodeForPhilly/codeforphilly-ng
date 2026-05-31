@@ -729,6 +729,32 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ usernameOrEmail, password }),
       }),
+    /**
+     * Request a password-reset link. Always resolves on 202 regardless
+     * of whether an account matched — the server intentionally hides
+     * that signal to prevent address enumeration.
+     */
+    passwordResetRequest: (
+      usernameOrEmail: string,
+    ): Promise<SuccessEnvelope<{ delivered: boolean }>> =>
+      request(`/api/auth/password-reset/request`, {
+        method: 'POST',
+        body: JSON.stringify({ usernameOrEmail }),
+      }),
+    /**
+     * Confirm a password reset with the token from email + a new password.
+     * On success, mints a session and sets cookies (just like /login).
+     * Throws ApiError with `code: "invalid_token"` if the token is
+     * unknown, expired, or already used.
+     */
+    passwordResetConfirm: (
+      token: string,
+      password: string,
+    ): Promise<SuccessEnvelope<{ person: PersonDetail }>> =>
+      request(`/api/auth/password-reset/confirm`, {
+        method: 'POST',
+        body: JSON.stringify({ token, password }),
+      }),
     sessions: (): Promise<SuccessEnvelope<SessionListItem[]>> => request(`/api/auth/sessions`),
     revokeSession: (jti: string): Promise<void> =>
       request(`/api/auth/sessions/${encodeURIComponent(jti)}/revoke`, { method: 'POST' }),

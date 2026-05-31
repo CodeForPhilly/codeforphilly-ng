@@ -28,6 +28,8 @@ import { Contact } from '@/pages/Contact';
 import { StaticPage } from '@/pages/StaticPage';
 import { NotFound } from '@/pages/NotFound';
 import { LoginPlaceholder } from '@/pages/LoginPlaceholder';
+import { PasswordResetRequest } from '@/pages/PasswordResetRequest';
+import { PasswordResetConfirm } from '@/pages/PasswordResetConfirm';
 import { AccountClaim } from '@/pages/AccountClaim';
 import { AccountClaimByPassword } from '@/pages/AccountClaimByPassword';
 import { AccountClaimRequestStaffReview } from '@/pages/AccountClaimRequestStaffReview';
@@ -65,6 +67,8 @@ const router = createBrowserRouter([
       { path: '/pages/:slug', element: <StaticPage /> },
       { path: '/contact', element: <Contact /> },
       { path: '/login', element: <LoginPlaceholder /> },
+      { path: '/login/forgot', element: <PasswordResetRequest /> },
+      { path: '/login/reset', element: <PasswordResetConfirm /> },
       { path: '/account-claim', element: <AccountClaim /> },
       { path: '/account-claim/by-password', element: <AccountClaimByPassword /> },
       { path: '/account-claim/request-staff-review', element: <AccountClaimRequestStaffReview /> },
