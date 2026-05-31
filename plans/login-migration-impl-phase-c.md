@@ -1,12 +1,12 @@
 ---
-status: in-progress
+status: done
 depends: [login-migration-impl-phase-b]
 specs:
   - specs/api/auth.md
   - specs/behaviors/account-migration.md
   - specs/behaviors/password-hash-rotation.md
 issues: []
-pr:
+pr: 120
 ---
 
 # Plan: login-migration impl — phase C (password reset)
