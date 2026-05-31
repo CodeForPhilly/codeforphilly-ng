@@ -8,8 +8,9 @@ A self-service settings hub for the current user's identity, sessions, newslette
 
 ## Data Requirements
 
-- `GET /api/auth/me` — current person + account level (returns the self-view including the private-store email + newsletter prefs)
+- `GET /api/auth/me` — current person + account level + `hasGitHubLink` + `lastLoginMethod` (returns the self-view including the private-store email + newsletter prefs)
 - `GET /api/auth/sessions` — list of remembered sessions
+- `POST /api/auth/link-github` — invoked from the "Connect GitHub" banner when `hasGitHubLink === false`
 
 ## Display Rules
 
@@ -17,13 +18,35 @@ The page is a vertical stack of cards.
 
 ### Card 1: Identity
 
-- **GitHub account** — the linked GitHub login, with a green check ("Connected — primary identity")
+The card's contents depend on `me.hasGitHubLink`:
+
+**State A — GitHub already linked** (`me.hasGitHubLink === true`)
+
+- **GitHub account** — the linked GitHub login, with a green check ("Connected — sign in via GitHub or password")
   - Click "Manage on GitHub →" → opens `https://github.com/settings` in a new tab
-  - No "Unlink" affordance in v1. If a user loses access to their GitHub account, recovery is via staff (see [behaviors/account-migration.md](../behaviors/account-migration.md))
-- **Email** — read-only display of the current GitHub primary verified email
-  - Small note: "Sourced from GitHub on every sign-in. To change, update your primary email on GitHub and sign back in here."
+  - No "Unlink" affordance in v1. If a user loses access to their GitHub account, they can still sign in via password (per [behaviors/account-migration.md](../behaviors/account-migration.md)); if both are lost, recovery is via staff.
+- **Email** — read-only display of the current primary email
+  - For GitHub-linked users: "Sourced from GitHub on every sign-in. To change, update your primary email on GitHub and sign back in here."
+  - For password-only users (no GitHub link): "Imported from your Code for Philly account at cutover."
   - Refresh timestamp ("Last updated when you signed in on {date}")
 - **Slack** — placeholder row with a greyed-out "Connect Slack" button (the linking flow isn't yet specified; the row signals direction)
+
+**State B — GitHub not yet linked** (`me.hasGitHubLink === false`)
+
+The Identity card opens with a yellow **connect-GitHub banner** at the top:
+
+> **Connect a GitHub account to make sign-in easier.** GitHub sign-in is faster and works the same as your password. No deadline — this is just a recommendation.
+>
+> [**Connect GitHub** →]
+
+The "Connect GitHub" button posts to `POST /api/auth/link-github` (the SPA submits as a form-style navigation since the route immediately redirects to GitHub OAuth). After the link succeeds, the page reloads with State A.
+
+Below the banner, the rest of Card 1 still renders:
+
+- **Email** — same display as State A's password-only variant
+- **Slack** — same placeholder
+
+The banner is the **only** nag mechanism in v1. No modal interrupts, no toast on every sign-in, no email reminders. Per [behaviors/account-migration.md](../behaviors/account-migration.md#the-nag-banner-on-account).
 
 ### Card 2: Newsletter
 
@@ -72,6 +95,7 @@ That post-onboarding claim flow follows the same shape as the OAuth-callback cla
 
 | Action | API call | On success |
 | ------ | -------- | ---------- |
+| Connect GitHub (when unlinked) | `POST /api/auth/link-github` (redirects to GitHub OAuth) | Callback returns to `/account`; banner disappears |
 | Toggle newsletter | `PATCH /api/people/<slug>/newsletter` | Re-fetch me, success toast |
 | Revoke session | `POST /api/auth/sessions/:jti/revoke` | Remove row from list |
 | Sign out | `POST /api/auth/logout` | Redirect to `/` |

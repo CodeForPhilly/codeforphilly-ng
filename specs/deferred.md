@@ -132,12 +132,12 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 - **Why:** Post velocity has been near-zero for years; a database-backed CMS with user logins is overkill. Markdown bodies in a content-typed sheet keep the PR-review ergonomics of files-in-code-repo while sitting on the same runtime + import pipeline as the rest of the data model. Authors get attribution via `authorId`, posts ride the data snapshot, and the API serves through the existing in-memory state with no Vite-bundle bloat for the index. The original "files in `apps/web/src/content/blog/`" replacement was drafted before gitsheets v1.2 made content-typed records viable; that approach is superseded by this one.
 - **Status:** Initial implementation landed via [#84](https://github.com/CodeForPhilly/codeforphilly-ng/issues/84) — full bodies loaded at boot. Lazy body loading (`queryAll({ withBody: false })`) and the richer reader experience are tracked in [#45](https://github.com/CodeForPhilly/codeforphilly-ng/issues/45).
 
-### Email/password authentication
+### Email/password account creation (sign-up)
 
-- **What:** laddr's email + password sign-in flow with password-reset, email verification, etc.
-- **Replaced by:** **GitHub OAuth** as the only primary auth method, *once the OAuth + account-claim flow is specified*. Until then, sessions exist only via seeded data from the laddr migration.
-- **Why:** Spam/scam load on the laddr sign-up form was unmanageable even with recaptcha. GitHub-account-creation friction filters bad actors meaningfully better. The audience (civic-tech volunteers) overwhelmingly already has a GitHub account. Side benefit: deletes a lot of code — no password storage, no reset flow, no verification flow, no MFA roadmap.
-- **What about laddr users without a GitHub account?** During the account-claim flow they may prove ownership of an old laddr record by typing their old username + password, in which case the laddr-imported `LegacyPasswordCredential` record validates them and is then deleted. After all migration claims are completed (or expire), no password machinery remains in the system.
+- **What:** laddr's email + password sign-up flow.
+- **Replaced by:** **GitHub OAuth** as the only path to *create* a new account.
+- **Why:** Spam/scam load on the laddr sign-up form was unmanageable even with recaptcha. GitHub-account-creation friction filters bad actors meaningfully better. The audience (civic-tech volunteers) overwhelmingly already has a GitHub account.
+- **What about existing laddr users?** They *keep* their password sign-in path indefinitely — see [behaviors/account-migration.md](behaviors/account-migration.md). The spam argument applies to new-account creation, not to existing users who already cleared whatever bar they cleared on laddr. A persistent banner on `/account` encourages (but doesn't require) linking a GitHub account; sunset of password sign-in for migrated users is **deferred** — no fixed deadline today.
 
 ### MySQL / any persistent relational database
 

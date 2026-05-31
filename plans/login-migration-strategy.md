@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/api/auth.md
@@ -9,6 +9,7 @@ specs:
   - specs/screens/account.md
   - specs/deferred.md
 issues: []
+pr: 117
 ---
 
 # Plan: login migration strategy — keep password login for existing users + nag-to-link-GitHub
@@ -128,11 +129,11 @@ linking GitHub is a separate (later) UX.
 
 ## Validation
 
-- [ ] All six spec files updated to reflect the new strategy.
-- [ ] No dangling references to "claim at cutover is required" or "deleted on first successful claim."
-- [ ] New `specs/behaviors/password-hash-rotation.md` covers the hash detection + rehash-on-login rule.
-- [ ] `specs/deferred.md` flips to "kept for migrated users, sunset deferred."
-- [ ] PR review confirms direction before any code changes land.
+- [x] All six spec files updated to reflect the new strategy.
+- [x] No dangling references to "claim at cutover is required" or "deleted on first successful claim." (`grep -r "deleted on first" specs/` returns no hits in the rewritten files; the claim flow is now framed as merge-helper-only.)
+- [x] New `specs/behaviors/password-hash-rotation.md` covers SHA-1 detection + constant-time compare + rehash-on-login + argon2 params + anti-enumeration timing.
+- [x] `specs/deferred.md` flips to "email/password account creation (sign-up) → GitHub-only," with explicit note that existing users keep password sign-in indefinitely.
+- [ ] PR review confirms direction before any code changes land. *(this PR is the review surface)*
 
 ## Risks / unknowns
 
@@ -155,8 +156,24 @@ linking GitHub is a separate (later) UX.
 
 ## Notes
 
-*(filled at done time)*
+Doc-only PR. Two commits: plan-open + spec edits.
+
+Surprises:
+
+- **The "deferred entry" actually had a load-bearing argument the new design honors.** The original `deferred.md` "Email/password authentication" entry justified GitHub-only by citing laddr's spam-load problem. That argument is specifically about *sign-up*, not about existing users — so the new entry splits accordingly. The spam reasoning still applies to new-account creation, and the new design keeps that locked to GitHub. It does NOT apply to existing migrated users.
+- **`crypto.timingSafeEqual` is strict on length.** The implementation note in `password-hash-rotation.md` calls this out: length-check first, then compare. Otherwise the length mismatch itself becomes a timing oracle (timingSafeEqual throws synchronously on length mismatch).
+- **Anti-enumeration depth.** Initially considered keeping the "no such user" early-bail and just returning the uniform error, but that leaves a measurable timing gap (no DB read vs. hash verify is ~50 ms). The spec now requires the verifier to run a *dummy argon2* even when the user doesn't exist, so all four paths (no user, no credential, wrong password, unknown format) take comparable wall-clock time. Implementation will need to be careful here.
+- **The claim flow stops being a gate but doesn't die.** `/account/claim-legacy` is repurposed from "the gate at first sign-in" to "the merge helper for duplicate accounts." Most users will never see it. The existing code (`AccountClaimService` etc.) can mostly stay; the UX framing changes.
 
 ## Follow-ups
 
-*(filled at done time)*
+- **Implementation plan** — `plans/login-migration-impl.md` to-be-written. Covers:
+  - `POST /api/auth/login` route + verifier refactor (split `verifyLaddrPassword` into the three-algorithm dispatcher per the password-hash-rotation spec)
+  - argon2id dep + params constants
+  - `LegacyPasswordCredential` schema gains `lastUsedAt` field
+  - `POST /api/auth/password-reset/{request,confirm}` routes + `PasswordToken` private record
+  - `POST /api/auth/link-github` route + the link-mode OAuth callback variant
+  - `/api/auth/me` response shape additions
+  - SPA: secondary login form, password-reset flow, account banner
+- **Sunset planning** — when usage data justifies, write `plans/legacy-password-sunset.md` to set a deprecation date.
+- **`POST /api/auth/account-level`** (#33) — still open, unrelated to this work but adjacent. Stays separate.
