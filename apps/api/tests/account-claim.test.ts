@@ -371,6 +371,7 @@ describe('POST /api/account-claim/by-password', () => {
   let app: FastifyInstance;
   const candidateId = '01951a3c-0000-7000-8000-0000ddddddd1';
   const linkedId = '01951a3c-0000-7000-8000-0000ddddddd2';
+  const sha1CandidateId = '01951a3c-0000-7000-8000-0000ddddddd3';
   const correctPassword = 'hunter2-correct';
 
   beforeAll(async () => {
@@ -389,6 +390,15 @@ describe('POST /api/account-claim/by-password', () => {
     });
     await seedPrivateProfile(privateStore.path, linkedId, 'linked@example.com');
     await seedLegacyPassword(privateStore.path, linkedId, hash);
+    // Legacy-laddr candidate with an unsalted SHA-1 hash (the actual
+    // production format per emergence-skeleton User.class.php:33). The
+    // new verifier accepts this path; pre-rewrite the verifier only
+    // knew bcrypt.
+    await seedPerson(dataRepo.path, 'sha1-user', sha1CandidateId);
+    await seedPrivateProfile(privateStore.path, sha1CandidateId, 'sha1-user@example.com');
+    const { createHash } = await import('node:crypto');
+    const sha1Hash = createHash('sha1').update(correctPassword).digest('hex');
+    await seedLegacyPassword(privateStore.path, sha1CandidateId, sha1Hash);
 
     app = await buildTestApp(dataRepo.path, privateStore.path);
   }, 60_000);
@@ -414,6 +424,27 @@ describe('POST /api/account-claim/by-password', () => {
     expect(person?.githubUserId).toBe(3001);
 
     const cred = await app.store.private.getLegacyPassword(candidateId);
+    expect(cred).toBeNull();
+  });
+
+  it('claims on correct password against a SHA-1 hash (legacy laddr format)', async () => {
+    const token = await mintClaim('3010', 'gh-sha1-user', ['gh-sha1-fresh@example.com'], []);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/account-claim/by-password',
+      remoteAddress: nextTestIp(),
+      cookies: { cfp_claim: token },
+      payload: { slug: 'sha1-user', password: correctPassword },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const person = app.inMemoryState.people.get(sha1CandidateId);
+    expect(person?.githubUserId).toBe(3010);
+
+    // Credential deleted on successful claim (per byPassword semantics —
+    // the claim path still removes the credential since the user is now
+    // GitHub-linked. Rehash-on-keep is a phase-B concern.)
+    const cred = await app.store.private.getLegacyPassword(sha1CandidateId);
     expect(cred).toBeNull();
   });
 

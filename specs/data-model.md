@@ -147,9 +147,9 @@ Sending newsletters is out of scope for v1 (see [deferred.md](deferred.md)). v1 
 
 ## LegacyPasswordCredential _(private)_
 
-Carries a laddr user's old password hash forward through the migration so they can claim their legacy account by typing their old username + password in the [account-claim flow](behaviors/account-migration.md). **The rewrite never creates new records here** — only the laddr import does. **The rewrite never signs in against these credentials at runtime** — only the claim endpoint validates against them, and only as a one-time identity proof during the claim.
+Carries a laddr user's old password hash forward through the migration so they can keep signing in via password indefinitely after cutover — see [behaviors/account-migration.md](behaviors/account-migration.md). The credential stays in place across sessions and is **rehashed in place** on every successful login per [behaviors/password-hash-rotation.md](behaviors/password-hash-rotation.md), so the corpus drifts from laddr's unsalted SHA-1 to argon2id without forcing resets.
 
-When a legacy account is successfully claimed (by any path — email-match, password-match, or staff approval), its `LegacyPasswordCredential` record is deleted. Once all migration claims are completed (or expire), this file drains to zero records and the entity can be removed from the spec entirely.
+The rewrite **creates** new records only via `POST /api/auth/password-reset/confirm` (writing argon2id-hashed plaintext) — never from a sign-up flow.
 
 Password material is sensitive and **must not** appear in the public gitsheets repo — it lives in the private store. See [behaviors/private-storage.md](behaviors/private-storage.md).
 
@@ -158,10 +158,11 @@ Password material is sensitive and **must not** appear in the public gitsheets r
 | Field | Type | Notes |
 |-------|------|-------|
 | personId | uuid | references `Person.id`, 1:1 |
-| passwordHash | string | the laddr password hash, _as-is_. We do not re-hash; we use whatever algorithm laddr used (laddr-era PHP, likely bcrypt or sha512crypt — confirm at migration time). |
+| passwordHash | string | The current password hash. Format is auto-detected by the verifier (SHA-1 hex / bcrypt `$2[aby]$` / argon2id `$argon2id$`). Every successful verify rotates this to argon2id with current params. |
 | importedAt | iso8601 | when the laddr migration wrote this record |
+| lastUsedAt | iso8601 nullable | timestamp of the last successful password sign-in (or password reset). `null` for records that haven't been used since import. Supports the future sunset-coverage report in [behaviors/account-migration.md](behaviors/account-migration.md#coverage-metric-for-future-sunset-planning). |
 
-No `id`, `createdAt`, `updatedAt` — this is import-immutable.
+No `id`, `createdAt`, `updatedAt` — `personId` is the natural key; `importedAt` records creation, `lastUsedAt` records last successful use.
 
 **Secondary in-memory index:**
 

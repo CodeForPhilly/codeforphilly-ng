@@ -266,14 +266,10 @@ export async function accountClaimRoutes(fastify: FastifyInstance): Promise<void
 
       const outcome = result.value;
       if (!outcome.ok) {
-        if (outcome.reason === 'unknown_format') {
-          // Internal log — uniform user-facing response per anti-enumeration.
-          request.log.warn(
-            { slug, reason: 'unknown_format' },
-            'legacy password hash format unknown',
-          );
-        }
-        // Uniform 401 for any failure
+        // Uniform 401 for any failure — verifier collapses
+        // wrong-password / unknown-format / internal-error into a
+        // single `wrong_password` reason per
+        // specs/behaviors/password-hash-rotation.md.
         throw new UnauthenticatedError(
           'Invalid credentials',
           'claim_credentials_invalid',
