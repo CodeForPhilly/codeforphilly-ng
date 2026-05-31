@@ -179,4 +179,33 @@ export class GitHubAccountService {
 
     return { person: updated, stateApply, publicChanged };
   }
+
+  /**
+   * Bind a GitHub identity to a Person that currently has none. Used by
+   * `POST /api/auth/link-github`'s callback branch. Per
+   * specs/behaviors/account-migration.md the link records the GitHub
+   * fields but does NOT refresh `PrivateProfile.email` in v1 — that
+   * requires a consent toggle on a link-confirmation screen that
+   * doesn't yet exist. The user's existing email-on-file stays.
+   *
+   * Caller is responsible for the conflict checks (the Person isn't
+   * already linked, and the GitHub identity isn't bound to a *different*
+   * Person); this method assumes both invariants hold.
+   */
+  async linkToExisting(
+    tx: DualStoreTx,
+    existing: Person,
+    identity: ResolvedGitHubIdentity,
+  ): Promise<{ person: Person; stateApply: StateApply }> {
+    const now = nowIso();
+    const updated: Person = PersonSchema.parse({
+      ...existing,
+      githubUserId: identity.id,
+      githubLogin: identity.login,
+      githubLinkedAt: now,
+      updatedAt: now,
+    });
+    await tx.public.people.upsert(updated);
+    return { person: updated, stateApply: new StateApply().upsertPerson(updated) };
+  }
 }

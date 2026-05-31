@@ -10,6 +10,8 @@ import {
 
 export type AccountLevel = 'anonymous' | 'user' | 'staff' | 'administrator';
 
+export type LoginMethod = 'github' | 'legacy_password' | 'password_reset';
+
 export interface AuthPerson {
   id: string;
   slug: string;
@@ -23,6 +25,10 @@ export interface AuthState {
   person: AuthPerson | null;
   /** true while the initial /api/auth/me fetch is in flight */
   loading: boolean;
+  /** Whether the current Person has a GitHub identity bound. False when anonymous. */
+  hasGitHubLink: boolean;
+  /** How the current session was minted. null for anonymous or pre-loginMethod sessions. */
+  lastLoginMethod: LoginMethod | null;
   /** Reload auth state from the server */
   reload: () => Promise<void>;
   /** Sign out: calls POST /api/auth/logout then clears state */
@@ -35,35 +41,53 @@ interface MeEnvelope {
   data?: {
     person?: AuthPerson | null;
     accountLevel?: AccountLevel;
+    hasGitHubLink?: boolean;
+    lastLoginMethod?: LoginMethod | null;
   };
 }
 
-async function fetchMe(): Promise<AuthPerson | null> {
+interface MeSnapshot {
+  person: AuthPerson | null;
+  hasGitHubLink: boolean;
+  lastLoginMethod: LoginMethod | null;
+}
+
+const ANON_SNAPSHOT: MeSnapshot = {
+  person: null,
+  hasGitHubLink: false,
+  lastLoginMethod: null,
+};
+
+async function fetchMe(): Promise<MeSnapshot> {
   try {
     const res = await fetch('/api/auth/me', { credentials: 'include' });
     if (!res.ok) {
       // 401 = anonymous, 404 = not yet implemented — both mean no session
-      return null;
+      return ANON_SNAPSHOT;
     }
     const json = (await res.json()) as MeEnvelope;
-    return json.data?.person ?? null;
+    return {
+      person: json.data?.person ?? null,
+      hasGitHubLink: json.data?.hasGitHubLink ?? false,
+      lastLoginMethod: json.data?.lastLoginMethod ?? null,
+    };
   } catch {
     // Network error — treat as anonymous, don't throw
-    return null;
+    return ANON_SNAPSHOT;
   }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [person, setPerson] = useState<AuthPerson | null>(null);
+  const [snapshot, setSnapshot] = useState<MeSnapshot>(ANON_SNAPSHOT);
   const [loading, setLoading] = useState(true);
   // Use a ref to track if we're mounted so we don't setState after unmount
   const mountedRef = useRef(true);
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const p = await fetchMe();
+    const snap = await fetchMe();
     if (mountedRef.current) {
-      setPerson(p);
+      setSnapshot(snap);
       setLoading(false);
     }
   }, []);
@@ -78,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Ignore network errors on logout
     }
     if (mountedRef.current) {
-      setPerson(null);
+      setSnapshot(ANON_SNAPSHOT);
     }
   }, []);
 
@@ -87,9 +111,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Kick off initial auth check; all setState calls happen in the async
     // callback, not synchronously in the effect body.
     fetchMe()
-      .then((p) => {
+      .then((snap) => {
         if (mountedRef.current) {
-          setPerson(p);
+          setSnapshot(snap);
           setLoading(false);
         }
       })
@@ -105,7 +129,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ person, loading, reload, signOut }}>
+    <AuthContext.Provider
+      value={{
+        person: snapshot.person,
+        loading,
+        hasGitHubLink: snapshot.hasGitHubLink,
+        lastLoginMethod: snapshot.lastLoginMethod,
+        reload,
+        signOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
