@@ -38,7 +38,7 @@ import type {
   ClaimPendingClaims,
   GhIdentitySnapshot,
 } from '../auth/jwt.js';
-import { verifyLaddrPassword, UnknownHashFormatError } from '../auth/legacy-password.js';
+import { verifyLegacyPassword } from '../auth/legacy-password.js';
 import { GitHubAccountService } from './github-account.js';
 import type { ResolvedGitHubIdentity } from '../auth/github-client.js';
 
@@ -253,7 +253,7 @@ export class AccountClaimService {
     password: string,
   ): Promise<
     | { ok: true; result: AutoClaimResult }
-    | { ok: false; code: 'invalid'; reason: 'no_slug' | 'already_claimed' | 'no_credential' | 'wrong_password' | 'unknown_format' }
+    | { ok: false; code: 'invalid'; reason: 'no_slug' | 'already_claimed' | 'no_credential' | 'wrong_password' }
   > {
     const personId = this.#state.personIdBySlug.get(slug.toLowerCase());
     if (!personId) {
@@ -272,16 +272,13 @@ export class AccountClaimService {
       return { ok: false, code: 'invalid', reason: 'no_credential' };
     }
 
-    let matched: boolean;
-    try {
-      matched = await verifyLaddrPassword(password, cred.passwordHash);
-    } catch (err) {
-      if (err instanceof UnknownHashFormatError) {
-        return { ok: false, code: 'invalid', reason: 'unknown_format' };
-      }
-      throw err;
-    }
-    if (!matched) {
+    // verifyLegacyPassword collapses wrong-password, unknown-format,
+    // and internal errors into a uniform `{ valid: false }` per
+    // specs/behaviors/password-hash-rotation.md — the byPassword path
+    // surfaces this as `wrong_password` and the route translates to
+    // the uniform `claim_credentials_invalid` user-facing response.
+    const verifyResult = await verifyLegacyPassword(password, cred.passwordHash);
+    if (!verifyResult.valid) {
       return { ok: false, code: 'invalid', reason: 'wrong_password' };
     }
 
