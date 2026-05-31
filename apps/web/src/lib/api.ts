@@ -716,6 +716,19 @@ export const api = {
       request(`/api/blog-posts/${encodeURIComponent(slug)}`),
   },
   auth: {
+    /**
+     * Legacy password sign-in. Returns 200 on success; throws ApiError
+     * with `code: "invalid_credentials"` on any failure. Per
+     * specs/api/auth.md.
+     */
+    login: (
+      usernameOrEmail: string,
+      password: string,
+    ): Promise<SuccessEnvelope<{ person: PersonDetail }>> =>
+      request(`/api/auth/login`, {
+        method: 'POST',
+        body: JSON.stringify({ usernameOrEmail, password }),
+      }),
     sessions: (): Promise<SuccessEnvelope<SessionListItem[]>> => request(`/api/auth/sessions`),
     revokeSession: (jti: string): Promise<void> =>
       request(`/api/auth/sessions/${encodeURIComponent(jti)}/revoke`, { method: 'POST' }),

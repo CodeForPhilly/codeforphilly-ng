@@ -144,6 +144,7 @@ export async function completeCallback(
       match.personId,
       result.value.person.accountLevel,
       cfg.CFP_JWT_SIGNING_KEY,
+      { loginMethod: 'github' },
     );
     return {
       kind: 'session',
@@ -188,6 +189,7 @@ export async function completeCallback(
       result.value.person.id,
       result.value.person.accountLevel,
       cfg.CFP_JWT_SIGNING_KEY,
+      { loginMethod: 'github' },
     );
     return {
       kind: 'session',

@@ -24,7 +24,13 @@ import {
   clearOAuthCookies,
 } from '../auth/cookies.js';
 import { requireAuth } from '../auth/guards.js';
+import {
+  dummyVerify,
+  rehashPassword,
+  verifyLegacyPassword,
+} from '../auth/legacy-password.js';
 import type { SessionMeta } from '../auth/session-metadata.js';
+import type { LegacyPasswordCredential } from '@cfp/shared/schemas';
 import {
   generateCsrfState,
   generatePkceVerifier,
@@ -251,10 +257,123 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const { session } = request;
+      const person = session.person ?? null;
       return ok({
-        person: session.person ?? null,
+        person,
         accountLevel: session.accountLevel,
+        // `hasGitHubLink` is derived from Person.githubUserId. For anonymous
+        // callers (no person), it's false. For password-only legacy users
+        // it's false until they link via the /account banner.
+        hasGitHubLink: person !== null && typeof person.githubUserId === 'number',
+        // `lastLoginMethod` reflects how the *current* session was minted.
+        // Undefined when the session predates the loginMethod claim or when
+        // anonymous. Returned as null for the SPA to treat uniformly.
+        lastLoginMethod: session.loginMethod ?? null,
       });
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /api/auth/login — legacy password sign-in
+  //
+  // Per specs/api/auth.md + specs/behaviors/account-migration.md +
+  // specs/behaviors/password-hash-rotation.md. Accepts any Person with a
+  // LegacyPasswordCredential on file. Verifies via the three-algorithm
+  // dispatcher, rotates the credential to argon2id on success, mints a
+  // session with loginMethod: 'legacy_password'.
+  //
+  // All failure paths return a uniform 401 with `error.code =
+  // "invalid_credentials"` and run a dummy argon2 verify so wall-clock
+  // timing across "no such user," "no credential," "wrong password,"
+  // and "unknown format" is comparable.
+  // ---------------------------------------------------------------------------
+
+  fastify.post(
+    '/api/auth/login',
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'Sign in with legacy laddr credentials',
+        body: {
+          type: 'object',
+          properties: {
+            usernameOrEmail: { type: 'string', minLength: 1 },
+            password: { type: 'string', minLength: 1 },
+          },
+          required: ['usernameOrEmail', 'password'],
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { usernameOrEmail, password } = request.body as {
+        usernameOrEmail: string;
+        password: string;
+      };
+
+      // Resolve to a personId. Slug first (already normalized lowercase
+      // in personIdBySlug); else by email through the private store's
+      // email index. The latter respects the same lowercase convention.
+      const trimmed = usernameOrEmail.trim();
+      let personId = fastify.inMemoryState.personIdBySlug.get(trimmed.toLowerCase()) ?? null;
+      if (!personId && trimmed.includes('@')) {
+        personId = await fastify.store.private.findPersonIdByEmail(trimmed.toLowerCase());
+      }
+
+      if (!personId) {
+        // Anti-enumeration: keep timing comparable to the verify path.
+        await dummyVerify();
+        throw new UnauthenticatedError('Invalid credentials', 'invalid_credentials');
+      }
+
+      const person = fastify.inMemoryState.people.get(personId);
+      if (!person || person.deletedAt) {
+        await dummyVerify();
+        throw new UnauthenticatedError('Invalid credentials', 'invalid_credentials');
+      }
+
+      const cred = await fastify.store.private.getLegacyPassword(personId);
+      if (!cred) {
+        await dummyVerify();
+        throw new UnauthenticatedError('Invalid credentials', 'invalid_credentials');
+      }
+
+      const verifyResult = await verifyLegacyPassword(password, cred.passwordHash);
+      if (!verifyResult.valid) {
+        throw new UnauthenticatedError('Invalid credentials', 'invalid_credentials');
+      }
+
+      // Update the credential — rehash to current argon2id params if
+      // needed, always refresh lastUsedAt. The credential record stays
+      // on file (vs. the by-password claim flow which deletes it).
+      const newHash = verifyResult.needsRehash
+        ? await rehashPassword(password)
+        : cred.passwordHash;
+      const updated: LegacyPasswordCredential = {
+        ...cred,
+        passwordHash: newHash,
+        lastUsedAt: new Date().toISOString(),
+      };
+      await fastify.store.private.putLegacyPassword(updated);
+
+      // Mint session. loginMethod = 'legacy_password' surfaces on
+      // /api/auth/me so the SPA can render the "you signed in via
+      // password — connect GitHub for faster sign-in next time" hint.
+      const tokens = await issueSession(
+        personId,
+        person.accountLevel,
+        fastify.config.CFP_JWT_SIGNING_KEY,
+        { loginMethod: 'legacy_password' },
+      );
+      await persistSessionMetadata(fastify, request, tokens.refreshJti, personId);
+
+      setSessionCookies(
+        reply,
+        { access: tokens.access, refresh: tokens.refresh },
+        fastify.config.NODE_ENV,
+      );
+
+      return ok({ person });
     },
   );
 
@@ -297,6 +416,11 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         claims.sub,
         person.accountLevel,
         fastify.config.CFP_JWT_SIGNING_KEY,
+        // Preserve the loginMethod across refresh so `/api/auth/me`
+        // continues reporting the original sign-in path. Older refresh
+        // tokens issued before this claim existed → loginMethod undefined,
+        // which `issueSession` correctly omits from the new tokens.
+        claims.loginMethod ? { loginMethod: claims.loginMethod } : undefined,
       );
 
       const oldExpiresAt = new Date(claims.exp * 1000).toISOString();
