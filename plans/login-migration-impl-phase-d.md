@@ -1,12 +1,12 @@
 ---
-status: in-progress
+status: done
 depends: [login-migration-impl-phase-c]
 specs:
   - specs/api/auth.md
   - specs/behaviors/account-migration.md
   - specs/screens/account.md
 issues: []
-pr:
+pr: 121
 ---
 
 # Plan: login-migration impl — phase D (link-github)
