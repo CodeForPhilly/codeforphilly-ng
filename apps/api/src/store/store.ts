@@ -1,5 +1,5 @@
 import type { TransactionOptions, TransactionResult } from 'gitsheets';
-import type { AccountClaimRequest, PrivateProfile } from '@cfp/shared/schemas';
+import type { AccountClaimRequest, LegacyPasswordCredential, PrivateProfile } from '@cfp/shared/schemas';
 import type { PrivateStore, PrivateStoreTx } from './private/index.js';
 import type { PublicStore, PublicStoreTx } from './public.js';
 
@@ -97,12 +97,14 @@ export class Store {
     // Staged private mutations collected during the handler
     const stagedPrivatePuts: PrivateProfile[] = [];
     const stagedPrivateProfileDeletes: string[] = [];
+    const stagedLegacyPasswordPuts: LegacyPasswordCredential[] = [];
     const stagedLegacyPasswordDeletes: string[] = [];
     const stagedClaimRequestPuts: AccountClaimRequest[] = [];
 
     const privateTx: PrivateStoreTx = {
       putProfile: (profile) => { stagedPrivatePuts.push(profile); },
       deleteProfile: (personId) => { stagedPrivateProfileDeletes.push(personId); },
+      putLegacyPassword: (cred) => { stagedLegacyPasswordPuts.push(cred); },
       deleteLegacyPassword: (personId) => { stagedLegacyPasswordDeletes.push(personId); },
       putClaimRequest: (req) => { stagedClaimRequestPuts.push(req); },
     };
@@ -110,6 +112,7 @@ export class Store {
     const hasPrivateMutations = () =>
       stagedPrivatePuts.length > 0 ||
       stagedPrivateProfileDeletes.length > 0 ||
+      stagedLegacyPasswordPuts.length > 0 ||
       stagedLegacyPasswordDeletes.length > 0 ||
       stagedClaimRequestPuts.length > 0;
 
@@ -118,6 +121,7 @@ export class Store {
       await this.#private.transact(async (tx) => {
         for (const profile of stagedPrivatePuts) tx.putProfile(profile);
         for (const id of stagedPrivateProfileDeletes) tx.deleteProfile(id);
+        for (const cred of stagedLegacyPasswordPuts) tx.putLegacyPassword(cred);
         for (const id of stagedLegacyPasswordDeletes) tx.deleteLegacyPassword(id);
         for (const req of stagedClaimRequestPuts) tx.putClaimRequest(req);
       });

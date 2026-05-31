@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   Card,
@@ -8,8 +8,11 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/useAuth';
+import { api, ApiError } from '@/lib/api';
 
 type ErrorCode =
   | 'access_denied'
@@ -153,11 +156,115 @@ export function LoginPlaceholder() {
           <Separator />
 
           <p className="text-sm text-muted-foreground text-center">
-            <strong>Returning Code for Philly member?</strong> You will be
-            prompted to connect your old account after you sign in with GitHub.
+            <strong>Returning Code for Philly member?</strong> If you had an
+            account before our 2026 switch to GitHub sign-in, you can sign in
+            with your old password below — or use GitHub if your old email
+            matches.
           </p>
+
+          <LegacyPasswordLogin
+            onSuccess={() => {
+              const target =
+                returnPath && returnPath.startsWith('/') ? returnPath : '/';
+              void navigate(target, { replace: true });
+            }}
+          />
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+interface LegacyPasswordLoginProps {
+  onSuccess: () => void;
+}
+
+function LegacyPasswordLogin({ onSuccess }: LegacyPasswordLoginProps) {
+  const [open, setOpen] = useState(false);
+  const [usernameOrEmail, setUsernameOrEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    setErrorMessage(null);
+    try {
+      await api.auth.login(usernameOrEmail.trim(), password);
+      onSuccess();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 429) {
+          setErrorMessage(
+            'Too many sign-in attempts. Please wait a minute and try again.',
+          );
+        } else {
+          // Uniform 401 for any failure — don't reveal whether
+          // username or password was wrong.
+          setErrorMessage('The username or password you entered is incorrect.');
+        }
+      } else {
+        setErrorMessage('Sign-in failed. Please try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-sm text-muted-foreground hover:text-foreground underline-offset-2 hover:underline self-center"
+        aria-expanded="false"
+      >
+        🔑 Or sign in with your Code for Philly password
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div className="space-y-1.5">
+        <Label htmlFor="legacy-username">Username or email</Label>
+        <Input
+          id="legacy-username"
+          value={usernameOrEmail}
+          onChange={(e) => setUsernameOrEmail(e.target.value)}
+          required
+          autoComplete="username"
+          aria-invalid={errorMessage ? 'true' : 'false'}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="legacy-password">Password</Label>
+        <Input
+          id="legacy-password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          autoComplete="current-password"
+          aria-invalid={errorMessage ? 'true' : 'false'}
+        />
+      </div>
+
+      {errorMessage && (
+        <p role="alert" className="text-sm text-destructive">
+          {errorMessage}
+        </p>
+      )}
+
+      <Button
+        type="submit"
+        disabled={submitting || !usernameOrEmail.trim() || !password}
+        className="w-full"
+      >
+        {submitting ? 'Signing in…' : 'Sign in'}
+      </Button>
+    </form>
   );
 }

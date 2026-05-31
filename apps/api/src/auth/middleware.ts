@@ -14,7 +14,7 @@ import type { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 import { errors as JoseErrors } from 'jose';
 
-import type { AccountLevel, GhIdentitySnapshot } from './jwt.js';
+import type { AccountLevel, GhIdentitySnapshot, LoginMethod } from './jwt.js';
 import { verifyAccess } from './jwt.js';
 import { InMemoryRevocationStore } from './revocation.js';
 import { SessionMetadataStore } from './session-metadata.js';
@@ -29,6 +29,12 @@ export interface SessionContext {
   readonly jti?: string;
   readonly isClaimPending?: boolean;
   readonly ghIdentity?: GhIdentitySnapshot;
+  /**
+   * How this session was originally minted. Undefined for sessions that
+   * predate the loginMethod claim (i.e., issued before phase B); the
+   * frontend treats undefined as "unknown" and falls back to default UI.
+   */
+  readonly loginMethod?: LoginMethod;
 }
 
 const ANONYMOUS_SESSION: SessionContext = {
@@ -116,6 +122,7 @@ async function sessionMiddlewarePlugin(fastify: FastifyInstance): Promise<void> 
         accountLevel: claims.accountLevel,
         personId: claims.sub,
         jti: claims.jti,
+        ...(claims.loginMethod !== undefined ? { loginMethod: claims.loginMethod } : {}),
       };
     } catch (err) {
       if (

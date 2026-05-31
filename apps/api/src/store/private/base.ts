@@ -104,6 +104,12 @@ export abstract class BasePrivateStore implements PrivateStore {
     return this.legacyPasswords.get(personId) ?? null;
   }
 
+  async putLegacyPassword(cred: LegacyPasswordCredential): Promise<void> {
+    const parsed = LegacyPasswordCredentialSchema.parse(cred);
+    this.legacyPasswords.set(parsed.personId, parsed);
+    await this.flushLegacyPasswords();
+  }
+
   async deleteLegacyPassword(personId: string): Promise<void> {
     this.legacyPasswords.delete(personId);
     await this.flushLegacyPasswords();
@@ -148,6 +154,7 @@ export abstract class BasePrivateStore implements PrivateStore {
     // Staged mutations applied only in-memory during the handler
     const stagedProfilePuts: Map<string, PrivateProfile> = new Map();
     const stagedProfileDeletes: Set<string> = new Set();
+    const stagedLegacyPuts: Map<string, LegacyPasswordCredential> = new Map();
     const stagedLegacyDeletes: Set<string> = new Set();
     const stagedClaimRequestPuts: Map<string, AccountClaimRequest> = new Map();
 
@@ -161,8 +168,14 @@ export abstract class BasePrivateStore implements PrivateStore {
         stagedProfileDeletes.add(personId);
         stagedProfilePuts.delete(personId);
       },
+      putLegacyPassword: (cred) => {
+        const parsed = LegacyPasswordCredentialSchema.parse(cred);
+        stagedLegacyPuts.set(parsed.personId, parsed);
+        stagedLegacyDeletes.delete(parsed.personId);
+      },
       deleteLegacyPassword: (personId) => {
         stagedLegacyDeletes.add(personId);
+        stagedLegacyPuts.delete(personId);
       },
       putClaimRequest: (req) => {
         const parsed = AccountClaimRequestSchema.parse(req);
@@ -189,6 +202,9 @@ export abstract class BasePrivateStore implements PrivateStore {
     for (const id of stagedProfileDeletes) {
       this.profiles.delete(id);
     }
+    for (const [id, cred] of stagedLegacyPuts) {
+      this.legacyPasswords.set(id, cred);
+    }
     for (const id of stagedLegacyDeletes) {
       this.legacyPasswords.delete(id);
     }
@@ -202,7 +218,7 @@ export abstract class BasePrivateStore implements PrivateStore {
     if (stagedProfilePuts.size > 0 || stagedProfileDeletes.size > 0) {
       flushOps.push(this.flushProfiles());
     }
-    if (stagedLegacyDeletes.size > 0) {
+    if (stagedLegacyPuts.size > 0 || stagedLegacyDeletes.size > 0) {
       flushOps.push(this.flushLegacyPasswords());
     }
     if (stagedClaimRequestPuts.size > 0) {

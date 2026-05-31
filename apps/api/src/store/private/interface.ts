@@ -22,6 +22,7 @@ export interface PrivateIndices {
 export interface PrivateStoreTx {
   putProfile(profile: PrivateProfile): void;
   deleteProfile(personId: string): void;
+  putLegacyPassword(cred: LegacyPasswordCredential): void;
   deleteLegacyPassword(personId: string): void;
   putClaimRequest(req: AccountClaimRequest): void;
 }
@@ -49,6 +50,7 @@ export interface PrivateStore {
 
   // --- Legacy passwords ---
   getLegacyPassword(personId: string): Promise<LegacyPasswordCredential | null>;
+  putLegacyPassword(cred: LegacyPasswordCredential): Promise<void>;
   deleteLegacyPassword(personId: string): Promise<void>;
   countLegacyPasswords(): Promise<number>;
 

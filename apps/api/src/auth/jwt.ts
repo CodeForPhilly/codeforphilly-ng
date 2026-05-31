@@ -13,10 +13,25 @@ import { uuidv7 } from 'uuidv7';
 
 export type AccountLevel = 'anonymous' | 'user' | 'staff' | 'administrator';
 
+/**
+ * How the current session was minted. Surfaced via `/api/auth/me` so the
+ * SPA can render context-appropriate UI hints (e.g., "you signed in via
+ * password — link GitHub for faster sign-in next time").
+ *
+ * - `github` — minted from a GitHub OAuth callback
+ * - `legacy_password` — minted from POST /api/auth/login
+ * - `password_reset` — minted from POST /api/auth/password-reset/confirm
+ *
+ * Stored as an optional claim on both access and refresh JWTs so a
+ * refresh round-trip preserves the method.
+ */
+export type LoginMethod = 'github' | 'legacy_password' | 'password_reset';
+
 export interface AccessClaims {
   readonly sub: string; // personId
   readonly jti: string;
   readonly accountLevel: AccountLevel;
+  readonly loginMethod?: LoginMethod;
   readonly exp: number;
   readonly iat: number;
 }
@@ -24,6 +39,7 @@ export interface AccessClaims {
 export interface RefreshClaims {
   readonly sub: string; // personId
   readonly jti: string;
+  readonly loginMethod?: LoginMethod;
   readonly exp: number;
   readonly iat: number;
 }
@@ -60,28 +76,43 @@ export async function issueSession(
   personId: string,
   accountLevel: AccountLevel,
   signingKey: string,
+  options?: { loginMethod?: LoginMethod },
 ): Promise<{ access: string; refresh: string; accessJti: string; refreshJti: string }> {
   const accessJti = uuidv7();
   const refreshJti = uuidv7();
   const now = Math.floor(Date.now() / 1000);
   const key = keyBytes(signingKey);
+  const loginMethod = options?.loginMethod;
 
-  const access = await new SignJWT({
+  const accessPayload: Partial<JWTPayload> & {
+    accountLevel: AccountLevel;
+    scope: string;
+    loginMethod?: LoginMethod;
+  } = {
     sub: personId,
     jti: accessJti,
     accountLevel,
     scope: 'session',
-  } satisfies Partial<JWTPayload> & { accountLevel: AccountLevel; scope: string })
+  };
+  if (loginMethod) accessPayload.loginMethod = loginMethod;
+
+  const access = await new SignJWT(accessPayload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt(now)
     .setExpirationTime(now + ACCESS_TTL_SECONDS)
     .sign(key);
 
-  const refresh = await new SignJWT({
+  const refreshPayload: Partial<JWTPayload> & {
+    scope: string;
+    loginMethod?: LoginMethod;
+  } = {
     sub: personId,
     jti: refreshJti,
     scope: 'refresh',
-  } satisfies Partial<JWTPayload> & { scope: string })
+  };
+  if (loginMethod) refreshPayload.loginMethod = loginMethod;
+
+  const refresh = await new SignJWT(refreshPayload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt(now)
     .setExpirationTime(now + REFRESH_TTL_SECONDS)
@@ -100,13 +131,18 @@ export async function verifyAccess(token: string, signingKey: string): Promise<A
     throw new Error('Token scope mismatch: expected session');
   }
 
-  return {
+  const claims: AccessClaims = {
     sub: payload.sub!,
     jti: payload.jti!,
     accountLevel: payload['accountLevel'] as AccountLevel,
     exp: payload.exp!,
     iat: payload.iat!,
   };
+  const lm = payload['loginMethod'];
+  if (lm === 'github' || lm === 'legacy_password' || lm === 'password_reset') {
+    return { ...claims, loginMethod: lm };
+  }
+  return claims;
 }
 
 export async function verifyRefresh(token: string, signingKey: string): Promise<RefreshClaims> {
@@ -119,12 +155,17 @@ export async function verifyRefresh(token: string, signingKey: string): Promise<
     throw new Error('Token scope mismatch: expected refresh');
   }
 
-  return {
+  const claims: RefreshClaims = {
     sub: payload.sub!,
     jti: payload.jti!,
     exp: payload.exp!,
     iat: payload.iat!,
   };
+  const lm = payload['loginMethod'];
+  if (lm === 'github' || lm === 'legacy_password' || lm === 'password_reset') {
+    return { ...claims, loginMethod: lm };
+  }
+  return claims;
 }
 
 export async function issueClaimPending(
