@@ -2,20 +2,70 @@
 
 ## Rule
 
-A laddr-era user signing in for the first time on the rewrite must be able to **claim their legacy account** so their slug, project memberships, authored updates/buzz, and Slack identity all carry forward. The cutover preserves continuity; nobody starts over.
+A laddr-era user signs into the rewrite using **whichever they
+remember** — their old laddr password OR a GitHub account that
+matches their legacy email. Either path produces a session against
+their existing Person record; their slug, project memberships,
+authored updates/buzz, and Slack identity all carry forward.
+
+New accounts can only be created via GitHub OAuth. Existing legacy
+accounts keep password sign-in indefinitely. We *encourage* linking
+GitHub (via a banner on `/account`) but never gate access on it.
+
+The cutover preserves continuity; nobody starts over and nobody is
+locked out by a deadline.
 
 ## Applies To
 
-- [api/auth.md](../api/auth.md) — GitHub OAuth callback decides whether to issue a session, route to claim, or create a new Person
-- [api/account-claim.md](../api/account-claim.md) — the endpoints the claim screens hit
-- [screens/account-claim.md](../screens/account-claim.md) — the user-facing claim UI
+- [api/auth.md](../api/auth.md) — `POST /api/auth/login` (legacy password), `GET /api/auth/github/callback` (OAuth), `POST /api/auth/link-github`
+- [api/account-claim.md](../api/account-claim.md) — the "claim another legacy account" helper for the rare merge case
+- [screens/login.md](../screens/login.md) — login form with GitHub primary + password secondary
+- [screens/account.md](../screens/account.md) — GitHub linking card with banner state
+- [behaviors/password-hash-rotation.md](password-hash-rotation.md) — rehash-on-login, format detection, anti-enumeration
 - [data-model.md](../data-model.md) — `Person.githubUserId`, `slackSamlNameId`, `PrivateProfile.email`, `LegacyPasswordCredential`
-- [behaviors/private-storage.md](private-storage.md) — claims read+update the private store
-- [behaviors/authorization.md](../behaviors/authorization.md) — staff-review path requires admin
+- [behaviors/private-storage.md](private-storage.md) — login + link write to the private store
+- [behaviors/authorization.md](authorization.md) — staff-mediated paths for edge cases
 
-## Signals available
+## The three sign-in paths
 
-At the GitHub OAuth callback we have:
+```text
+            ┌──────────────────────────────────────────────────────┐
+            │                  /login                              │
+            └────────────────┬─────────────────────┬───────────────┘
+                             │                     │
+              [Sign in with  │                     │  [Sign in with
+                  GitHub]    │                     │      password]
+                             │                     │
+                             ▼                     ▼
+            ┌──────────────────────┐    ┌──────────────────────┐
+            │ GitHub OAuth →       │    │ POST /api/auth/login │
+            │ resolve identity     │    │ verify, rehash if    │
+            └──────┬───────────────┘    │ SHA-1, mint session  │
+                   │                    └──────────────────────┘
+                   │
+       ┌───────────┼──────────────────────┐
+       │           │                      │
+    no laddr  matches a               matches none
+    match     legacy candidate        but user might
+       │      via email or            have a legacy
+       │      username hint            account too (rare)
+       ▼           ▼                      ▼
+   create new   sign in to            sign in fresh;
+   Person       legacy Person,        offer "Claim
+   (GitHub-     auto-link             another legacy
+   only)        GitHub                account" from
+                                      /account
+```
+
+Path 1: **GitHub sign-in for a new account.** Fresh Person + PrivateProfile, GitHub-linked. The default for anyone who didn't exist on laddr.
+
+Path 2: **GitHub sign-in matching a legacy account.** OAuth callback finds a verified email or username hint matching a legacy Person. The Person is auto-linked (GitHub identity bound, future GitHub sign-ins skip this resolution). No claim flow speed bump; the email match is the proof.
+
+Path 3: **Password sign-in (legacy users only).** User enters their old laddr username/email + password. The `POST /api/auth/login` route verifies against `LegacyPasswordCredential` and mints a session. On success, the supplied password is rehashed to argon2id (see [password-hash-rotation.md](password-hash-rotation.md)).
+
+A user can have **both** a password credential and a GitHub link active at the same time. That's the steady state for migrated users who've linked GitHub but haven't sunset their password.
+
+## Signals available at the GitHub OAuth callback
 
 - `gh.id` — GitHub's stable numeric user ID
 - `gh.login` — GitHub username (mutable, but stable enough for soft hints)
@@ -26,7 +76,7 @@ From the laddr import we have, for every legacy Person:
 
 - `Person.slug` (= laddr `Username`) — public
 - `PrivateProfile.email` (= laddr `Email`) — private
-- `LegacyPasswordCredential.passwordHash` — private (until claimed and deleted)
+- `LegacyPasswordCredential.passwordHash` — private (kept after login; see below)
 
 ## Matching algorithm at OAuth callback
 
@@ -38,63 +88,125 @@ From the laddr import we have, for every legacy Person:
 3. Combine candidates, dedupe by Person.id
 4. Route based on candidate count:
    - 0 candidates → create fresh Person + PrivateProfile (no claim needed)
-   - 1 candidate → render single-candidate confirmation screen
+   - 1 candidate, email-match → auto-link, sign in (no confirmation screen)
+   - 1 candidate, username-match only → render single-candidate confirmation screen
    - N candidates → render multi-candidate picker
 ```
 
-Email-match is the strong signal. Username-match is a hint — used only to surface a candidate, never to auto-claim.
+Email-match is the strong signal — the user controls the GitHub
+account, GitHub verified the email, the laddr account uses the
+verified email. **One-step auto-link.** No confirmation screen,
+no claim ceremony.
 
-## Claim outcomes
+Username-match without email-match is a hint. Still requires
+confirmation (the user might not be the legacy account holder).
 
-Each claim path produces one of three outcomes:
+## Legacy password sign-in
 
-1. **Auto-claim** (email match + user confirms) — link GitHub identity to the legacy Person, delete `LegacyPasswordCredential`, refresh email
-2. **Password-claim** (user types old username + password) — same as auto-claim, additionally verifying via `LegacyPasswordCredential`
-3. **Decline** (user says "not me") — create fresh Person + PrivateProfile, leave the legacy candidate untouched
+`POST /api/auth/login` accepts `{ usernameOrEmail, password }`:
 
-## Three identity proofs
+1. Resolve `usernameOrEmail` to a Person — first try `slug`, then `PrivateProfile.email`
+2. Load `LegacyPasswordCredential` for the Person; missing → uniform 401
+3. Verify per [password-hash-rotation.md](password-hash-rotation.md):
+   - Detect hash algorithm by format prefix
+   - Constant-time compare for SHA-1; library-native compare for bcrypt/argon2
+4. On success: **rehash** the supplied plaintext to argon2id and overwrite the credential record in the same request
+5. On failure: uniform 401 `{ error.code: "invalid_credentials" }` — no distinction between "no such user," "wrong password," or "unknown hash format"
 
-For the user to claim a candidate, they must satisfy **at least one** of:
+The endpoint is rate-limited at the auth-endpoint cap (10/min/IP per [api/conventions.md](../api/conventions.md)).
+
+## Linking GitHub from an existing password-only session
+
+`POST /api/auth/link-github`:
+
+A signed-in user (regardless of which path they signed in via) can
+link a GitHub account to their Person. The endpoint:
+
+1. Starts a GitHub OAuth round-trip with a `link` scope tag in the signed session cookie (to distinguish it from a fresh sign-in)
+2. After the callback returns with `gh.id`:
+   - If `Person.githubUserId` is already set → 409 conflict, `error.code = "github_already_linked"`
+   - If another Person has this `gh.id` → 409 conflict, `error.code = "github_id_in_use_elsewhere"` (rare — admin must merge)
+   - Otherwise: set `Person.githubUserId = gh.id`, `Person.githubLogin = gh.login`, `Person.githubLinkedAt = now`
+3. Optionally refresh `PrivateProfile.email` to the GitHub primary verified email (the user can decline this on the confirmation screen)
+
+After linking, the user can sign in via *either* path. The password credential is **not** removed automatically — users keep both options until they explicitly remove the password (deferred) or we sunset.
+
+## The nag (banner on `/account`)
+
+A persistent yellow banner on `/account` when `Person.githubUserId === null`:
+
+> **Connect a GitHub account to make sign-in easier.** GitHub sign-in
+> is faster and works the same as your password. No deadline — this
+> is just a recommendation.
+>
+> [Connect GitHub →]
+
+The banner is the **only** nag mechanism. No modal interrupts, no
+toast on every sign-in, no email reminders. Click "Connect GitHub" →
+start the link flow. Linking → banner disappears.
+
+If a user has already linked, the Identity card on `/account` instead
+shows the green "Connected as @login" treatment — see
+[screens/account.md](../screens/account.md).
+
+## Password recovery
+
+Lost-password recovery works as it did on laddr:
+
+1. User enters their username or email on `/login`
+2. Server emits a one-time signed token (`PasswordToken` private record, 1-hour expiry) via email to the address in `PrivateProfile.email`
+3. User clicks the link, enters a new password
+4. New password is hashed with argon2id and replaces the `LegacyPasswordCredential.passwordHash`
+
+If the email on file is dead, the user contacts staff (existing
+side-channel path). Email change is GitHub-sourced (the rest of the
+spec); for users who haven't linked GitHub, "change my email" is a
+staff-mediated process. We don't expose self-service email change to
+password-only users in v1.
+
+## Identity proofs (the rare "claim another account" case)
+
+After a user signs in (any path) and lands at their session, they may
+realize they have an *additional* legacy account they want to merge
+in. The existing claim helper at `/account/claim-legacy` handles this
+case — it's the rebadged remnant of the old claim flow.
+
+For the merge to succeed, the user must satisfy one of:
 
 ### A. Email match
 
-The GitHub identity has a verified email that matches `PrivateProfile.email` for the candidate. The fact that GitHub verified the email is the proof.
-
-**No additional user action required** — the OAuth flow already validated they control the GitHub account, which validated the email.
+The GitHub identity (or current session) has a verified email matching `PrivateProfile.email` for the candidate.
 
 ### B. Old-password verification
 
-The user provides their pre-cutover username + password. The API:
-
-1. Looks up the candidate Person by `slug`
-2. Fetches `LegacyPasswordCredential.passwordHash`
-3. Verifies the supplied password against the hash using the original laddr algorithm (likely bcrypt; confirmed at migration time)
-4. On match: claim succeeds, `LegacyPasswordCredential` is deleted
-
-This is for users whose pre-cutover email is dead but who remember their credentials.
+User provides the candidate's pre-cutover password — verified against `LegacyPasswordCredential` per [password-hash-rotation.md](password-hash-rotation.md). On success the candidate is merged in (memberships, updates, buzz re-pointed) and the duplicate Person is hard-deleted.
 
 ### C. Staff approval
 
-The user submits a claim request with their old slug + free-form proof (e.g., "I'm @alice in Slack — DM me"). The request goes to a staff queue. A staff member verifies via side-channel and approves or denies.
+User submits a claim request with the old slug + free-form proof. Staff reviews via side-channel and approves or denies. Same as today.
 
-This is the fallback when both A and B are unavailable.
+These three proofs no longer gate first sign-in — they're only relevant for the manual "I have a duplicate account, merge it" case.
 
 ## Pre-cutover auto-link sweep
 
-Before cutover, an admin script can pre-link Persons whose GitHub identity we know with confidence. Heuristics:
+Before cutover, an admin script can pre-link Persons whose GitHub
+identity we know with confidence:
 
-- Project `developersUrl` is a GitHub repo and the laddr Person is its maintainer → fetch the repo's owner via GitHub API, match
+- Project `developersUrl` is a GitHub repo and the laddr Person is its maintainer → match via the repo's owner
 - Anyone who manually added a `https://github.com/<login>` URL to their laddr bio
 
-Pre-linked Persons skip the claim flow entirely on first sign-in — the OAuth callback's `byGithubUserId` lookup hits immediately.
+Pre-linked Persons are GitHub-linked from day 0. They sign in via
+either path; the banner stays hidden because `Person.githubUserId` is
+already set.
 
-The sweep is **opportunistic**, not exhaustive. It improves the first-experience for a subset of users; the rest go through the normal claim flow.
+The sweep is **opportunistic**, not exhaustive — it removes friction
+for a subset of users.
 
 ## Merge semantics
 
-If a user signs in via GitHub, creates a fresh Person (rejecting all candidates), and *later* realizes they had a legacy account, they can run a manual merge through `/account/claim-legacy` (post-onboarding claim — see [api/account-claim.md](../api/account-claim.md)).
-
-The merge direction is **legacy-survives, fresh-folds-in**:
+If a user signs in fresh via GitHub (no auto-link), then later
+realizes they had a legacy account, the merge direction is
+**legacy-survives, fresh-folds-in**:
 
 - All records authored by the fresh Person (updates, buzz, help-wanted, memberships) are re-pointed to the legacy Person's `id`
 - The fresh Person is deleted (hard-delete; its `id` is gone)
@@ -105,69 +217,81 @@ Merge is admin-mediated (uses the staff approval path) to prevent accidental or 
 
 ## Identity continuity for Slack
 
-`Person.slackSamlNameId` (immutable per-Person, see [api/saml.md](../api/saml.md)) preserves Slack identity through:
+`Person.slackSamlNameId` (immutable per-Person, see
+[api/saml.md](../api/saml.md)) preserves Slack identity through:
 
 - The migration (populated from `slug` at import time)
 - Slug renames after cutover (stays put even if `slug` changes)
-- Account claim (preserved because the legacy Person record is the one that's linked, not a new one)
+- Either sign-in path (the legacy Person record is the one that's signed-into, not a new one)
 
-A user's Slack workspace identity is therefore stable for the entire arc — laddr through rewrite through any future renames or claims.
+A user's Slack workspace identity is therefore stable for the entire
+arc — laddr through rewrite through any future renames or linkings.
 
 ## Anti-enumeration
 
-The claim flow handles inputs the user may have wrong (old emails, old slugs). To avoid leaking which laddr accounts exist:
+The login + recovery flows handle inputs the user may have wrong (old
+emails, old slugs, wrong passwords). To avoid leaking which laddr
+accounts exist:
 
-- **Old-password-verification endpoint** returns the same response for "no such slug" and "wrong password" — `401 unauthenticated` with `error.code = "claim_credentials_invalid"`.
-- **Staff approval submission** always returns `202 accepted` regardless of whether the claimed slug exists.
+- **`POST /api/auth/login`** returns identical responses for "no such user," "wrong password," and "unknown hash format" — `401 unauthenticated` with `error.code = "invalid_credentials"`. Implementation must also normalize timing across these paths (constant-time SHA-1 compare, plus an artificial floor delay if the early bail-out is meaningfully faster than the verify path).
+- **`POST /api/auth/password-reset/request`** always returns `202 accepted` regardless of whether the email exists. The actual mail is sent only if the address resolves.
 - **Candidate enumeration at OAuth callback** is limited to candidates matching the user's actual GitHub-verified emails — we never reveal accounts the user couldn't have known about.
+
+## Coverage metric (for future sunset planning)
+
+`LegacyPasswordCredential` carries a `lastUsedAt` field (added with
+this design). The operator can report on:
+
+- Total `LegacyPasswordCredential` records
+- Active password-sign-in users in the last 30/90/365 days
+- Coverage % of `Person.githubUserId !== null` across active accounts
+
+When that coverage is high enough to justify a sunset, a separate
+plan sets a deprecation date and updates this spec. Until then, no
+fixed sunset.
+
+## Sunset (deferred)
+
+Password sign-in for migrated users has no fixed deprecation date in
+v1. The triggering signal — almost certainly a coverage threshold
+("≥95% of monthly-active accounts have linked GitHub") — is captured
+above and tracked separately when usage data justifies action.
 
 ## Edge cases
 
-**User has multiple legacy accounts** (rare but possible — different emails over time, one person with two profiles)
+**User has multiple legacy accounts** (rare but possible — different emails over time)
 
-- All matching candidates surface in the picker.
-- The user picks one; the others remain unclaimed.
-- They can claim subsequent legacy accounts via `/account/claim-legacy` later and run a merge.
+- Sign-in via password works against whichever one's credentials they remember
+- Multiple email-matches on GitHub OAuth surface in the candidate picker; user picks one
+- Subsequent merges happen via `/account/claim-legacy`
 
 **User's verified GitHub emails match different legacy accounts**
 
-- Multi-candidate picker. User picks one.
-
-**Same legacy candidate matches via both email and username**
-
-- Single candidate shown (deduped on `Person.id`). User confirms once.
-
-**User starts the claim flow but abandons** (closes the tab after OAuth)
-
-- Claim-pending JWT expires in 5 min. Next sign-in restarts the OAuth flow and re-resolves.
-- No half-claimed state persists.
-
-**A legacy Person is claimed but `LegacyPasswordCredential` failed to delete** (rare bucket failure)
-
-- The credential is now unreachable (the Person it referenced is GitHub-linked, so the password-claim path won't accept it again — it checks `Person.githubUserId is null` before allowing password verification). The orphan record is cleaned up by the reconciliation script.
+- Multi-candidate picker. User picks one. Same as today.
 
 **User claims their account, then loses access to their GitHub account**
 
-- v1 has no self-service GitHub-unlink flow. The user contacts staff, who can manually clear `Person.githubUserId` after side-channel verification (admin action, audit-logged).
-- After unlink, the Person is in the "unclaimed" state again — they can sign in via a different GitHub account and re-claim, via email-match if email still works, else password-verification (if the cred is still there — usually deleted on first claim), else staff approval.
+- v1 has no self-service GitHub-unlink flow. The user can still sign in via password if they remember it.
+- If they've also forgotten the password, they recover via `password-reset` to their email-on-file.
+- If the email is dead too, staff-mediated recovery.
 
-## Cutover-window policy
+**User has a GitHub link AND a password credential, wants to remove the password**
 
-The `LegacyPasswordCredential` records are populated at cutover. Realistically, most users won't claim immediately. Suggested policy (operational decision, not spec-locked):
+- Not v1. Deferred until sunset planning happens.
 
-- **Day 0:** cutover. All laddr Persons are in unclaimed state. `LegacyPasswordCredential` records exist for all of them.
-- **Day 0–90:** active claim period. Users sign in via GitHub OAuth; claim flow surfaces candidates.
-- **Day 90:** mailout to remaining unclaimed addresses (via the address in `PrivateProfile.email`) reminding them to claim.
-- **Day 180:** unclaimed `LegacyPasswordCredential` records can be deleted (the legacy Persons remain — anyone showing up later goes through staff approval).
-- **Day 365:** consider soft-deleting unclaimed Persons or moving them to an inactive state.
+**Legacy Person was imported but has no email** (legacy data hygiene)
 
-This is operational policy, not enforced in code.
+- Password sign-in by username still works.
+- Password recovery doesn't (no destination). Staff path only.
+- Banner still encourages linking GitHub; that path then captures a GitHub-verified email for the Person.
 
 ## Coordinates with
 
-- [api/auth.md](../api/auth.md) — the OAuth callback is the entry point
-- [api/account-claim.md](../api/account-claim.md) — endpoint surface
-- [screens/account-claim.md](../screens/account-claim.md) — the UI
+- [api/auth.md](../api/auth.md) — `POST /api/auth/login`, OAuth flow, link-github
+- [behaviors/password-hash-rotation.md](password-hash-rotation.md) — rehash-on-login mechanics
+- [api/account-claim.md](../api/account-claim.md) — the "claim another legacy account" merge helper
+- [screens/login.md](../screens/login.md) — primary GitHub + secondary password
+- [screens/account.md](../screens/account.md) — link banner + Identity card states
 - [api/saml.md](../api/saml.md) — Slack identity continuity
 - [data-model.md](../data-model.md) — fields involved
-- [behaviors/private-storage.md](private-storage.md) — claim reads/writes the private store
+- [behaviors/private-storage.md](private-storage.md) — login and link both write the private store
