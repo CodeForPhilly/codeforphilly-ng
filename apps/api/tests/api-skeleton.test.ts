@@ -128,6 +128,43 @@ describe('error mapper', () => {
 });
 
 // ---------------------------------------------------------------------------
+// /api/_test/* gating (issue #116)
+//
+// The test-harness routes exist only to exercise the error-mapping +
+// idempotency code paths from CI. In NODE_ENV=production they must NOT
+// be registered — no reason a prod caller should be able to hit
+// /api/_test/internal-error and force a 500.
+// ---------------------------------------------------------------------------
+
+describe('/api/_test/* route gating', () => {
+  it('returns 404 for all three test-harness routes when NODE_ENV=production', async () => {
+    // Close the default (NODE_ENV=test) app so the prod-mode app gets
+    // a clean fixture. The base afterEach takes care of the rest.
+    if (app) {
+      await app.close();
+      app = undefined;
+    }
+    const prodApp = await buildTestApp({ NODE_ENV: 'production' });
+    try {
+      const paths = [
+        '/api/_test/validation-error',
+        '/api/_test/internal-error',
+        '/api/_test/idempotency',
+      ];
+      for (const url of paths) {
+        const res = await prodApp.inject({ method: 'POST', url });
+        expect(res.statusCode, `expected ${url} to 404 in production`).toBe(404);
+      }
+      // Sanity: real routes still respond.
+      const health = await prodApp.inject({ method: 'GET', url: '/api/health' });
+      expect(health.statusCode).toBe(200);
+    } finally {
+      await prodApp.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Rate limiting
 // ---------------------------------------------------------------------------
 
