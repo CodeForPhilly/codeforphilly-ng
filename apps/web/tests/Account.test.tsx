@@ -1,17 +1,11 @@
 /**
- * Account screen tests focused on the phase-D additions:
- *   - Connect-GitHub banner renders only for legacy-credential users
- *     who haven't linked yet.
- *   - Identity card swaps "Manage on GitHub" for "Connect GitHub" when
- *     hasGitHubLink is false.
- *   - Banner dismiss button hides it for the rest of the session.
- *
- * The existing Account page predates this test file — these tests focus
- * narrowly on the banner + identity-card branches and leave the
- * newsletter / sessions / claim-legacy regions alone.
+ * Account screen tests focused on the GitHub-link affordances inside
+ * the Identity card. The persistent "Connect GitHub" nag banner has
+ * been hoisted to a top-level ConnectGitHubBanner component (rendered
+ * by AppShell on every page), and is covered by its own test file.
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { renderScreen, mockOk } from './test-utils.js';
 import { Account } from '../src/screens/Account.js';
 import { AuthProvider } from '../src/hooks/useAuth.js';
@@ -80,50 +74,6 @@ function render() {
   );
 }
 
-describe('Account — Connect-GitHub banner', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('renders for a legacy-password user with no GitHub link', async () => {
-    mockApi(legacyPerson);
-    render();
-    await waitFor(() => {
-      expect(
-        screen.getByRole('region', { name: /connect github/i }),
-      ).toBeInTheDocument();
-    });
-    // Banner has a Connect button + a Dismiss button
-    const region = screen.getByRole('region', { name: /connect github/i });
-    expect(region.querySelector('form[action="/api/auth/link-github"]')).not.toBeNull();
-    expect(screen.getByRole('button', { name: /dismiss/i })).toBeInTheDocument();
-  });
-
-  it('does not render for a github-signed-in user', async () => {
-    mockApi(githubPerson);
-    render();
-    // Wait for the Identity card to render — that proves the page is past loading.
-    await waitFor(() => {
-      expect(screen.getByText(/connected — primary identity/i)).toBeInTheDocument();
-    });
-    expect(
-      screen.queryByRole('region', { name: /connect github/i }),
-    ).not.toBeInTheDocument();
-  });
-
-  it('dismiss button hides the banner for the rest of the session', async () => {
-    mockApi(legacyPerson);
-    render();
-    const dismissBtn = await screen.findByRole('button', { name: /dismiss/i });
-    fireEvent.click(dismissBtn);
-    await waitFor(() => {
-      expect(
-        screen.queryByRole('region', { name: /connect github/i }),
-      ).not.toBeInTheDocument();
-    });
-  });
-});
-
 describe('Account — Identity card', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -135,9 +85,9 @@ describe('Account — Identity card', () => {
     await waitFor(() => {
       expect(screen.getByText(/not connected/i)).toBeInTheDocument();
     });
-    // Two forms post to the link endpoint: banner + identity card
+    // Identity card has a form posting to the link endpoint.
     const forms = document.querySelectorAll('form[action="/api/auth/link-github"]');
-    expect(forms.length).toBeGreaterThanOrEqual(2);
+    expect(forms.length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows the "Manage on GitHub" link when hasGitHubLink is true', async () => {
@@ -149,7 +99,7 @@ describe('Account — Identity card', () => {
     expect(
       screen.getByRole('link', { name: /manage on github/i }),
     ).toHaveAttribute('href', 'https://github.com/settings');
-    // No link-github form when already connected
+    // No link-github form when already connected.
     expect(
       document.querySelectorAll('form[action="/api/auth/link-github"]').length,
     ).toBe(0);
