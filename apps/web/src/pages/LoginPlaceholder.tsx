@@ -10,7 +10,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
 
@@ -97,7 +96,7 @@ function WhyGitHub() {
 }
 
 export function LoginPlaceholder() {
-  const { person, loading } = useAuth();
+  const { person, loading, reload } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -125,62 +124,77 @@ export function LoginPlaceholder() {
     ? `/api/auth/github/start?return=${encodeURIComponent(returnPath)}`
     : '/api/auth/github/start';
 
+  const handleLegacySuccess = async () => {
+    // Refresh /api/auth/me so the navbar + every consumer of useAuth()
+    // picks up the new session before we navigate. Without this, the
+    // navbar stays in its anonymous state until the next hard refresh.
+    await reload();
+    const target =
+      returnPath && returnPath.startsWith('/') ? returnPath : '/';
+    void navigate(target, { replace: true });
+  };
+
   return (
-    <div className="flex justify-center py-16 px-4">
-      <Card className="w-full max-w-[480px]">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Sign in to Code for Philly</CardTitle>
-          <CardDescription className="mt-2 text-sm">
-            We use <strong>GitHub</strong> for sign-in. If you do not have a
-            GitHub account yet, it is free and takes about a minute.
-          </CardDescription>
-          <WhyGitHub />
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {errorCode && ERROR_MESSAGES[errorCode] && (
-            <div
-              role="alert"
-              className="text-sm text-destructive bg-destructive/10 rounded-md px-4 py-3"
-            >
-              {ERROR_MESSAGES[errorCode]}
-            </div>
-          )}
+    <div className="container mx-auto px-4 py-12 max-w-5xl">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold">Sign in to Code for Philly</h1>
+        <p className="text-sm text-muted-foreground mt-2">
+          Returning member? Use the password you had before our 2026 switch to
+          GitHub. New here? Sign in with GitHub.
+        </p>
+      </div>
 
-          <Button asChild size="lg" className="w-full gap-2">
-            <a href={startUrl}>
-              <GitHubIcon />
-              Sign in with GitHub
-            </a>
-          </Button>
+      {errorCode && ERROR_MESSAGES[errorCode] && (
+        <div
+          role="alert"
+          className="text-sm text-destructive bg-destructive/10 rounded-md px-4 py-3 mb-6 max-w-2xl mx-auto"
+        >
+          {ERROR_MESSAGES[errorCode]}
+        </div>
+      )}
 
-          <Separator />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Returning member</CardTitle>
+            <CardDescription>
+              Sign in with the username (or email) and password you used at
+              codeforphilly.org before our switch to GitHub sign-in.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LegacyPasswordLogin onSuccess={handleLegacySuccess} />
+          </CardContent>
+        </Card>
 
-          <p className="text-sm text-muted-foreground text-center">
-            <strong>Returning Code for Philly member?</strong> If you had an
-            account before our 2026 switch to GitHub sign-in, you can sign in
-            with your old password below — or use GitHub if your old email
-            matches.
-          </p>
-
-          <LegacyPasswordLogin
-            onSuccess={() => {
-              const target =
-                returnPath && returnPath.startsWith('/') ? returnPath : '/';
-              void navigate(target, { replace: true });
-            }}
-          />
-        </CardContent>
-      </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>New here?</CardTitle>
+            <CardDescription>
+              We use GitHub for all new sign-ups. It is free and takes about a
+              minute if you do not have an account yet.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <Button asChild size="lg" className="w-full gap-2">
+              <a href={startUrl}>
+                <GitHubIcon />
+                Sign in with GitHub
+              </a>
+            </Button>
+            <WhyGitHub />
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
 
 interface LegacyPasswordLoginProps {
-  onSuccess: () => void;
+  onSuccess: () => Promise<void> | void;
 }
 
 function LegacyPasswordLogin({ onSuccess }: LegacyPasswordLoginProps) {
-  const [open, setOpen] = useState(false);
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -193,7 +207,7 @@ function LegacyPasswordLogin({ onSuccess }: LegacyPasswordLoginProps) {
     setErrorMessage(null);
     try {
       await api.auth.login(usernameOrEmail.trim(), password);
-      onSuccess();
+      await onSuccess();
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 429) {
@@ -211,19 +225,6 @@ function LegacyPasswordLogin({ onSuccess }: LegacyPasswordLoginProps) {
     } finally {
       setSubmitting(false);
     }
-  }
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="text-sm text-muted-foreground hover:text-foreground underline-offset-2 hover:underline self-center"
-        aria-expanded="false"
-      >
-        🔑 Or sign in with your Code for Philly password
-      </button>
-    );
   }
 
   return (

@@ -85,7 +85,11 @@ silently-dropped data.
 
 The production import is a snapshot commit on the `legacy-import` branch of
 the production data repo. Private data (emails, password hashes) is **not**
-populated by this importer — see the [account-claim flow](../../specs/behaviors/account-migration.md).
+populated by this importer — that is a separate one-shot run of the
+credentials importer; see
+[legacy-credentials-import.md](./legacy-credentials-import.md) for the
+CSV format, run command, and deploy steps (sandbox PVC or production
+S3-compat bucket).
 
 1. **Bare-clone** the production data repo locally — the importer matches
    the running pod's invariant ([storage.md → "The data clone is bare"](../../specs/behaviors/storage.md))

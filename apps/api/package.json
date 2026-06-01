@@ -13,6 +13,7 @@
     "script:scrub-data": "tsx scripts/scrub-data.ts",
     "script:setup-dev-data": "tsx scripts/setup-dev-data.ts",
     "script:import-laddr": "tsx scripts/import-laddr.ts",
+    "script:import-laddr-credentials": "tsx scripts/import-laddr-credentials.ts",
     "script:reconcile": "tsx scripts/reconcile.ts",
     "script:cutover-dry-run": "tsx scripts/cutover-dry-run.ts",
     "script:cutover-mailout": "tsx scripts/cutover-mailout.ts"
