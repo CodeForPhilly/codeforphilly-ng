@@ -26,6 +26,9 @@ codeforphilly-data/
 # Agent worktrees (claude-code background agents create these here).
 .claude/worktrees/
 
+# Per-session scheduler lockfile (claude-code ScheduleWakeup).
+.claude/scheduled_tasks.lock
+
 # Editor / OS
 .DS_Store
 .vscode/*
