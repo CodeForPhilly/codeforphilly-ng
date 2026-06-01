@@ -187,16 +187,18 @@ export function AppHeader() {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-sm print:hidden">
       <div className="container mx-auto flex h-14 items-center px-4 gap-4">
-        {/* Wordmark — always visible. The image asset is a future TODO,
-            but the wordmark alone gives the home link a tappable target
-            on every viewport, including mobile where the desktop nav
-            isn't present. */}
+        {/* Wordmark — always visible. The horizontal lockup includes
+            the icon + text, so no separate text node is needed. */}
         <Link
           to="/"
-          className="flex items-center gap-2 shrink-0 font-semibold text-foreground"
+          className="flex items-center shrink-0"
           aria-label="Code for Philly home"
         >
-          Code for Philly
+          <img
+            src="/img/logo-horizontal.png"
+            alt="Code for Philly"
+            className="h-8 w-auto"
+          />
         </Link>
 
         {/* Desktop nav */}
