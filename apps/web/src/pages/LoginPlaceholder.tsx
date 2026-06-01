@@ -96,7 +96,7 @@ function WhyGitHub() {
 }
 
 export function LoginPlaceholder() {
-  const { person, loading } = useAuth();
+  const { person, loading, reload } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -124,7 +124,11 @@ export function LoginPlaceholder() {
     ? `/api/auth/github/start?return=${encodeURIComponent(returnPath)}`
     : '/api/auth/github/start';
 
-  const handleLegacySuccess = () => {
+  const handleLegacySuccess = async () => {
+    // Refresh /api/auth/me so the navbar + every consumer of useAuth()
+    // picks up the new session before we navigate. Without this, the
+    // navbar stays in its anonymous state until the next hard refresh.
+    await reload();
     const target =
       returnPath && returnPath.startsWith('/') ? returnPath : '/';
     void navigate(target, { replace: true });
@@ -187,7 +191,7 @@ export function LoginPlaceholder() {
 }
 
 interface LegacyPasswordLoginProps {
-  onSuccess: () => void;
+  onSuccess: () => Promise<void> | void;
 }
 
 function LegacyPasswordLogin({ onSuccess }: LegacyPasswordLoginProps) {
@@ -203,7 +207,7 @@ function LegacyPasswordLogin({ onSuccess }: LegacyPasswordLoginProps) {
     setErrorMessage(null);
     try {
       await api.auth.login(usernameOrEmail.trim(), password);
-      onSuccess();
+      await onSuccess();
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 429) {
