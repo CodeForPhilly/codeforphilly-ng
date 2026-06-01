@@ -187,16 +187,16 @@ export function AppHeader() {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-sm print:hidden">
       <div className="container mx-auto flex h-14 items-center px-4 gap-4">
-        {/* Logo */}
+        {/* Wordmark — always visible. The image asset is a future TODO,
+            but the wordmark alone gives the home link a tappable target
+            on every viewport, including mobile where the desktop nav
+            isn't present. */}
         <Link
           to="/"
-          className="flex items-center gap-2 shrink-0"
+          className="flex items-center gap-2 shrink-0 font-semibold text-foreground"
           aria-label="Code for Philly home"
         >
-          <img src="/img/logo.png" alt="" height={32} className="h-8 w-auto" />
-          <span className="hidden md:inline font-semibold text-foreground">
-            Code for Philly
-          </span>
+          Code for Philly
         </Link>
 
         {/* Desktop nav */}
