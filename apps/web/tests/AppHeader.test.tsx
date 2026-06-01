@@ -28,9 +28,12 @@ describe('AppHeader', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders the site name', async () => {
+  it('renders a labelled home link with the logo image', async () => {
     renderWithRouter(<Wrapped />);
-    expect(screen.getByText('Code for Philly')).toBeInTheDocument();
+    const home = screen.getByRole('link', { name: /code for philly home/i });
+    expect(home).toBeInTheDocument();
+    expect(home).toHaveAttribute('href', '/');
+    expect(home.querySelector('img')).toHaveAttribute('alt', 'Code for Philly');
   });
 
   it('renders primary nav links', async () => {
