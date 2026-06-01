@@ -35,11 +35,10 @@ const LINK_GITHUB_ERROR_MESSAGES: Record<string, string> = {
 };
 
 export function Account() {
-  const { person, loading, signOut, reload, hasGitHubLink, lastLoginMethod } = useAuth();
+  const { person, loading, signOut, reload, hasGitHubLink } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // Toast on /account?linked=github or ?error=<code> from the link-flow
   // callback, then strip the param so reloading doesn't re-toast.
@@ -115,43 +114,9 @@ export function Account() {
 
   const sessions = sessionsQ.data?.data ?? [];
 
-  const showConnectGitHubBanner =
-    !bannerDismissed &&
-    !hasGitHubLink &&
-    (lastLoginMethod === 'legacy_password' || lastLoginMethod === 'password_reset');
-
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl space-y-6">
       <h1 className="text-2xl font-bold">Account Settings</h1>
-
-      {showConnectGitHubBanner && (
-        <div
-          role="region"
-          aria-label="Connect GitHub"
-          className="rounded-md border border-primary/40 bg-primary/5 p-4 flex flex-col sm:flex-row sm:items-center gap-3"
-        >
-          <div className="flex-1 text-sm">
-            <p className="font-medium">Connect your GitHub account</p>
-            <p className="text-muted-foreground mt-1">
-              Faster sign-in next time, and one less password to remember. Code
-              for Philly plans to retire password sign-in eventually — link
-              GitHub now to stay ahead.
-            </p>
-          </div>
-          <form method="POST" action="/api/auth/link-github" className="shrink-0">
-            <Button type="submit">Connect GitHub</Button>
-          </form>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setBannerDismissed(true)}
-            aria-label="Dismiss"
-          >
-            Dismiss
-          </Button>
-        </div>
-      )}
 
       {/* Identity */}
       <Card>

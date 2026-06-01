@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router';
 import { AppHeader } from '@/components/AppHeader';
 import { AppFooter } from '@/components/AppFooter';
+import { ConnectGitHubBanner } from '@/components/ConnectGitHubBanner';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { TopProgressBar } from '@/components/TopProgressBar';
 
@@ -18,6 +19,7 @@ export function AppShell() {
       <TopProgressBar />
       <OfflineBanner />
       <AppHeader />
+      <ConnectGitHubBanner />
 
       <main id="main-content" className="flex-1" tabIndex={-1}>
         <Outlet />
