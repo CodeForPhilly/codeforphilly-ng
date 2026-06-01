@@ -29,42 +29,25 @@ describe('LoginPlaceholder', () => {
     );
   }
 
-  it('renders the primary GitHub button + a collapsed password disclosure', async () => {
+  it('renders both columns side-by-side: password form on the left + GitHub button on the right', async () => {
     render();
+    // Password form fields are visible immediately — no disclosure to expand.
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: /sign in with github/i })).toBeInTheDocument();
+      expect(screen.getByLabelText(/username or email/i)).toBeInTheDocument();
     });
-    // Disclosure exists but is closed — fields are not yet in the DOM
-    expect(
-      screen.getByRole('button', { name: /sign in with your code for philly password/i }),
-    ).toBeInTheDocument();
-    expect(screen.queryByLabelText(/username or email/i)).not.toBeInTheDocument();
-  });
-
-  it('expanding the disclosure reveals the password form', async () => {
-    render();
-    await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: /sign in with your code for philly password/i }),
-      ).toBeInTheDocument();
-    });
-    fireEvent.click(
-      screen.getByRole('button', { name: /sign in with your code for philly password/i }),
-    );
-    expect(screen.getByLabelText(/username or email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^sign in$/i })).toBeInTheDocument();
+    // GitHub button is also visible.
+    expect(screen.getByRole('link', { name: /sign in with github/i })).toBeInTheDocument();
+    // Forgot-password link is on the password card.
+    expect(screen.getByRole('link', { name: /forgot your password/i })).toBeInTheDocument();
   });
 
   it('keeps submit disabled until both fields are filled', async () => {
     render();
     await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: /sign in with your code for philly password/i }),
-      ).toBeInTheDocument();
+      expect(screen.getByLabelText(/username or email/i)).toBeInTheDocument();
     });
-    fireEvent.click(
-      screen.getByRole('button', { name: /sign in with your code for philly password/i }),
-    );
     const submitBtn = screen.getByRole('button', { name: /^sign in$/i });
     expect(submitBtn).toBeDisabled();
 
@@ -100,13 +83,8 @@ describe('LoginPlaceholder', () => {
 
     render();
     await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: /sign in with your code for philly password/i }),
-      ).toBeInTheDocument();
+      expect(screen.getByLabelText(/username or email/i)).toBeInTheDocument();
     });
-    fireEvent.click(
-      screen.getByRole('button', { name: /sign in with your code for philly password/i }),
-    );
     fireEvent.change(screen.getByLabelText(/username or email/i), {
       target: { value: 'jane' },
     });
