@@ -1,11 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/api/projects.md
   - specs/screens/projects-index.md
 issues: []
-pr:
+pr: 127
 ---
 
 # Plan: project filters — fix the data-shape bug, switch to OR-within / AND-across, hoist stage to a row
