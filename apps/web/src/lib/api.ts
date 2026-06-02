@@ -25,11 +25,23 @@ export interface Facets {
   readonly byStage?: FacetEntry[];
 }
 
+/**
+ * A facet entry as returned by the projects/people/help-wanted list
+ * endpoints. Two shapes share this type:
+ *
+ *   Tag facets — { tag: "topic.transit", title: "Transit", count: 27 }
+ *   Stage facet — { stage: "prototyping", count: 41 }
+ *
+ * Per specs/api/projects.md (`tag` field, not `handle` or `slug` —
+ * those were never on the wire; the old shape was a stale type that
+ * never matched what the server actually emits).
+ */
 export interface FacetEntry {
-  readonly handle?: string;
+  /** Tag handle in `<namespace>.<slug>` form (tag facets only). */
+  readonly tag?: string;
+  /** Tag display title (tag facets only). */
   readonly title?: string;
-  readonly slug?: string;
-  readonly namespace?: string;
+  /** Stage slug, e.g. "prototyping" (stage facet only). */
   readonly stage?: string;
   readonly count: number;
 }

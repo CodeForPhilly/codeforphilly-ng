@@ -4,7 +4,7 @@
 import type { HelpWantedRole, Person, Project, ProjectMembership, Tag } from '@cfp/shared/schemas';
 import type { InMemoryState } from '../store/memory/state.js';
 import type { FtsEngine } from '../store/fts.js';
-import { getProjectFacets, type ProjectFacets } from '../store/memory/facets.js';
+import { computeProjectFacets, type ProjectFacets } from '../store/memory/facets.js';
 import type { CallerSession } from './permissions.js';
 import { computeProjectPermissions } from './permissions.js';
 import {
@@ -81,112 +81,165 @@ export class ProjectService {
     const sortSpec = parseSortSpec(opts.sort ?? '-updatedAt');
     if (!sortSpec) return { error: 'invalid_sort' };
 
-    // Get the facets from the unfiltered corpus BEFORE applying filters
-    const facets = getProjectFacets(this.#state);
+    // ---- Resolve all filter inputs ----
 
-    // FTS filter
     let ftsSlugs: Set<string> | null = null;
     if (opts.q) {
       const slugs = this.#fts.searchProjects(opts.q);
       ftsSlugs = new Set(slugs);
     }
 
-    // memberSlug → personId for membership filter
     let memberPersonId: string | undefined;
     if (opts.memberSlug) {
       memberPersonId = this.#state.personIdBySlug.get(opts.memberSlug);
-      if (!memberPersonId) {
-        return { items: [], totalItems: 0, facets };
-      }
+      // Empty match below if memberPersonId is undefined — predicate returns false.
     }
 
-    // maintainer slug → id
     let maintainerPersonId: string | undefined;
     if (opts.maintainer) {
       maintainerPersonId = this.#state.personIdBySlug.get(opts.maintainer);
-      if (!maintainerPersonId) {
-        return { items: [], totalItems: 0, facets };
-      }
     }
 
-    // tag handles → tag IDs
-    let filterTagIds: Set<string> | undefined;
-    if (opts.tag && opts.tag.length > 0) {
-      filterTagIds = new Set();
+    // Tag filters grouped by namespace. OR within namespace, AND across
+    // namespaces (per specs/api/projects.md). Unknown handles are dropped
+    // silently — same behavior as the pre-OR-semantics implementation.
+    const tagsByNamespace = new Map<string, Set<string>>();
+    if (opts.tag) {
       for (const handle of opts.tag) {
+        const dot = handle.indexOf('.');
+        if (dot < 0) continue;
+        const ns = handle.slice(0, dot);
         const tagId = this.#state.tagIdByHandle.get(handle);
-        if (tagId) filterTagIds.add(tagId);
+        if (!tagId) continue;
+        let set = tagsByNamespace.get(ns);
+        if (!set) {
+          set = new Set();
+          tagsByNamespace.set(ns, set);
+        }
+        set.add(tagId);
       }
     }
 
-    // stageIn
-    const stageInSet = opts.stageIn ? new Set(opts.stageIn) : null;
+    const stageInSet = opts.stageIn && opts.stageIn.length > 0 ? new Set(opts.stageIn) : null;
 
-    const filtered = [...this.#state.projects.values()].filter((p) => {
-      // Soft-delete filter
-      if (p.deletedAt && !opts.includeDeleted) return false;
-
-      // FTS
-      if (ftsSlugs && !ftsSlugs.has(p.slug)) return false;
-
-      // Stage filters
-      if (opts.stage && p.stage !== opts.stage) return false;
-      if (stageInSet && !stageInSet.has(p.stage)) return false;
-
-      // Featured
-      if (opts.featured !== undefined && p.featured !== opts.featured) return false;
-
-      // Maintainer
-      if (maintainerPersonId && p.maintainerId !== maintainerPersonId) return false;
-
-      // Tag filter (AND semantics)
-      if (filterTagIds && filterTagIds.size > 0) {
-        const projectAssignments = this.#state.tagAssignmentsByTaggable.get(p.id);
-        if (!projectAssignments) return false;
-        const projectTagIds = new Set(
-          [...projectAssignments]
-            .map((taId) => this.#state.tagAssignments.get(taId)?.tagId)
-            .filter((id): id is string => id !== undefined),
-        );
-        for (const tagId of filterTagIds) {
-          if (!projectTagIds.has(tagId)) return false;
+    // Resolve a project's tag IDs once — used by both the main filter and
+    // the per-namespace facet computation below.
+    const projectTagIdsCache = new Map<string, Set<string>>();
+    const getProjectTagIds = (projectId: string): Set<string> => {
+      let cached = projectTagIdsCache.get(projectId);
+      if (cached) return cached;
+      const assignments = this.#state.tagAssignmentsByTaggable.get(projectId);
+      cached = new Set();
+      if (assignments) {
+        for (const taId of assignments) {
+          const ta = this.#state.tagAssignments.get(taId);
+          if (ta && ta.taggableType === 'project') cached.add(ta.tagId);
         }
       }
+      projectTagIdsCache.set(projectId, cached);
+      return cached;
+    };
 
-      // Member filter
-      if (memberPersonId) {
-        const personMemberships = this.#state.membershipsByPerson.get(memberPersonId);
-        if (!personMemberships) return false;
-        const isMember = [...personMemberships].some(
-          (mId) => this.#state.projectMemberships.get(mId)?.projectId === p.id,
-        );
-        if (!isMember) return false;
-      }
+    // ---- Predicate factory ----
+    //
+    // Each facet group needs the project set filtered by every criterion
+    // *except* the one being widened ("self-namespace exclusion" per
+    // specs/api/projects.md → Counts reflect the filtered corpus). The
+    // factory takes optional exclusions so we can build:
+    //
+    //   matches()                       — full filter (main listing + totalItems)
+    //   matches({ excludeStage: true }) — for byStage facet
+    //   matches({ excludeTagNs: 'topic' }) — for byTopic facet
+    //   ...
 
-      // Help-wanted filter
-      if (opts.helpWanted) {
-        const roles = this.#state.helpWantedByProject.get(p.id);
-        if (!roles) return false;
-        const hasOpen = [...roles].some(
-          (rId) => this.#state.helpWantedRoles.get(rId)?.status === 'open',
-        );
-        if (!hasOpen) return false;
-      }
+    const buildMatcher = (excluded: {
+      excludeStage?: boolean;
+      excludeTagNs?: string;
+    } = {}) => {
+      return (p: Project): boolean => {
+        if (p.deletedAt && !opts.includeDeleted) return false;
+        if (ftsSlugs && !ftsSlugs.has(p.slug)) return false;
+        if (!excluded.excludeStage) {
+          if (opts.stage && p.stage !== opts.stage) return false;
+          if (stageInSet && !stageInSet.has(p.stage)) return false;
+        }
+        if (opts.featured !== undefined && p.featured !== opts.featured) return false;
+        if (opts.maintainer && p.maintainerId !== maintainerPersonId) return false;
 
-      return true;
-    });
+        // Tag predicate — for each namespace's filter set the project must
+        // include at least one matching tag (OR within namespace). Across
+        // namespaces the predicate is AND.
+        if (tagsByNamespace.size > 0) {
+          let projectTagIds: Set<string> | null = null;
+          for (const [ns, tagIds] of tagsByNamespace) {
+            if (ns === excluded.excludeTagNs) continue;
+            if (!projectTagIds) projectTagIds = getProjectTagIds(p.id);
+            let hit = false;
+            for (const tId of tagIds) {
+              if (projectTagIds.has(tId)) {
+                hit = true;
+                break;
+              }
+            }
+            if (!hit) return false;
+          }
+        }
 
-    // Sort
+        if (opts.memberSlug) {
+          if (!memberPersonId) return false;
+          const personMemberships = this.#state.membershipsByPerson.get(memberPersonId);
+          if (!personMemberships) return false;
+          let found = false;
+          for (const mId of personMemberships) {
+            if (this.#state.projectMemberships.get(mId)?.projectId === p.id) {
+              found = true;
+              break;
+            }
+          }
+          if (!found) return false;
+        }
+
+        if (opts.helpWanted) {
+          const roles = this.#state.helpWantedByProject.get(p.id);
+          if (!roles) return false;
+          let hasOpen = false;
+          for (const rId of roles) {
+            if (this.#state.helpWantedRoles.get(rId)?.status === 'open') {
+              hasOpen = true;
+              break;
+            }
+          }
+          if (!hasOpen) return false;
+        }
+
+        return true;
+      };
+    };
+
+    const allProjects = [...this.#state.projects.values()];
+
+    // ---- Main listing ----
+
+    const filtered = allProjects.filter(buildMatcher());
     filtered.sort((a, b) => compareProjects(a, b, sortSpec));
-
     const totalItems = filtered.length;
 
-    // Pagination
     const page = Math.max(1, opts.page ?? 1);
     const perPage = Math.min(100, Math.max(1, opts.perPage ?? 30));
     const slice = filtered.slice((page - 1) * perPage, page * perPage);
-
     const items = slice.map((project) => this.#serializeListItem(project));
+
+    // ---- Facets ----
+
+    const facets = computeProjectFacets({
+      tags: this.#state.tags,
+      projectsExcludingStage: allProjects.filter(buildMatcher({ excludeStage: true })),
+      projectsExcludingTopic: allProjects.filter(buildMatcher({ excludeTagNs: 'topic' })),
+      projectsExcludingTech: allProjects.filter(buildMatcher({ excludeTagNs: 'tech' })),
+      projectsExcludingEvent: allProjects.filter(buildMatcher({ excludeTagNs: 'event' })),
+      getProjectTagIds,
+      selectedTagsByNamespace: tagsByNamespace,
+    });
 
     return { items, totalItems, facets };
   }
