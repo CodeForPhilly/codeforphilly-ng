@@ -118,53 +118,63 @@ export async function healthRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Stub route for testing validation errors
-  fastify.post(
-    '/api/_test/validation-error',
-    {
-      schema: {
-        hide: true,
-        body: {
-          type: 'object',
-          properties: {
-            trigger: { type: 'string' },
+  // ---------------------------------------------------------------------------
+  // Test-harness routes — registered only when NODE_ENV !== 'production'.
+  //
+  // These exist purely to exercise the error-mapping + idempotency code
+  // paths from CI tests. Gating them off in production is defense in
+  // depth: there's no reason production callers should be able to hit
+  // /api/_test/internal-error and force a 500. See issue #116.
+  // ---------------------------------------------------------------------------
+  if (fastify.config.NODE_ENV !== 'production') {
+    // Stub route for testing validation errors
+    fastify.post(
+      '/api/_test/validation-error',
+      {
+        schema: {
+          hide: true,
+          body: {
+            type: 'object',
+            properties: {
+              trigger: { type: 'string' },
+            },
           },
         },
       },
-    },
-    async () => {
-      const { ApiValidationError } = await import('../lib/errors.js');
-      throw new ApiValidationError('Test validation failed', { field: 'required' });
-    },
-  );
+      async () => {
+        const { ApiValidationError } = await import('../lib/errors.js');
+        throw new ApiValidationError('Test validation failed', { field: 'required' });
+      },
+    );
 
-  // Stub route for testing unknown/500 errors
-  fastify.post(
-    '/api/_test/internal-error',
-    { schema: { hide: true } },
-    async () => {
-      throw new Error('Deliberate internal error — should not leak to client');
-    },
-  );
+    // Stub route for testing unknown/500 errors
+    fastify.post(
+      '/api/_test/internal-error',
+      { schema: { hide: true } },
+      async () => {
+        throw new Error('Deliberate internal error — should not leak to client');
+      },
+    );
 
-  // Stub route for testing idempotency
-  fastify.post(
-    '/api/_test/idempotency',
-    { schema: { hide: true } },
-    async (request, reply) => {
-      const idempotencyKey = request.headers['idempotency-key'];
-      if (typeof idempotencyKey === 'string' && idempotencyKey.length > 0) {
-        const personId = 'test-person';
-        const cached = request.server.idempotency.check(personId, idempotencyKey);
-        if (cached) {
-          return reply.code(cached.status).send(cached.body);
+    // Stub route for testing idempotency
+    fastify.post(
+      '/api/_test/idempotency',
+      { schema: { hide: true } },
+      async (request, reply) => {
+        const idempotencyKey = request.headers['idempotency-key'];
+        if (typeof idempotencyKey === 'string' && idempotencyKey.length > 0) {
+          const personId = 'test-person';
+          const cached = request.server.idempotency.check(personId, idempotencyKey);
+          if (cached) {
+            return reply.code(cached.status).send(cached.body);
+          }
+
+          const body = ok({ echoed: idempotencyKey, at: new Date().toISOString() });
+          request.server.idempotency.store(personId, idempotencyKey, { status: 200, body });
+          return reply.code(200).send(body);
         }
-
-        const body = ok({ echoed: idempotencyKey, at: new Date().toISOString() });
-        request.server.idempotency.store(personId, idempotencyKey, { status: 200, body });
-        return reply.code(200).send(body);
-      }
-      return ok({ echoed: null });
-    },
-  );
+        return ok({ echoed: null });
+      },
+    );
+  }
 }
