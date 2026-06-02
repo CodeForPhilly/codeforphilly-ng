@@ -195,7 +195,7 @@ export function AppHeader() {
           aria-label="Code for Philly home"
         >
           <img
-            src="/img/logo-horizontal.png"
+            src="/img/logo-horizontal.svg"
             alt="Code for Philly"
             className="h-8 w-auto"
           />
