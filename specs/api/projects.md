@@ -25,7 +25,7 @@ See [data-model.md](../data-model.md#project) for the entity shape, [behaviors/p
 | `q` | string | Free-text search across `title`, `summary`, `overview` (SQLite FTS5 in-memory index — see [behaviors/storage.md](../behaviors/storage.md#full-text-search)). |
 | `stage` | enum | `commenting` \| `bootstrapping` \| `prototyping` \| `testing` \| `maintaining` \| `drifting` \| `hibernating` |
 | `stageIn` | csv-of-enum | Multi-value filter. |
-| `tag` | string | Tag handle in `<namespace>.<slug>` form (e.g., `tech.flutter`). Repeatable; semantics are AND across repeats. |
+| `tag` | string | Tag handle in `<namespace>.<slug>` form (e.g., `tech.flutter`). Repeatable; **OR within namespace, AND across namespaces.** `?tag=topic.transit&tag=topic.mapping&tag=tech.python` returns projects that are tagged `(topic.transit OR topic.mapping) AND tech.python`. Matches the conventional faceted-search behavior — within a facet group users widen, across groups they narrow. |
 | `maintainer` | string | Person slug. |
 | `memberSlug` | string | Person slug — returns projects where this person is in `project-memberships`. |
 | `helpWanted` | bool | If `true`, only projects with at least one `helpWantedRoles.status = 'open'`. |
@@ -53,7 +53,16 @@ Soft-deleted projects (`deletedAt is not null`) are excluded for non-staff and i
 }
 ```
 
-The `facets` object replaces laddr's `projectsTags.{byTopic,byTech,byEvent}` and `projectsStages`. Facets reflect the **unfiltered** corpus so the sidebar counts don't whipsaw when a filter is applied. Top 10 per facet group; full list via [api/tags.md](tags.md).
+The `facets` object replaces laddr's `projectsTags.{byTopic,byTech,byEvent}` and `projectsStages`. Top 10 per facet group; full list via [api/tags.md](tags.md).
+
+**Counts reflect the filtered corpus with self-namespace exclusion**:
+
+- For `byTopic`, `byTech`, `byEvent` — count over the project set filtered by every active criterion *except* tag filters in that same namespace. So if the user has selected `topic.transit`, the topic facet still shows other topics (with counts narrowed by the rest of the filters) so they can widen their topic selection without losing track. Selecting another topic adds to the topic set (OR within namespace).
+- For `byStage` — same pattern, count over the set filtered by everything *except* `stage` / `stageIn`.
+
+Active selections that fall below the top 10 in their facet group are **pinned** into the response so the SPA can render them as still-selected. Counts on the pinned entries reflect the same self-exclusion rule.
+
+Counts are honest about the search the user is composing — "if you click this, this is how many projects you'd see" for OR-widening within the group, and a stable reference for what's still available across the rest of the corpus.
 
 ### ProjectListItem shape
 

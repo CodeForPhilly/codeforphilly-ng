@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ProjectCard } from '@/components/ProjectCard';
 import { FacetSidebar } from '@/components/FacetSidebar';
+import { StageFilterRow } from '@/components/StageFilterRow';
 import { Pagination } from '@/components/Pagination';
 import { TagChip } from '@/components/TagChip';
 import { STAGES, type Stage } from '@/components/StageBadge';
@@ -155,13 +156,21 @@ export function ProjectsIndex() {
         <FacetSidebar
           facets={facets}
           activeTags={tags}
-          activeStages={stages}
           onToggleTag={handleToggleTag}
-          onToggleStage={handleToggleStage}
         />
 
         {/* Main */}
         <div>
+          {/* Stage filter row (top, above search) — stages are a fixed
+              enum and benefit from being visible at a glance per
+              specs/screens/projects-index.md. */}
+          <StageFilterRow
+            facets={facets}
+            activeStages={stages}
+            onToggleStage={handleToggleStage}
+            className="mb-4"
+          />
+
           {/* Search box */}
           <Input
             type="search"

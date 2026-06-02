@@ -108,7 +108,7 @@ describe('GET /api/projects', () => {
     expect(body.data.some((p) => p.slug === fixtures.projectSlug)).toBe(true);
   });
 
-  it('filters by tag AND facets still reflect unfiltered corpus', async () => {
+  it('filters by tag; selected tag is pinned into its namespace facet', async () => {
     const res = await app!.inject({
       method: 'GET',
       url: `/api/projects?tag=${fixtures.tagHandle}`,
@@ -121,7 +121,9 @@ describe('GET /api/projects', () => {
 
     // Filtered data contains our project
     expect(body.data.some((p) => p.slug === fixtures.projectSlug)).toBe(true);
-    // Facets are from unfiltered corpus — byTech should still have our tag
+    // Per the self-exclusion rule, byTech is computed over projects
+    // filtered by every criterion EXCEPT tech tags — the selected tag
+    // is still in the list (either naturally in the top 10 or pinned).
     expect(body.metadata.facets.byTech.some((f) => f.tag === fixtures.tagHandle)).toBe(true);
   });
 

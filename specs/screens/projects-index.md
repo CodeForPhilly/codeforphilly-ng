@@ -31,18 +31,19 @@ Filters are reflected in the query string. Sharable, back/forward-friendly.
 - Right side: "Add Project" button — visible to signed-in users (matches laddr precedent where any user could add a project)
 - Subhead paragraph and intro content from a static `projects-browse-introduction` content block; v1 hard-codes the current copy (see laddr `html-templates/projects/projects.tpl` line 24 reference)
 
+### Stage row (top, above results)
+
+Stages are a small fixed enum (7 values) and feel different from open-ended tag taxonomies. They render as a **horizontal pill row** spanning the full results column, above the search box. Each pill shows the stage label, count, and the stage's accent color (from [behaviors/project-stages.md](../behaviors/project-stages.md)). Multi-select: clicking adds the stage to the filter; clicking an active pill removes it. Order matches the `STAGE_ORDER` constant (commenting → hibernating).
+
 ### Sidebar (left, ≥ sm)
 
-Tab strip across the top of the sidebar: **Topics / Tech / Events / Stages** — default Topics.
+Tab strip across the top of the sidebar: **Topics / Tech / Events** — default Topics.
 
-For each tab:
+For each tab: list of tag chips with item count. Each click toggles that tag in the URL state (OR-within-namespace per [api/projects.md](../api/projects.md)). Top 10 by count (from `metadata.facets`). Active selections always appear first, with a "selected" visual treatment (filled vs. outlined). "See all →" links to `/tags?namespace=topic` (etc).
 
-- **Topics, Tech, Events** — list of tag chips with item count. Each links to the same projects page with that tag added. Top 10 by count (from `metadata.facets`). "See all →" links to `/tags?namespace=topic` (etc).
-- **Stages** — list of all 7 stages with count and color matching [behaviors/project-stages.md](../behaviors/project-stages.md). Clicking adds that stage to the `stage` filter.
+Counts come from `metadata.facets` and reflect the filtered corpus with self-namespace exclusion — selecting `topic.transit` does not collapse the topic list to itself; the other topic counts simply re-rank to "what you'd get if you also picked this." Counts in `byTech`/`byEvent` narrow toward the full filter state.
 
-Multi-select: clicking an already-active filter chip removes it. Active filters are visually distinguished (filled vs outlined).
-
-Active filters surface as removable chips below the H1, "Filters: [Tech: Flutter ×] [Stage: Prototyping ×] Clear all".
+Active filters surface as removable chips below the H1, "Filters: [Tech: Flutter ×] [Topic: Transit ×] Clear all". Stage selections also appear here when active (in addition to the row above), so a quick `Clear all` is always within reach.
 
 ### Sort control
 
