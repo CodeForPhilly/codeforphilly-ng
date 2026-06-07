@@ -14,10 +14,10 @@
       "computedHash": "381582503c409ecc54e910d83cabb3763cb37323f3483d0ea2fcd274fe70c5d3"
     },
     "specops": {
-      "source": "JarvusInnovations/agent-skills",
+      "source": "JarvusInnovations/specops",
       "sourceType": "github",
-      "skillPath": "skills/specops/SKILL.md",
-      "computedHash": "9ff7ad69d19a04111f64600741c3f02cdb8730f2b7fc3ff51f04deb5e5fca48e"
+      "skillPath": "SKILL.md",
+      "computedHash": "9d6cb1c896ae42426e0252b790cd16dfd1e23d8c71c541d9f2ead79ebfa0ab6b"
     }
   }
 }
