@@ -66,4 +66,15 @@ describe('Home', () => {
     expect(screen.getByRole('heading', { name: 'Sponsor' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Start a Project' })).toBeInTheDocument();
   });
+
+  it('routes the anonymous "Start a Project" card through login, not the dead GitBook URL', async () => {
+    renderScreen(
+      <AuthProvider>
+        <Home />
+      </AuthProvider>,
+    );
+
+    const card = screen.getByRole('link', { name: /Start a Project/i });
+    expect(card).toHaveAttribute('href', '/login?return=/projects/create');
+  });
 });

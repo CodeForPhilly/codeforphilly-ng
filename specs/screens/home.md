@@ -52,7 +52,7 @@ Three side-by-side cards (current site has these; they translate cleanly):
 | Card | Heading | Body | Link |
 | ---- | ------- | ---- | ---- |
 | Sponsor | "Sponsor" | "Sponsor an event" | `/sponsor` |
-| Start a Project | "Start a Project" | "Start or get help on a project" | external GitBook URL from current site, or `/projects/create` for signed-in users |
+| Start a Project | "Start a Project" | "Start or get help on a project" | `/projects/create` for signed-in users, else `/login?return=/projects/create` |
 | Volunteer | "Volunteer" | "Join our projects" | `/volunteer` |
 
 ### 4. Activity stream
@@ -101,7 +101,7 @@ Three side-by-side cards (current site has these; they translate cleanly):
 | ------- | --------- | ---- |
 | Hero CTA | "Volunteer" | "Browse Projects" |
 | Featured projects | visible | visible |
-| Get involved | visible | visible — "Start a Project" link changes to in-app `/projects/create` form |
+| Get involved | visible — "Start a Project" routes through `/login?return=/projects/create` | visible — "Start a Project" links to the in-app `/projects/create` form |
 | Activity stream | visible | visible |
 | Help-wanted rail | visible | visible — "Express interest" CTA on each card (deferred polish; v1 just links to project page) |
 
