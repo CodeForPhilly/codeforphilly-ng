@@ -1,10 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/screens/home.md
 issues: []
-pr:
+pr: 128
 ---
 
 # Plan: fix the home "Start a Project" CTA for logged-out visitors
@@ -48,12 +48,12 @@ remove the now-dead `target`/`rel` conditionals. Mirrors `Volunteer.tsx`.
 
 ## Validation
 
-- [ ] Spec updated: anonymous "Start a Project" → `/login?return=/projects/create`.
-- [ ] `Home.tsx` anonymous branch routes in-app; no external GitBook URL remains.
-- [ ] `target="_blank"`/`rel` props removed (both branches internal).
-- [ ] Browser test: logged-out home → click "Start a Project" → lands on
-      `/login?return=/projects/create` (not the dead GitBook page).
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] Spec updated: anonymous "Start a Project" → `/login?return=/projects/create`.
+- [x] `Home.tsx` anonymous branch routes in-app; no external GitBook URL remains.
+- [x] `target="_blank"`/`rel` props removed (both branches internal).
+- [x] Browser test: logged-out home → "Start a Project" → `/login?return=/projects/create`
+      renders the real sign-in page; GitHub link carries `return=%2Fprojects%2Fcreate`.
+- [x] `npm run type-check && npm run lint && npm test` clean (web 74/74, shared 75/75).
 
 ## Risks
 
@@ -62,4 +62,24 @@ remove the now-dead `target`/`rel` conditionals. Mirrors `Volunteer.tsx`.
 
 ## Notes
 
+- The reported "works on laptop, not phone" was a misdiagnosis by the reporters:
+  the card never branched on viewport, only on auth state (`person`). They were
+  signed in on desktop, signed out on mobile. Worth remembering when triaging
+  future "mobile-only" reports against this SPA — check auth state first.
+- The footer's "Start a Project" link (`AppFooter.tsx`) always points at
+  `/projects/create` unconditionally; for an anon user that hits the route's own
+  auth guard rather than the friendly login redirect. Left as-is — out of scope,
+  and the route guard handles it — but noted in case we want footer parity later.
+
 ## Follow-ups
+
+Separately surfaced in the same Slack thread, **not** part of this plan's scope
+(distinct features, not deferrals of this work):
+
+- **Issue:** admin can edit but not delete users (project "Danger Zone" has
+  delete; users don't) — parity gap reported by Travis.
+- **Issue:** legacy image fallback — serve old-site images for users/projects
+  (relates to the `codeforphilly-data-snapshot` work, #115).
+
+These are unrelated to the CTA fix and should be filed/triaged on their own; the
+CTA scope here is **None** outstanding.
