@@ -21,7 +21,16 @@ data:
   # containers) so the in-memory record set + secondary indices + FTS fit.
   # Keep ~25% headroom below the container's memory limit for ephemeral
   # work (request handling, gitsheets tree mutations, etc.).
-  NODE_OPTIONS: "--max-old-space-size=1536"
+  #
+  # 2048 (was 1536): a fresh boot rebuilding in-memory state from the full
+  # `published` import (~31.8k people + ~10.4k tag-assignments + secondary
+  # indices) OOM'd at the 1536 ceiling. The native FTS5 store is off-heap;
+  # the V8 heap holds the record maps + indices. 2048 boots cleanly and runs
+  # stable; it is deliberately kept modest because these nodes are only
+  # ~3.9Gi — an earlier 3072/3.5Gi trial let the pod grow until it starved
+  # the node's kubelet (NodeNotReady). See the memory-optimization issue for
+  # the (suspiciously large ~60x) on-disk-to-heap expansion worth reducing.
+  NODE_OPTIONS: "--max-old-space-size=2048"
   PORT: "3001"
   STORAGE_BACKEND: "filesystem"
   # The runtime-served branch. `published` is the long-term sandbox + prod
