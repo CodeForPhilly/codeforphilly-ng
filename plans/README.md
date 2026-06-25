@@ -6,7 +6,7 @@ If `specs/` is the architecture document, `plans/` is the project plan.
 
 ## Workflow
 
-Documented in [`.claude/CLAUDE.md`](../.claude/CLAUDE.md#plans). Briefly:
+Documented in [`.claude/CLAUDE.md`](../.claude/CLAUDE.md#spec-driven-development-specops) and, in full, the vendored [`specops` plans protocol](../.agents/skills/specops/references/plans-protocol.md). Briefly:
 
 1. Add a plan to start new work. `status: planned` and `depends:` set.
 2. Move to `in-progress` when starting, as the first commit on the branch (`chore(plans): mark <slug> in-progress`). Skippable for tiny plans.
@@ -20,7 +20,7 @@ Per-plan frontmatter is the source of truth for both **status** (`status:`) and 
 - To find what's in flight: `grep -l '^status: in-progress' plans/*.md`
 - To find what's done: same, with `done`
 - To trace dependencies: `grep '^depends:' plans/*.md` or read the plan whose name you care about
-- External blockers (`awaits:` field) are surfaced by `plans-next` in their own "Awaiting external" section — see [the plans protocol's External blockers section](https://github.com/JarvusInnovations/agent-skills/blob/main/skills/specops/references/plans-protocol.md#external-blockers)
+- External blockers (`awaits:` field) are surfaced by `specops next` in their own "awaiting" section — see [the plans protocol's External blockers section](../.agents/skills/specops/references/plans-protocol.md#external-blockers-awaits). Decision/contract deliverables that can't be built until a downstream party acts are [proposal plans](../.agents/skills/specops/references/plans-protocol.md#proposal-plans) (`status: blocked` + `awaits:`).
 
 ## What plans are NOT
 

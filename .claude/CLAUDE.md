@@ -12,25 +12,42 @@ These auto-trigger by topic — you don't load them manually. Mentioned here so 
 | [`backend-fastify`](./skills/backend-fastify/SKILL.md) | New routes, services, plugins, env vars | Fastify 5 patterns, plugin ordering, `@fastify/env` validation, error handling |
 | [`frontend-shadcn`](./skills/frontend-shadcn/SKILL.md) | New screens, components, routing, styling | Vite + React 19 + shadcn/ui + Tailwind v4 + React Router v7 patterns |
 
-Skills are version-pinned via `skills-lock.json`. To update: `agent-skills` CLI.
+Skills are version-pinned via `skills-lock.json`. To update: `npx skills update`.
 
 ### Working laterally on the data repo
 
 When you `cd` into a clone of [`CodeForPhilly/codeforphilly-data`](https://github.com/CodeForPhilly/codeforphilly-data) (typically a sibling — see [Local setup](#local-setup) below), **read its `.claude/CLAUDE.md` first** — that repo has its own conventions and ships a `gitsheets` skill at `.claude/skills/gitsheets/` covering library use, transactions, path templates, indices. Don't write TOML records or shell out to git there by hand.
 
-## Feature workflow
+## Spec-driven development (specops)
 
-The shape of how features get built here — spec-driven, plans-tracked. The [`specops`](./skills/specops/SKILL.md) skill carries the full protocol (frontmatter schema, closeout ritual, Follow-ups taxonomy); this is the orientation map.
+This project uses spec-driven development. [`specs/`](../specs/) is the source of truth for what
+*should be true*; [`plans/`](../plans/) is the work-in-flight DAG that bridges specs to merged code.
+The **specops** skill carries the full methodology — invoke it (the skill triggers on
+"spec", "plan", starting a feature, etc.) before writing specs, planning, or building.
 
-1. **Specs first** — propose what *should be true* in [`specs/`](../specs/). New behavior, new screen, new endpoint → write or update the relevant spec file. Get it reviewed. The spec is the source of truth, not the eventual code.
-2. **Write a plan** — `plans/<slug>.md`, `status: planned`. Frontmatter declares deps + which specs the plan implements. Body has Scope / Implements / Approach / Validation (checklist) / Risks / Notes / Follow-ups.
-3. **Open the plan** — flip `status: planned → in-progress`, branch off `main` (`feat/<slug>`, `fix/<slug>`, `chore/<slug>`). The plan is now the working contract for the branch.
-4. **Implement** — bring code into conformance with the specs the plan lists. `backend-fastify` / `frontend-shadcn` skills cover per-layer patterns. If the spec turns out wrong, *fix the spec first* — don't code around it.
-5. **Validate** — tick each Validation checkbox as you confirm it. Browser-test UI; spec-conformance check non-trivial features. `npm run type-check && npm run lint && npm test` clean.
-6. **Closeout commit** — flip `status: in-progress → done`, fill **Notes** (what shipped, surprises, deferred trade-offs) and **Follow-ups** using the Issue / Deferred to plan / Tracked as / None taxonomy from the specops skill. This is the last commit on the branch.
-7. **PR** — conventional subject ≤72 chars, body explains *why*. Rebase locally onto `main` before `gh pr merge --merge` (never `--rebase` / `--squash` — see [Source control](#source-control)).
+- **Specs lead.** Before changing behavior, change the spec; bring code into conformance
+  after. Spec↔code drift is a bug, not debt. If a spec turns out wrong mid-plan, fix the
+  spec in its own PR first — don't code around it.
+- **`plans/` is the planning system — not your built-in plan mode.** Every chunk of work
+  lands as a file in `plans/` that freezes to `done` as the durable record of what got
+  built. Don't let an ephemeral plan substitute for it, and don't skip it for "small"
+  changes. (Classic trap: an ad-hoc plan of "write spec X, then build it" that ends with
+  neither a reviewed spec nor a plan file — split those into the two real artifacts.)
+- **When to author a plan depends on intent:** mapping out a batch of specs → finish the
+  batch first, then propose a *set* of plans; speccing one bounded feature in a mature
+  project → draft the spec change and its plan in tandem; intent unclear → ask. The skill
+  details each mode.
+- **A spec change ripples to its plans.** After editing a spec, review the plans that
+  implement it (`grep -l '<spec-path>' plans/*.md`) and offer to update them.
 
-For tiny fixes (typo, one-line bug) where writing a plan would be more ceremony than the change is worth, skip steps 2–3, 6 and go straight to a PR. Anything that touches behavior, schema, or a new file should go through the full loop.
+This repo's mechanics: branch off `main` (`feat/<slug>`, `fix/<slug>`, `chore/<slug>`);
+validation gate is `npm run type-check && npm run lint && npm test` clean plus a browser
+test for UI; closeout + PR follow [Source control](#source-control) (rebase locally, then
+`gh pr merge --merge`).
+
+Query the DAG: `.agents/skills/specops/scripts/specops next` (what to work on next) and
+`.agents/skills/specops/scripts/specops dag` (graph). Run `/audit-spec-drift` to compare
+specs against the implementation.
 
 ## Three repos in this project
 
