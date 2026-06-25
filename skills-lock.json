@@ -5,19 +5,19 @@
       "source": "JarvusInnovations/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/backend-fastify/SKILL.md",
-      "computedHash": "b71ec0d6b294c209f5e2c5f4719231fa1133e95b552b467b71bf2b9d4aecd5ed"
+      "computedHash": "7d10877300cc1d198b173e759b750dc538a4ed11ee6fb94363fc507be02f8994"
     },
     "frontend-shadcn": {
       "source": "JarvusInnovations/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/frontend-shadcn/SKILL.md",
-      "computedHash": "381582503c409ecc54e910d83cabb3763cb37323f3483d0ea2fcd274fe70c5d3"
+      "computedHash": "efb3fd8d6782c943aba5895c2bb7d7ea008f0eeb65c15f383c60b0c545ca4c65"
     },
     "specops": {
       "source": "JarvusInnovations/specops",
       "sourceType": "github",
-      "skillPath": "SKILL.md",
-      "computedHash": "9d6cb1c896ae42426e0252b790cd16dfd1e23d8c71c541d9f2ead79ebfa0ab6b"
+      "skillPath": "skills/specops/SKILL.md",
+      "computedHash": "54500128a9406575f8f007b1899c1918186f4dc71df93aac6cab06ff3bf1a10c"
     }
   }
 }
