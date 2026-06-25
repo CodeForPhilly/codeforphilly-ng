@@ -131,9 +131,7 @@ export function Home() {
               <p className="text-sm text-muted-foreground">Sponsor an event</p>
             </Link>
             <Link
-              to={person ? '/projects/create' : 'https://codeforphilly.gitbook.io/projects/creating-new-partnerships/first-steps'}
-              target={person ? undefined : '_blank'}
-              rel={person ? undefined : 'noopener noreferrer'}
+              to={person ? '/projects/create' : '/login?return=/projects/create'}
               className="block rounded-lg border border-border bg-card p-6 hover:shadow-md transition-shadow"
             >
               <h3 className="text-lg font-semibold mb-1">Start a Project</h3>
