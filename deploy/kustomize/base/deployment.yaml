@@ -69,12 +69,14 @@ spec:
               cpu: 1000m
               # Holds the full public dataset + secondary indices + FTS in
               # memory (~31.8k people, 268 projects, 10.4k tag-assignments, …).
-              # 3.5Gi (was 2Gi): a cold boot rebuilding state from the full
+              # 2.5Gi (was 2Gi): a cold boot rebuilding state from the full
               # `published` import exceeded the prior 1536Mi heap; raised to
-              # NODE_OPTIONS=--max-old-space-size=3072 (see configmap.yaml),
-              # so the container limit needs headroom above that for the
-              # off-heap FTS5 store + ephemeral request work. Nodes are 3.9Gi.
-              memory: 3584Mi
+              # NODE_OPTIONS=--max-old-space-size=2048 (see configmap.yaml),
+              # with the container limit just above that for the off-heap FTS5
+              # store + ephemeral request work. Kept at 2.5Gi (not higher) so
+              # a single pod can't starve a node — these nodes are only ~3.9Gi
+              # and a 3.5Gi trial drove one NodeNotReady. ~1.4Gi node headroom.
+              memory: 2560Mi
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
