@@ -197,7 +197,7 @@ export function AppHeader() {
           <img
             src="/img/logo-horizontal.svg"
             alt="Code for Philly"
-            className="h-8 w-auto"
+            className="h-12 w-auto"
           />
         </Link>
 
