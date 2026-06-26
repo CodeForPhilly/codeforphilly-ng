@@ -15,7 +15,11 @@ feature branch ──▶ develop ──(push)──▶ "Release: vX.Y.Z" PR into
 ```
 
 1. **Merge work into `develop`.** Feature branches PR into `develop` (CI runs on
-   `develop` and on every PR).
+   `develop` and on every PR). **Only Release PRs ever target `main`** — that's
+   what `release-validate` enforces: it fails any PR into `main` whose title
+   isn't `Release: vX.Y.Z`, so a stray feature-PR-into-`main` is caught. (The
+   one exception is the very first bootstrap PR that introduces these workflows,
+   which necessarily merges to `main` directly and trips that check once.)
 2. **Push `develop`.** `release-prepare.yml` opens (or updates) a
    **`Release: vX.Y.Z`** PR into `main` with a bot-generated `## Changelog`
    comment. The version is computed from the last `v*` tag + the commits since.

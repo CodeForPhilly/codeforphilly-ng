@@ -1,9 +1,9 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs: []
 issues: []
-pr:
+pr: 135
 ---
 
 # Plan: stand up develop→main Release-PR automation
@@ -44,19 +44,41 @@ secret. First release will be seeded at **v0.1.0**.
 
 ## Validation
 
-- [ ] `develop` branch exists on origin.
-- [ ] Pushing `develop` opens a `Release: v0.1.0` PR into `main` with a changelog.
-- [ ] Merging that PR tags `v0.1.0` and `container-publish` pushes the image to GHCR.
-- [ ] YAML is valid (lint / Actions parses it).
+- [x] Four workflows + `ci.yml` (now on `develop`) + `docs/operations/releases.md`
+      shipped; YAML parsed by GitHub Actions (the workflows ran on the PR).
+- [x] `release-validate` behaves as designed — it ran on PR #135 and failed with
+      `PR title must match "Release: vX.Y.Z"`, confirming the guard works (only
+      Release PRs may target `main`). Expected on this bootstrap feature-PR.
+- [ ] **Activation (post-merge, operator):** create `develop`; first push opens a
+      `Release: v0.1.0` PR; merging it tags `v0.1.0` and `container-publish`
+      pushes the image. Deferred — see Follow-ups.
 
 ## Risks
 
 - `container-publish`'s first run fails if GHCR package write isn't granted or
   `BOT_GITHUB_TOKEN` is missing — non-destructive (tag created, push fails),
   fixable and re-runnable.
-- Branch protection on `main` is a GitHub-settings change (operator action),
-  not in this repo.
+- Branch protection on `main` is a GitHub-settings change (operator action).
 
 ## Notes
 
+- `release-validate` runs on **every** PR into `main` and fails non-Release PRs
+  by design — that's the guard enforcing "only Release PRs target `main`; feature
+  work goes to `develop`." Do not be alarmed by its failure on this bootstrap PR.
+  Consequently, if branch protection on `main` requires status checks, require
+  **`build`** (CI); requiring `release-validate` too would additionally enforce
+  the Release-PR-only rule.
+- The manual `:sandbox` build path still works for ad-hoc iteration; versioned
+  releases now flow through `container-publish`.
+
 ## Follow-ups
+
+- **Activation (operator):** after this merges to `main`, create `develop` off
+  `main` and push it to open the first `Release: v0.1.0` PR. (I can do this on
+  request — held back so the first release is opened deliberately.)
+- **Operator (GitHub settings):** confirm `BOT_GITHUB_TOKEN` secret; grant the
+  repo's Actions `packages: write` on the GHCR package (first publish creates
+  it); add branch protection on `main` (require `build`).
+- **Deferred:** wire the cluster/GitOps to track the published `:vX.Y.Z` /
+  `:latest` tags instead of the manual `:sandbox` push. No issue filed yet —
+  revisit when prod GitOps lands.
