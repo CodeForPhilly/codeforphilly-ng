@@ -51,6 +51,8 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
   const [interestRole, setInterestRole] = useState<HelpWantedRoleResponse | null>(null);
   const [fillRole, setFillRole] = useState<HelpWantedRoleResponse | null>(null);
   const [stageInfoOpen, setStageInfoOpen] = useState(false);
+  const [memberBusy, setMemberBusy] = useState(false);
+  const [memberError, setMemberError] = useState<string | null>(null);
 
   // Allow ?openModal=help-wanted (from /help-wanted "Post a role" picker).
   // Use the state-sync pattern so we don't trigger a cascading re-render.
@@ -121,6 +123,32 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
   const project = projectQ.data!.data;
   const helpWantedRoles = helpWantedQ.data?.data ?? [];
   const perms = project.permissions;
+
+  // #113 — Join / Leave the project. The endpoints exist; the UI was missing.
+  // The project response carries no per-viewer membership flag, so membership is
+  // derived from the members list + the signed-in user.
+  const myMembership = person
+    ? project.memberships.find((m) => m.person.slug === person.slug)
+    : undefined;
+  const isMember = myMembership !== undefined;
+  const maintainerCount = project.memberships.filter((m) => m.isMaintainer).length;
+  // A sole maintainer must transfer the role before leaving (project-detail.md authz).
+  const isSoleMaintainer = (myMembership?.isMaintainer ?? false) && maintainerCount === 1;
+  const canJoin = isSignedIn && !isMember;
+  const canLeave = isMember && !isSoleMaintainer;
+
+  const runMembership = async (fn: () => Promise<void>): Promise<void> => {
+    setMemberBusy(true);
+    setMemberError(null);
+    try {
+      await fn();
+      await projectQ.refetch();
+    } catch (err) {
+      setMemberError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setMemberBusy(false);
+    }
+  };
 
   const allTags = [...project.tags.tech, ...project.tags.topic, ...project.tags.event];
 
@@ -297,6 +325,41 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
 
         {/* Sidebar */}
         <aside className="space-y-6">
+          {/* Membership — #113 Join / Leave */}
+          {(canJoin || isMember) && (
+            <section className="space-y-2">
+              {canJoin && (
+                <Button
+                  className="w-full"
+                  disabled={memberBusy}
+                  onClick={() => void runMembership(() => api.projects.join(slug))}
+                >
+                  {memberBusy ? 'Joining…' : 'Join Project'}
+                </Button>
+              )}
+              {canLeave && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={memberBusy}
+                  onClick={() => void runMembership(() => api.projects.leave(slug))}
+                >
+                  {memberBusy ? 'Leaving…' : 'Leave project'}
+                </Button>
+              )}
+              {isMember && isSoleMaintainer && (
+                <p className="text-xs text-muted-foreground">
+                  You're the sole maintainer. Transfer the maintainer role before you can leave.
+                </p>
+              )}
+              {memberError && (
+                <p className="text-sm text-destructive" role="alert">
+                  {memberError}
+                </p>
+              )}
+            </section>
+          )}
+
           {/* Project info */}
           <section>
             <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
