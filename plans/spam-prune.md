@@ -1,11 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/spam-exclusion.md
 issues:
   - 132
-pr:
+pr: 133
 ---
 
 # Plan: prune confident-spam people from published
@@ -46,15 +46,15 @@ What ships:
 
 ## Validation
 
-- [ ] Dry-run on a fresh clone reports: people before/after (~31.8k → ~12k),
-      cascade deletion counts, authors-unlinked count.
-- [ ] **Spot-check**: sample pruned people + their cascaded records look like
-      spam (empty/throwaway), not real members — a real-looking cascade is a
-      signal the threshold/rule is too aggressive.
-- [ ] Re-running is idempotent (second run = no changes).
-- [ ] After applying to a clone, a local API boot loads the pruned set under
-      ~1.5 GB heap (fits the current nodes).
-- [ ] `npm run type-check && npm run lint` clean.
+- [x] Dry-run on a fresh clone reports: 31,832 → 18,203 (pruned 13,629),
+      1,710 person tag-assignments deleted, 0 memberships/authors touched.
+- [x] **Spot-check**: 9/10 sampled prunes were unambiguous bulk commercial
+      spam; the 1 with a real project membership (quinn / phillytruce) is now
+      protected by the membership clause added after the spot-check.
+- [x] Re-running is idempotent (second run = 0 changes).
+- [x] Pruned set loads + builds FTS in **459 MB heap / 658 MB RSS** at a 1536
+      ceiling (full data OOM'd >2.5 GB) — fits the current nodes with margin.
+- [x] `npm run type-check && npm run lint` clean.
 
 ## Risks
 
@@ -67,4 +67,26 @@ What ships:
 
 ## Notes
 
+- The memory win is **super-linear**, not proportional to the 43% people cut:
+  removing spam dropped the cold-boot heap from >2.5 GB (OOM) to ~459 MB. Spam
+  accounts carry long marketing-copy bios, so they're individually large records
+  and heavy FTS terms — pruning them removes outsized memory, not just a head
+  count. So even the original 1536 heap now fits comfortably; the #131 bump to
+  2048/2.5Gi is just headroom.
+- **Membership protection added after the spot-check.** The first pass would have
+  pruned `quinn`, who had a real `phillytruce` membership (spam verdict rested on
+  one crypto-framed intro message). Added "no project membership" to the protect
+  rule — across all 13,629 prunes only 1 person was protected, confirming spam
+  accounts essentially never hold memberships (so the clause is near-free).
+- The prune is a **data-pipeline** step, not runtime — `loader.ts` is untouched.
+  `published` is spam-free only by running prune after every import/merge; this
+  ordering is now documented in spam-detection.md + cutover.md.
+
 ## Follow-ups
+
+- **Tracked as #132** — investigate the in-memory footprint itself (the per-record
+  heap cost), so growth doesn't re-pressure the budget even with spam pruned.
+- **Deferred (ops):** fold merge+prune into a single `publish`/rebuild step so the
+  ordering can't be skipped by hand. Documented for now; not yet automated. No
+  issue filed — revisit when the publish flow gets automated past the manual
+  cutover runbook.
