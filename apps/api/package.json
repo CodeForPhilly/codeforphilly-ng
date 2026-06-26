@@ -16,7 +16,8 @@
     "script:import-laddr-credentials": "tsx scripts/import-laddr-credentials.ts",
     "script:reconcile": "tsx scripts/reconcile.ts",
     "script:cutover-dry-run": "tsx scripts/cutover-dry-run.ts",
-    "script:cutover-mailout": "tsx scripts/cutover-mailout.ts"
+    "script:cutover-mailout": "tsx scripts/cutover-mailout.ts",
+    "script:prune-spam": "tsx scripts/prune-spam.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1048.0",

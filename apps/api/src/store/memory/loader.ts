@@ -24,33 +24,26 @@ import {
 export async function loadInMemoryState(publicStore: PublicStore): Promise<InMemoryState> {
   const state = createEmptyState();
 
-  const [
-    projects,
-    people,
-    tags,
-    tagAssignments,
-    memberships,
-    updates,
-    buzzes,
-    blogPosts,
-    roles,
-    interests,
-    slugHistoryRecords,
-  ] = await Promise.all([
-    publicStore.projects.queryAll(),
-    publicStore.people.queryAll(),
-    publicStore.tags.queryAll(),
-    publicStore['tag-assignments'].queryAll(),
-    publicStore['project-memberships'].queryAll(),
-    publicStore['project-updates'].queryAll(),
-    publicStore['project-buzz'].queryAll(),
-    // Blog-posts may be absent on data repos that haven't merged the sheet
-    // config PR yet — queryAll returns [] in that case, which is fine.
-    publicStore['blog-posts'].queryAll(),
-    publicStore['help-wanted-roles'].queryAll(),
-    publicStore['help-wanted-interest'].queryAll(),
-    publicStore['slug-history'].queryAll(),
-  ]);
+  // Read each sheet sequentially, NOT via Promise.all. Running all eleven
+  // queryAll() reads concurrently makes every sheet's transient
+  // read/decompress/parse buffers peak at the same instant; with the full
+  // import that combined spike exceeded a 1.5 GB heap on the runtime nodes and
+  // OOM'd the boot — even though the *retained* state is only ~0.5 GB.
+  // Sequential reads bound the peak to the single largest sheet. Boot speed is
+  // not latency-sensitive, so the serialization is free in practice.
+  const projects = await publicStore.projects.queryAll();
+  const people = await publicStore.people.queryAll();
+  const tags = await publicStore.tags.queryAll();
+  const tagAssignments = await publicStore['tag-assignments'].queryAll();
+  const memberships = await publicStore['project-memberships'].queryAll();
+  const updates = await publicStore['project-updates'].queryAll();
+  const buzzes = await publicStore['project-buzz'].queryAll();
+  // Blog-posts may be absent on data repos that haven't merged the sheet
+  // config PR yet — queryAll returns [] in that case, which is fine.
+  const blogPosts = await publicStore['blog-posts'].queryAll();
+  const roles = await publicStore['help-wanted-roles'].queryAll();
+  const interests = await publicStore['help-wanted-interest'].queryAll();
+  const slugHistoryRecords = await publicStore['slug-history'].queryAll();
 
   for (const p of projects) indexProject(state, p);
   for (const p of people) indexPerson(state, p);
