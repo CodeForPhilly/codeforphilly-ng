@@ -1,0 +1,17 @@
+name: "Release: Validate PR"
+
+# Keeps the open "Release: v*" PR's title/version/changelog well-formed as it
+# changes. Runs on the PR into `main`.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  release-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: JarvusInnovations/infra-components@channels/github-actions/release-validate/latest
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

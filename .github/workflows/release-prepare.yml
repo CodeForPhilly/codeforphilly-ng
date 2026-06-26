@@ -1,0 +1,25 @@
+name: "Release: Prepare PR"
+
+# Pushing `develop` opens (or updates) a "Release: vX.Y.Z" PR into `main` with a
+# bot-generated changelog. Merging that PR publishes (see release-publish.yml).
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: "release-prepare"
+  cancel-in-progress: true
+
+jobs:
+  release-prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: JarvusInnovations/infra-components@channels/github-actions/release-prepare/latest
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          release-branch: main

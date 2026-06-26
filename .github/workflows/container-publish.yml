@@ -1,0 +1,59 @@
+name: "Container: Publish Image"
+
+# Builds and pushes the runtime image to GHCR when a vX.Y.Z tag is pushed
+# (by release-publish.yml). Tags the image :vX.Y.Z and :latest.
+#
+# GitHub-hosted runners are amd64 and the cluster nodes are amd64, so no
+# --platform flag is needed here (it's only required for local Apple-silicon
+# builds — see docs/operations/sandbox-deploy.md).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: "container-publish-${{ github.ref }}"
+  cancel-in-progress: false
+
+jobs:
+  container-publish:
+    name: Build and Push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image address
+        run: |
+          DOCKER_IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          DOCKER_TAG="${GITHUB_REF#refs/tags/}"
+          echo "DOCKER_IMAGE=${DOCKER_IMAGE}" >> "$GITHUB_ENV"
+          echo "DOCKER_TAG=${DOCKER_TAG}" >> "$GITHUB_ENV"
+          echo "Publishing ${DOCKER_IMAGE}:${DOCKER_TAG} (+ :latest)"
+
+      - name: Pull previous image for layer cache
+        run: docker pull "${DOCKER_IMAGE}:latest" || true
+
+      - name: Build image
+        run: |
+          docker build \
+            --cache-from "${DOCKER_IMAGE}:latest" \
+            --tag "${DOCKER_IMAGE}:latest" \
+            --tag "${DOCKER_IMAGE}:${DOCKER_TAG}" \
+            .
+
+      - name: Push versioned tag
+        run: docker push "${DOCKER_IMAGE}:${DOCKER_TAG}"
+
+      - name: Push latest
+        run: docker push "${DOCKER_IMAGE}:latest"

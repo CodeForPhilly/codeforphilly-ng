@@ -1,0 +1,21 @@
+name: "Release: Publish PR"
+
+# When a "Release: v*" PR into `main` is merged, this creates the `vX.Y.Z` git
+# tag (and GitHub release). The tag push then triggers container-publish.yml.
+#
+# Must use BOT_GITHUB_TOKEN, not GITHUB_TOKEN: a tag pushed with the default
+# GITHUB_TOKEN cannot trigger another workflow (container-publish), so the
+# image would never build.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+jobs:
+  release-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: JarvusInnovations/infra-components@channels/github-actions/release-publish/latest
+        with:
+          github-token: ${{ secrets.BOT_GITHUB_TOKEN }}
