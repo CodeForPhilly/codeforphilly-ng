@@ -157,6 +157,10 @@ npm run evaluate-heuristic
 
 # 5. LLM-eval the new uncertain bucket
 npm run evaluate-llm
+
+# 6. Apply the verdicts — prune confident-spam from `published` (see below).
+#    Run from the codeforphilly-rewrite repo against a bare clone, then push.
+#    THIS STEP IS MANDATORY after any import/merge — see "Applying spam decisions".
 ```
 
 The heuristic re-evaluates everyone (deterministic, fast, free). Pass A skips slugs already in its cache — only new uncertains cost LLM tokens. Estimate: typical refresh after a `legacy-import` snapshot is dominated by Pass A's cost on newly-imported uncertain accounts — usually under $1 unless a huge batch of new signups landed.
@@ -165,19 +169,33 @@ The heuristic re-evaluates everyone (deterministic, fast, free). Pass A skips sl
 
 When source records get updated (e.g., a previously-empty profile gets a new bio in a re-imported snapshot), the existing evaluation may no longer reflect the current data. The intended re-eval trigger is `person.updatedAt > evaluation.evaluatedAt`. The current scripts don't implement this filter — they just skip cached entries — so to force re-eval on a slug whose source changed, delete the cache entry first or use `--refresh`.
 
-## Applying spam decisions
+## Applying spam decisions — the prune step
 
-Currently the eval records are advisory — they describe verdicts but don't mutate the source data. The plan is to eventually run a **spam-purge** pass that hard-deletes confirmed-spam records and their associated content (memberships, buzz, updates) from `published`. Git history preserves everything for recovery; the deployed app no longer sees them.
+Verdicts are advisory until the **prune** step applies them. Prune is not a read-path filter (the runtime loader stays spam-unaware); it **removes confident-spam people from `published`** so the deployed app never loads them into memory or shows them. This is what keeps the in-memory footprint within the node budget — see [specs/behaviors/spam-exclusion.md](../../specs/behaviors/spam-exclusion.md) for the full contract.
 
-Until that purge is written and run, code on the read path can filter person-evaluations records inline:
+The tool is `apps/api/scripts/prune-spam.ts` in the **`codeforphilly-rewrite`** repo (not the data repo). Run it against a bare clone of the data repo that carries both `published` and `spam-detection`, dry-run first, then push:
 
-```typescript
-const evals = await evaluationsSheet.queryAll({ personSlug });
-const verdict = pickVerdict(evals);  // human > haiku > heuristic
-if (verdict === 'spam') return null; // skip this person
+```bash
+# From the codeforphilly-rewrite repo
+npm run -w apps/api script:prune-spam -- \
+  --data-repo=/path/to/codeforphilly-data.git \
+  --evaluations-ref=spam-detection \
+  --branch=published \
+  --threshold=0.8 \
+  --dry-run                       # drop --dry-run to commit the prune
+
+git -C /path/to/codeforphilly-data.git push origin published
 ```
 
-No `tag-assignments` or moderation tags are used — verdicts live entirely in `person-evaluations` as the separate, dedicated record set.
+**Rule** (from the spec): a person is pruned iff they have a `spam` verdict at confidence ≥ threshold (default **0.8**), **no** `legit` verdict at any confidence, **and no project membership** — real project involvement overrides a spam verdict. **Cascade:** also deletes that person's `project-membership`, `help-wanted-interest`, and person `tag-assignment` records, and nulls `authorId` on their `project-update`s (history is kept). The run is **idempotent** and reports counts (pruned, protected-by-membership, cascade deletions).
+
+> ⚠️ **Ordering — prune AFTER every import/merge.** `published` is the merge target of `legacy-import`, the full raw snapshot (spam included). A fresh import or a merge into `published` **re-adds the pruned spam**, bloating `published` until the next prune — and re-introducing the boot-time OOM that motivated this whole step. The publish pipeline must always end with prune:
+>
+> **import → merge into `published` → (re-)eval new accounts → prune → push.**
+>
+> Never push a freshly-merged `published` without re-running the prune.
+
+`legacy-import` is kept complete and raw for audit/recovery; spam exclusion happens **only** at the `published` layer. Git history preserves every original, so a wrongly-pruned person is recoverable by re-import. No `tag-assignments` or moderation tags are used for verdicts — they live entirely in `person-evaluations`.
 
 ## Inspection / auditing
 

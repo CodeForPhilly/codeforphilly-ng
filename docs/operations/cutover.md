@@ -120,7 +120,24 @@ S3-compat bucket).
 5. Push the `legacy-import` branch to the production GitHub remote.
 6. Merge `legacy-import` into `main` (operator step — review the diff in a
    PR, resolve any path-template conflicts, then merge).
-7. Run reconciliation:
+7. **Prune confident-spam** from the runtime branch before it goes live. The
+   merge in step 6 re-adds the full raw import (spam included); the deployed pod
+   cannot hold the unpruned set in memory, so this step is **mandatory** after
+   every import/merge. See
+   [spam-detection.md → Applying spam decisions](./spam-detection.md#applying-spam-decisions--the-prune-step):
+
+   ```bash
+   npm run -w apps/api script:prune-spam -- \
+     --data-repo=/scratch/codeforphilly-data \
+     --evaluations-ref=spam-detection \
+     --branch=published \
+     --dry-run            # review counts, then drop --dry-run and push the branch
+   ```
+
+   Newly-imported accounts with no spam verdict yet are kept (the rule only
+   removes *confident* spam), so an incomplete eval pass is safe — it just keeps
+   more people than strictly necessary.
+8. Run reconciliation:
 
    ```bash
    npm run -w apps/api script:reconcile -- --json=/scratch/reconcile-T1.json
@@ -129,13 +146,13 @@ S3-compat bucket).
    Every counter should be zero in the orphan + inconsistent categories.
    If anything is flagged, **stop** and investigate before T-0.
 
-8. Deploy the rewrite to production via the production GitOps repo (a
+9. Deploy the rewrite to production via the production GitOps repo (a
    sibling to [`cfp-sandbox-cluster`](https://github.com/CodeForPhilly/cfp-sandbox-cluster)
    — see [deploy.md](deploy.md)). The pod will boot against the
    just-imported data + bucket but receive no public traffic yet (Gateway
    hostname not pointed at the prod LoadBalancer yet).
 
-9. Smoke-test the production hostname through `/etc/hosts` or via direct
+10. Smoke-test the production hostname through `/etc/hosts` or via direct
     cluster IP: hit `/api/health`, `/api/people/<known-slug>`,
     `/api/projects/<known-slug>`. Don't yet flip DNS.
 
@@ -150,7 +167,10 @@ engineering second has the runbook open and reads checks back.
 2. **0:01 — final delta.** Re-run the importer against the live laddr site
    into the same data-repo path. UUIDs are read-forward from the previous
    snapshot's tree, so the diff between this commit and the T-1 commit is
-   exactly the records that changed upstream since T-1.
+   exactly the records that changed upstream since T-1. **Then merge into the
+   runtime branch and re-run the spam prune (step 7 above) before the pod
+   reloads** — the final-delta merge re-adds raw import records, so an unpruned
+   reload would re-bloat memory.
 3. **0:05 — DNS flip.** Update the `codeforphilly.org` A/CNAME to point
    at the rewrite's ingress. TTL was lowered to 60s a week ago, so
    propagation completes in under two minutes for most resolvers.
