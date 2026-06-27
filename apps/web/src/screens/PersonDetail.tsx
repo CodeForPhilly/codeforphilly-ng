@@ -5,12 +5,14 @@ import { MarkdownView } from '@/components/MarkdownView';
 import { StageBadge } from '@/components/StageBadge';
 import { TagChip } from '@/components/TagChip';
 import { PersonAvatar } from '@/components/PersonAvatar';
+import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
 import { formatMonthYear, formatRelativeTime } from '@/lib/time';
 
 export function PersonDetail() {
   const params = useParams();
   const slug = params['slug']!;
+  const { person: viewer } = useAuth();
 
   const personQ = useQuery({
     queryKey: ['person', slug],
@@ -37,6 +39,7 @@ export function PersonDetail() {
   }
 
   const person = personQ.data!.data;
+  const isSelf = viewer !== null && viewer.slug === person.slug;
   const allTags = [...person.tags.tech, ...person.tags.topic];
 
   // Memberships sorted: maintainer desc, joinedAt desc
@@ -193,6 +196,13 @@ export function PersonDetail() {
           </h3>
           <p>{formatMonthYear(person.createdAt)}</p>
         </section>
+        {isSelf && (
+          <section>
+            <Link to="/account" className="text-primary underline hover:no-underline">
+              Manage account
+            </Link>
+          </section>
+        )}
       </aside>
     </div>
   );

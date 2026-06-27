@@ -99,4 +99,54 @@ describe('PersonDetail Contact sidebar', () => {
       expect(mailto).toHaveAttribute('href', 'mailto:jane@example.com');
     });
   });
+
+  // #113 — "Manage account" link, self only
+  it('shows a "Manage account" link to /account when viewing your own profile', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(((input: string) => {
+      if (input.startsWith('/api/auth/me')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              mockOk({
+                person: { id: BASE_PERSON.id, slug: 'jane-doe', fullName: 'Jane Doe', accountLevel: 'user', avatarUrl: null },
+                accountLevel: 'user',
+              }),
+            ),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }
+      if (input.startsWith('/api/people/jane-doe')) {
+        return Promise.resolve(new Response(JSON.stringify(mockOk(BASE_PERSON)), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    }) as typeof fetch);
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/members/:slug" element={<PersonDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/members/jane-doe'] },
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /manage account/i })).toHaveAttribute('href', '/account');
+    });
+  });
+
+  it('does not show "Manage account" for anonymous viewers', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(makeFetchMock(BASE_PERSON));
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/members/:slug" element={<PersonDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/members/jane-doe'] },
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Jane Doe', level: 1 })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('link', { name: /manage account/i })).not.toBeInTheDocument();
+  });
 });
