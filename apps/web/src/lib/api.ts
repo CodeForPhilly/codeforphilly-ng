@@ -591,6 +591,10 @@ export const api = {
       request(`/api/projects/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
     restore: (slug: string): Promise<SuccessEnvelope<ProjectDetail>> =>
       request(`/api/projects/${encodeURIComponent(slug)}/restore`, { method: 'POST' }),
+    join: (slug: string): Promise<void> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/members/join`, { method: 'POST' }),
+    leave: (slug: string): Promise<void> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/members/leave`, { method: 'POST' }),
     changeMaintainer: (slug: string, personSlug: string): Promise<SuccessEnvelope<ProjectDetail>> =>
       request(`/api/projects/${encodeURIComponent(slug)}/change-maintainer`, {
         method: 'POST',

@@ -191,4 +191,70 @@ describe('ProjectDetail', () => {
       'https://github.com/codeforphilly/sample-project',
     );
   });
+
+  // #113 — Join / Leave membership UI
+  function mockSignedIn(project: typeof PROJECT, accountLevel = 'user'): void {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(((input: string) => {
+      if (input.startsWith('/api/auth/me')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              mockOk({
+                person: { id: 'u1', slug: 'me', fullName: 'Me Person', accountLevel, avatarUrl: null },
+                accountLevel,
+              }),
+            ),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }
+      if (
+        input.includes('/api/projects/sample-project/updates') ||
+        input.includes('/api/projects/sample-project/buzz') ||
+        input.includes('/api/projects/sample-project/help-wanted')
+      ) {
+        return Promise.resolve(new Response(JSON.stringify(mockPaginated([])), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      if (input.startsWith('/api/projects/sample-project')) {
+        return Promise.resolve(new Response(JSON.stringify(mockOk(project)), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    }) as typeof fetch);
+  }
+
+  function renderDetail(): void {
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/projects/:slug" element={<ProjectDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/projects/sample-project'] },
+    );
+  }
+
+  it('shows "Join Project" for a signed-in non-member', async () => {
+    mockSignedIn(PROJECT); // memberships: []
+    renderDetail();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /join project/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /leave project/i })).not.toBeInTheDocument();
+  });
+
+  it('shows "Leave project" for a member (not sole maintainer)', async () => {
+    const asMember = {
+      ...PROJECT,
+      memberships: [
+        { id: 'm1', role: 'contributor', isMaintainer: false, joinedAt: '2026-02-01T00:00:00Z', person: { slug: 'me', fullName: 'Me Person', avatarUrl: null } },
+      ],
+      counts: { ...PROJECT.counts, members: 1 },
+    } as unknown as typeof PROJECT;
+    mockSignedIn(asMember);
+    renderDetail();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /leave project/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /join project/i })).not.toBeInTheDocument();
+  });
 });
