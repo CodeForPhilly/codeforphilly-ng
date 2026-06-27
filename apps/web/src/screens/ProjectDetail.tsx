@@ -2,6 +2,21 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { MarkdownView } from '@/components/MarkdownView';
 import { StageProgressBar, StageBadge } from '@/components/StageBadge';
 import { StageInfoDialog } from '@/components/StageInfoDialog';
@@ -53,6 +68,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
   const [stageInfoOpen, setStageInfoOpen] = useState(false);
   const [memberBusy, setMemberBusy] = useState(false);
   const [memberError, setMemberError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Allow ?openModal=help-wanted (from /help-wanted "Post a role" picker).
   // Use the state-sync pattern so we don't trigger a cascading re-render.
@@ -154,6 +170,20 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
     }
   };
 
+  const doDelete = async (): Promise<void> => {
+    setMemberBusy(true);
+    setMemberError(null);
+    try {
+      await api.projects.delete(slug);
+      await projectQ.refetch();
+      setDeleteOpen(false);
+    } catch (err) {
+      setMemberError(err instanceof ApiError ? err.message : 'Could not delete the project.');
+    } finally {
+      setMemberBusy(false);
+    }
+  };
+
   const allTags = [...project.tags.tech, ...project.tags.topic, ...project.tags.event];
 
   return (
@@ -186,15 +216,54 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                 <Link to={`/projects/${slug}/edit`}>Edit Project</Link>
               </Button>
             )}
-            {perms.canManageMembers && (
-              <Button variant="outline" onClick={() => setAddMemberOpen(true)}>
-                Add Member
-              </Button>
-            )}
-            {perms.canManageMembers && (
-              <Button variant="outline" onClick={() => setManageMembersOpen(true)}>
-                Manage Members
-              </Button>
+            {(perms.canManageMembers ||
+              perms.canPostUpdate ||
+              perms.canLogBuzz ||
+              perms.canPostHelpWanted ||
+              perms.canDelete) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline">More ▾</Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {perms.canManageMembers && (
+                    <DropdownMenuItem onSelect={() => setAddMemberOpen(true)}>
+                      Add Member
+                    </DropdownMenuItem>
+                  )}
+                  {perms.canLogBuzz && (
+                    <DropdownMenuItem asChild>
+                      <Link to={`/projects/${slug}/buzz/new`}>Log Buzz</Link>
+                    </DropdownMenuItem>
+                  )}
+                  {perms.canPostUpdate && (
+                    <DropdownMenuItem onSelect={() => setUpdateModalOpen(true)}>
+                      Post Update
+                    </DropdownMenuItem>
+                  )}
+                  {perms.canPostHelpWanted && (
+                    <DropdownMenuItem onSelect={() => setHelpWantedModalOpen(true)}>
+                      Post Help-Wanted Role
+                    </DropdownMenuItem>
+                  )}
+                  {perms.canManageMembers && (
+                    <DropdownMenuItem onSelect={() => setManageMembersOpen(true)}>
+                      Manage Members
+                    </DropdownMenuItem>
+                  )}
+                  {perms.canDelete && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => setDeleteOpen(true)}
+                      >
+                        Delete Project
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
             {!isSignedIn && (
               <Button asChild variant="outline">
@@ -222,11 +291,6 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
             <section id="help-wanted">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">Help Wanted</h2>
-                {perms.canPostHelpWanted && (
-                  <Button size="sm" onClick={() => setHelpWantedModalOpen(true)}>
-                    Post new role
-                  </Button>
-                )}
               </div>
               {helpWantedRoles.length === 0 ? (
                 <p className="text-muted-foreground text-sm">No open roles right now.</p>
@@ -303,22 +367,6 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           <section>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">Project Activity</h2>
-              <div className="flex gap-2">
-                {perms.canPostUpdate && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setUpdateModalOpen(true)}
-                  >
-                    Post Update
-                  </Button>
-                )}
-                {isSignedIn && (
-                  <Button asChild size="sm" variant="outline">
-                    <Link to={`/projects/${slug}/buzz/new`}>Log Buzz</Link>
-                  </Button>
-                )}
-              </div>
             </div>
 
             {updatesQ.isLoading || buzzQ.isLoading ? (
@@ -604,6 +652,31 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           roleTitle={fillRole.title}
         />
       )}
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this project?</DialogTitle>
+            <DialogDescription>
+              “{project.title}” will be soft-deleted and hidden from public lists. Staff can
+              restore it afterward.
+            </DialogDescription>
+          </DialogHeader>
+          {memberError && (
+            <p className="text-sm text-destructive" role="alert">
+              {memberError}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={memberBusy}>
+              Cancel
+            </Button>
+            <Button variant="destructive" disabled={memberBusy} onClick={() => void doDelete()}>
+              {memberBusy ? 'Deleting…' : 'Delete project'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
