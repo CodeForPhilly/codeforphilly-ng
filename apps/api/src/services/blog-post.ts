@@ -4,7 +4,7 @@
  * Per specs/api/blog.md. Writes happen via PR to the data repo, not the
  * runtime — no mutation methods here.
  */
-import type { BlogPost } from '@cfp/shared/schemas';
+import type { BlogPost, Tag } from '@cfp/shared/schemas';
 import type { InMemoryState } from '../store/memory/state.js';
 import { serializeBlogPost, type BlogPostResponse } from './serializers/blog-post.js';
 
@@ -66,6 +66,15 @@ export class BlogPostService {
 
   #serialize(post: BlogPost): BlogPostResponse {
     const author = post.authorId ? (this.#state.people.get(post.authorId) ?? null) : null;
-    return serializeBlogPost(post, { author });
+    return serializeBlogPost(post, { author, tags: this.#tagsFor(post.id) });
+  }
+
+  #tagsFor(postId: string): Tag[] {
+    const taIds = this.#state.tagAssignmentsByTaggable.get(postId) ?? new Set<string>();
+    return [...taIds]
+      .map((taId) => this.#state.tagAssignments.get(taId))
+      .filter((ta): ta is NonNullable<typeof ta> => ta?.taggableType === 'blog_post')
+      .map((ta) => this.#state.tags.get(ta.tagId))
+      .filter((t): t is Tag => t !== undefined);
   }
 }

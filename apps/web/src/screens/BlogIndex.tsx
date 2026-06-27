@@ -147,13 +147,30 @@ function BlogIndexCard({ post }: { post: BlogPostResponse }) {
             ) : null}
             <time dateTime={post.postedAt}>{formatPostedAt(post.postedAt)}</time>
           </div>
-          {post.summary && (
-            <p className="text-muted-foreground mt-2 leading-relaxed">{post.summary}</p>
-          )}
+          {(() => {
+            // blog-index.md Display Rules: show `summary`; if absent, fall back
+            // to the first paragraph of bodyHtml truncated to ~280 chars.
+            const text = post.summary ?? excerptFromHtml(post.bodyHtml);
+            return text ? (
+              <p className="text-muted-foreground mt-2 leading-relaxed">{text}</p>
+            ) : null;
+          })()}
         </div>
       </article>
     </li>
   );
+}
+
+/**
+ * Plain-text excerpt from already-sanitized post HTML: the first paragraph's
+ * text, truncated to ~280 chars at a word boundary. Only strips tags for the
+ * preview — the full post renders via the server-sanitized HTML elsewhere.
+ */
+function excerptFromHtml(html: string): string {
+  const firstParagraph = /<p[^>]*>(.*?)<\/p>/is.exec(html)?.[1] ?? html;
+  const text = firstParagraph.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  if (text.length <= 280) return text;
+  return text.slice(0, 280).replace(/\s+\S*$/, '') + '…';
 }
 
 function formatPostedAt(iso: string): string {

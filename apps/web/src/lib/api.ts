@@ -175,6 +175,7 @@ export interface ProjectDetail {
   readonly featured: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly deletedAt: string | null;
 }
 
 export interface PersonListItem {
@@ -296,6 +297,7 @@ export interface BlogPostResponse {
   readonly featuredImageUrl: string | null;
   readonly body: string;
   readonly bodyHtml: string;
+  readonly tags: TagItem[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -591,6 +593,10 @@ export const api = {
       request(`/api/projects/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
     restore: (slug: string): Promise<SuccessEnvelope<ProjectDetail>> =>
       request(`/api/projects/${encodeURIComponent(slug)}/restore`, { method: 'POST' }),
+    join: (slug: string): Promise<void> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/members/join`, { method: 'POST' }),
+    leave: (slug: string): Promise<void> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/members/leave`, { method: 'POST' }),
     changeMaintainer: (slug: string, personSlug: string): Promise<SuccessEnvelope<ProjectDetail>> =>
       request(`/api/projects/${encodeURIComponent(slug)}/change-maintainer`, {
         method: 'POST',
