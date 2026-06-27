@@ -276,4 +276,32 @@ describe('ProjectDetail', () => {
     });
     expect(screen.queryByText(/this project is deleted/i)).not.toBeInTheDocument();
   });
+
+  it('shows the "More" actions dropdown for users with management permissions', async () => {
+    const asAdmin = {
+      ...PROJECT,
+      permissions: { ...PROJECT.permissions, canManageMembers: true, canPostUpdate: true, canDelete: true },
+    } as unknown as typeof PROJECT;
+    mockSignedIn(asAdmin, 'administrator');
+    renderDetail();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /more/i })).toBeInTheDocument();
+    });
+  });
+
+  it('shows no "More" dropdown for anonymous viewers', async () => {
+    // default beforeEach mock is anonymous with no permissions
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/projects/:slug" element={<ProjectDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/projects/sample-project'] },
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Sample Project', level: 1 })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /more/i })).not.toBeInTheDocument();
+  });
 });
