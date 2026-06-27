@@ -76,6 +76,7 @@ export interface ProjectDetail {
   readonly featured: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly deletedAt: string | null;
 }
 
 export interface HelpWantedRoleSummary {
@@ -243,5 +244,6 @@ export function serializeProjectDetail(
     featured: project.featured,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
+    deletedAt: project.deletedAt ?? null,
   };
 }
