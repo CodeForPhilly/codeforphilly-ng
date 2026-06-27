@@ -257,4 +257,23 @@ describe('ProjectDetail', () => {
     });
     expect(screen.queryByRole('button', { name: /join project/i })).not.toBeInTheDocument();
   });
+
+  it('shows the soft-delete banner + Restore for staff viewing a deleted project', async () => {
+    const deleted = { ...PROJECT, deletedAt: '2026-06-01T00:00:00Z' } as unknown as typeof PROJECT;
+    mockSignedIn(deleted, 'staff');
+    renderDetail();
+    await waitFor(() => {
+      expect(screen.getByText(/this project is deleted/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument();
+  });
+
+  it('does not show the soft-delete banner for an active project', async () => {
+    mockSignedIn({ ...PROJECT, deletedAt: null } as unknown as typeof PROJECT, 'staff');
+    renderDetail();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Sample Project', level: 1 })).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/this project is deleted/i)).not.toBeInTheDocument();
+  });
 });

@@ -175,6 +175,7 @@ export interface ProjectDetail {
   readonly featured: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly deletedAt: string | null;
 }
 
 export interface PersonListItem {

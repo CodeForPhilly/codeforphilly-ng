@@ -136,6 +136,10 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
   const isSoleMaintainer = (myMembership?.isMaintainer ?? false) && maintainerCount === 1;
   const canJoin = isSignedIn && !isMember;
   const canLeave = isMember && !isSoleMaintainer;
+  // Only staff can see a soft-deleted project at all (non-staff get 404), so a
+  // non-null deletedAt here means the viewer is staff; gate anyway for clarity.
+  const isStaff = person?.accountLevel === 'staff' || person?.accountLevel === 'administrator';
+  const showDeletedBanner = project.deletedAt !== null && isStaff;
 
   const runMembership = async (fn: () => Promise<void>): Promise<void> => {
     setMemberBusy(true);
@@ -154,6 +158,24 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* Soft-delete banner — staff only (project-detail.md) */}
+      {showDeletedBanner && (
+        <div
+          role="status"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-yellow-400 bg-yellow-50 px-4 py-3 text-sm text-yellow-900"
+        >
+          <span>This project is deleted — only staff can see it.</span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={memberBusy}
+            onClick={() => void runMembership(() => api.projects.restore(slug).then(() => undefined))}
+          >
+            {memberBusy ? 'Restoring…' : 'Restore'}
+          </Button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-start justify-between gap-4 mb-3">
