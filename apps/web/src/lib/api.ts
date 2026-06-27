@@ -297,6 +297,7 @@ export interface BlogPostResponse {
   readonly featuredImageUrl: string | null;
   readonly body: string;
   readonly bodyHtml: string;
+  readonly tags: TagItem[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
