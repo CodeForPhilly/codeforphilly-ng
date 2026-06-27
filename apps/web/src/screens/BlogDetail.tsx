@@ -68,6 +68,19 @@ export function BlogDetail() {
       </div>
 
       <footer className="mt-10 pt-6 border-t border-border">
+        {post.tags.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-2">
+            {post.tags.map((t) => (
+              <Link
+                key={`${t.namespace}.${t.slug}`}
+                to={`/blog?tag=${encodeURIComponent(`${t.namespace}.${t.slug}`)}`}
+                className="inline-flex items-center rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {t.title}
+              </Link>
+            ))}
+          </div>
+        )}
         <Link to="/blog" className="text-primary underline">
           ← Back to all posts
         </Link>

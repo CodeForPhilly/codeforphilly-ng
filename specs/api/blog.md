@@ -60,6 +60,7 @@ Standard 404 envelope (per [conventions.md](conventions.md)). Slug-history redir
   "featuredImageUrl": "/api/attachments/blog-posts/civic-tech-roundup-2026/cover.jpg",  // or null — derived from featuredImageKey
   "body": "Markdown source",
   "bodyHtml": "<p>...</p>",            // sanitized HTML, server-rendered
+  "tags": [{ "namespace": "topic", "slug": "transit", "title": "Transit" }, ...],  // tags assigned to the post; [] when none
   "createdAt": "...",
   "updatedAt": "..."
 }
