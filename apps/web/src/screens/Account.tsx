@@ -5,6 +5,14 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
 import { formatRelativeTime, formatAbsoluteDate } from '@/lib/time';
@@ -70,6 +78,8 @@ export function Account() {
   // false and update from the PATCH response.
   const [optedIn, setOptedIn] = useState<boolean>(false);
   const [savingNewsletter, setSavingNewsletter] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
+  const [confirmDeactivateOpen, setConfirmDeactivateOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !person) {
@@ -111,6 +121,35 @@ export function Account() {
     await reload();
     void navigate('/', { replace: true });
   };
+
+  const handleDeactivate = async () => {
+    setDeactivating(true);
+    try {
+      await api.people.deactivate(person.slug);
+      toast.success('Your account has been deactivated. You can reactivate at any time.');
+      // Reload auth so the deactivated state is reflected in session display.
+      await reload();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to deactivate account');
+    } finally {
+      setDeactivating(false);
+    }
+  };
+
+  const handleReactivate = async () => {
+    setDeactivating(true);
+    try {
+      await api.people.reactivate(person.slug);
+      toast.success('Your account has been reactivated and is visible again.');
+      await reload();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to reactivate account');
+    } finally {
+      setDeactivating(false);
+    }
+  };
+
+  const isDeactivated = !!person.deletedAt;
 
   const sessions = sessionsQ.data?.data ?? [];
 
@@ -280,18 +319,58 @@ export function Account() {
         <CardHeader>
           <CardTitle className="text-destructive">Danger zone</CardTitle>
           <CardDescription>
-            Closing your account hides your profile from new visitors. Past
-            contributions remain visible to staff. This isn't reversible
-            self-serve — email{' '}
-            <a
-              href="mailto:accounts@codeforphilly.org"
-              className="text-primary underline"
-            >
-              accounts@codeforphilly.org
-            </a>{' '}
-            to request closure.
+            {isDeactivated
+              ? 'Your account is currently deactivated. Your profile is hidden from public views. You can reactivate at any time.'
+              : 'Deactivating your account hides your profile from public views. Past contributions remain. You can reactivate at any time by signing back in.'}
           </CardDescription>
         </CardHeader>
+        <CardContent>
+          {isDeactivated ? (
+            <Button
+              variant="outline"
+              onClick={() => void handleReactivate()}
+              disabled={deactivating}
+            >
+              {deactivating ? 'Reactivating…' : 'Reactivate my account'}
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="destructive"
+                disabled={deactivating}
+                onClick={() => setConfirmDeactivateOpen(true)}
+              >
+                Deactivate my account
+              </Button>
+              <Dialog open={confirmDeactivateOpen} onOpenChange={setConfirmDeactivateOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Deactivate your account?</DialogTitle>
+                    <DialogDescription>
+                      Your profile will be hidden from public views. Past contributions remain
+                      in our records. You can sign back in and reactivate at any time.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setConfirmDeactivateOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      disabled={deactivating}
+                      onClick={() => {
+                        setConfirmDeactivateOpen(false);
+                        void handleDeactivate();
+                      }}
+                    >
+                      {deactivating ? 'Deactivating…' : 'Deactivate'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

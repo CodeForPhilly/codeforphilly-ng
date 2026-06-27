@@ -8,6 +8,7 @@
  * applied — in-memory state stays in sync with the on-disk gitsheets state.
  */
 import type {
+  BlogPost,
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
@@ -101,6 +102,17 @@ export class StateApply {
       } else {
         fts.upsertPerson(person.slug, person.fullName, person.bio ?? '');
       }
+    });
+    this.#invalidateFacets = true;
+    return this;
+  }
+
+  removePerson(personId: string, slug: string): this {
+    this.#ops.push((state, fts) => {
+      state.people.delete(personId);
+      state.personSlugById.delete(personId);
+      state.personIdBySlug.delete(slug);
+      fts.removePerson(slug);
     });
     this.#invalidateFacets = true;
     return this;
@@ -211,6 +223,37 @@ export class StateApply {
 
   upsertInterest(e: HelpWantedInterestExpression): this {
     this.#ops.push((state) => indexHelpWantedInterest(state, e));
+    return this;
+  }
+
+  removeInterest(e: HelpWantedInterestExpression): this {
+    this.#ops.push((state) => {
+      state.helpWantedInterest.delete(e.id);
+      state.interestByRole.get(e.roleId)?.delete(e.id);
+      state.interestByRoleAndPerson.delete(`${e.roleId}:${e.personId}`);
+    });
+    return this;
+  }
+
+  upsertBlogPost(post: BlogPost): this {
+    this.#ops.push((state) => {
+      state.blogPosts.set(post.id, post);
+      state.blogPostIdBySlug.set(post.slug, post.id);
+      if (typeof post.legacyId === 'number') {
+        state.blogPostIdByLegacyId.set(post.legacyId, post.id);
+      }
+    });
+    return this;
+  }
+
+  removeBlogPost(post: BlogPost): this {
+    this.#ops.push((state) => {
+      state.blogPosts.delete(post.id);
+      state.blogPostIdBySlug.delete(post.slug);
+      if (typeof post.legacyId === 'number') {
+        state.blogPostIdByLegacyId.delete(post.legacyId);
+      }
+    });
     return this;
   }
 

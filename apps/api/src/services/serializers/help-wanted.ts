@@ -3,18 +3,18 @@
  */
 import type { HelpWantedRole, Person, Project, Tag, TagAssignment } from '@cfp/shared/schemas';
 import type { HelpWantedPermissions } from '../permissions.js';
-import { groupTagsByNamespace, renderMarkdown, serializePersonAvatar, type TagItem } from './common.js';
+import { groupTagsByNamespace, renderMarkdown, serializePersonAvatar, type PersonAvatar, type TagItem } from './common.js';
 
 export interface HelpWantedRoleResponse {
   readonly id: string;
   readonly project: { readonly slug: string; readonly title: string };
-  readonly postedBy: { readonly slug: string; readonly fullName: string; readonly avatarUrl: string | null } | null;
+  readonly postedBy: PersonAvatar | null;
   readonly title: string;
   readonly description: string;
   readonly descriptionHtml: string;
   readonly commitmentHoursPerWeek: number | null;
   readonly status: string;
-  readonly filledBy: { readonly slug: string; readonly fullName: string; readonly avatarUrl: string | null } | null;
+  readonly filledBy: PersonAvatar | null;
   readonly filledAt: string | null;
   readonly closedAt: string | null;
   readonly tags: { topic: TagItem[]; tech: TagItem[] };

@@ -34,9 +34,11 @@ export function renderMarkdown(source: string): RenderMarkdownResult {
 
 /** PersonAvatar shape used in many nested contexts. */
 export interface PersonAvatar {
-  readonly slug: string;
+  readonly slug: string | null;
   readonly fullName: string;
   readonly avatarUrl: string | null;
+  /** Present and true when the person is deactivated; omitted otherwise. */
+  readonly deactivated?: true;
 }
 
 /** Tag shape used in nested contexts. */
@@ -46,8 +48,19 @@ export interface TagItem {
   readonly title: string;
 }
 
+/**
+ * Serialize a person reference as a PersonAvatar.
+ *
+ * If the person is deactivated (`deletedAt` is set), returns a placeholder
+ * per specs/api/people.md#deactivated-person-placeholder and
+ * specs/behaviors/person-lifecycle.md. The placeholder substitutes rather
+ * than omits the reference so counts and history stay coherent.
+ */
 export function serializePersonAvatar(person: Person | undefined | null): PersonAvatar | null {
   if (!person) return null;
+  if (person.deletedAt) {
+    return { slug: null, fullName: 'Deactivated user', avatarUrl: null, deactivated: true };
+  }
   return {
     slug: person.slug,
     fullName: person.fullName,

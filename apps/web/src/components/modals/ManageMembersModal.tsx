@@ -28,9 +28,9 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['project', project.slug] });
 
-  const handleRemove = async (personSlug: string) => {
+  const handleRemove = async (personSlug: string, rowKey: string) => {
     if (!window.confirm(`Remove ${personSlug} from this project?`)) return;
-    setBusySlug(personSlug);
+    setBusySlug(rowKey);
     try {
       await api.projects.removeMember(project.slug, personSlug);
       toast.success(`Removed ${personSlug}`);
@@ -48,9 +48,9 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
     }
   };
 
-  const handleChangeMaintainer = async (personSlug: string) => {
+  const handleChangeMaintainer = async (personSlug: string, rowKey: string) => {
     if (!window.confirm(`Make ${personSlug} the maintainer? You'll become a regular member.`)) return;
-    setBusySlug(personSlug);
+    setBusySlug(rowKey);
     try {
       await api.projects.changeMaintainer(project.slug, personSlug);
       toast.success(`Maintainer transferred to ${personSlug}`);
@@ -62,10 +62,10 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
     }
   };
 
-  const handleSaveRole = async (personSlug: string) => {
-    const role = editingRole[personSlug];
+  const handleSaveRole = async (rowKey: string, personSlug: string) => {
+    const role = editingRole[rowKey];
     if (role === undefined) return;
-    setBusySlug(personSlug);
+    setBusySlug(rowKey);
     try {
       await api.projects.updateMember(project.slug, personSlug, {
         role: role.trim() || null,
@@ -73,7 +73,7 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
       toast.success('Role updated');
       setEditingRole((m) => {
         const next = { ...m };
-        delete next[personSlug];
+        delete next[rowKey];
         return next;
       });
       await refresh();
@@ -96,8 +96,11 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
         <div className="py-4">
           <ul className="divide-y divide-border">
             {project.memberships.map((m) => {
-              const slug = m.person.slug;
-              const isEditingThisRow = editingRole[slug] !== undefined;
+              // Use membership ID as the stable row key.
+              // person.slug may be null for deactivated members (placeholder shape).
+              const rowKey = m.id;
+              const personSlug = m.person.slug;
+              const isEditingThisRow = editingRole[rowKey] !== undefined;
               return (
                 <li key={m.id} className="py-3 flex items-center gap-3">
                   <PersonAvatar person={m.person} size={32} asLink={false} />
@@ -105,9 +108,9 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                     <div className="font-medium truncate">{m.person.fullName}</div>
                     {isEditingThisRow ? (
                       <Input
-                        value={editingRole[slug] ?? ''}
+                        value={editingRole[rowKey] ?? ''}
                         onChange={(e) =>
-                          setEditingRole((r) => ({ ...r, [slug]: e.target.value }))
+                          setEditingRole((r) => ({ ...r, [rowKey]: e.target.value }))
                         }
                         placeholder="Role"
                         className="h-7 mt-1 text-xs"
@@ -124,13 +127,16 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                     )}
                   </div>
                   <div className="flex items-center gap-1">
-                    {isEditingThisRow ? (
+                    {/* Deactivated members: no edit actions available. */}
+                    {m.person.deactivated ? (
+                      <span className="text-xs text-muted-foreground italic">Deactivated</span>
+                    ) : isEditingThisRow ? (
                       <>
                         <Button
                           type="button"
                           size="sm"
-                          onClick={() => handleSaveRole(slug)}
-                          disabled={busySlug === slug}
+                          onClick={() => personSlug && handleSaveRole(rowKey, personSlug)}
+                          disabled={busySlug === rowKey}
                         >
                           Save
                         </Button>
@@ -141,7 +147,7 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                           onClick={() =>
                             setEditingRole((r) => {
                               const next = { ...r };
-                              delete next[slug];
+                              delete next[rowKey];
                               return next;
                             })
                           }
@@ -156,7 +162,7 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                           size="sm"
                           variant="outline"
                           onClick={() =>
-                            setEditingRole((r) => ({ ...r, [slug]: m.role ?? '' }))
+                            setEditingRole((r) => ({ ...r, [rowKey]: m.role ?? '' }))
                           }
                         >
                           Edit role
@@ -166,8 +172,8 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={() => handleChangeMaintainer(slug)}
-                            disabled={busySlug === slug}
+                            onClick={() => personSlug && handleChangeMaintainer(personSlug, rowKey)}
+                            disabled={busySlug === rowKey}
                           >
                             Make maintainer
                           </Button>
@@ -177,8 +183,8 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                             type="button"
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleRemove(slug)}
-                            disabled={busySlug === slug}
+                            onClick={() => personSlug && handleRemove(personSlug, rowKey)}
+                            disabled={busySlug === rowKey}
                             className="text-destructive hover:text-destructive"
                           >
                             Remove

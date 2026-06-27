@@ -1,8 +1,10 @@
 /**
  * Person writes:
- *  - PATCH  /api/people/:slug            (self | staff)
- *  - DELETE /api/people/:slug            (administrator)
- *  - PATCH  /api/people/:slug/newsletter (self | staff) — private-store only
+ *  - PATCH  /api/people/:slug              (self | staff)
+ *  - POST   /api/people/:slug/deactivate   (self | staff)
+ *  - POST   /api/people/:slug/reactivate   (self | staff)
+ *  - POST   /api/people/:slug/purge        (administrator)
+ *  - PATCH  /api/people/:slug/newsletter   (self | staff) — private-store only
  *
  * Avatar upload is handled by a separate multipart route handler that
  * stages an attachment then calls a Person update; it is not covered by
@@ -186,6 +188,169 @@ export class PersonWriteService {
     await tx.public.people.upsert(updated);
 
     const stateApply = new StateApply().upsertPerson(updated);
+    return { stateApply };
+  }
+
+  /**
+   * Deactivate — self-service or staff.
+   * Sets `deletedAt = now()`. The person can still sign in and reactivate.
+   * Spec: specs/behaviors/person-lifecycle.md
+   */
+  async deactivate(
+    tx: DualStoreTx,
+    slug: string,
+    session: SessionContext,
+  ): Promise<{ person: Person; stateApply: StateApply }> {
+    // Look up by slug even if already deleted — self-service path may need it.
+    // #personOrThrow filters out deleted; use the raw map here.
+    const id = this.#state.personIdBySlug.get(slug);
+    if (!id) throw new ApiNotFoundError(`Person '${slug}' not found`);
+    const existing = this.#state.people.get(id);
+    if (!existing) throw new ApiNotFoundError(`Person '${slug}' not found`);
+
+    requireAuth('self | staff', { session, selfId: existing.id });
+
+    if (existing.deletedAt) {
+      // Already deactivated — idempotent, return current state.
+      return { person: existing, stateApply: new StateApply() };
+    }
+
+    const now = nowIso();
+    const updated: Person = PersonSchema.parse({
+      ...existing,
+      deletedAt: now,
+      updatedAt: now,
+    });
+
+    await tx.public.people.upsert(updated);
+    const stateApply = new StateApply().upsertPerson(updated);
+    return { person: updated, stateApply };
+  }
+
+  /**
+   * Reactivate — self-service or staff. Clears `deletedAt`.
+   * Note: the route must look up the person even when deactivated so the
+   * self-service reactivation path works. Non-staff callers may reactivate
+   * ONLY their own account (enforced by `requireAuth('self | staff', ...)`).
+   * Spec: specs/behaviors/person-lifecycle.md
+   */
+  async reactivate(
+    tx: DualStoreTx,
+    slug: string,
+    session: SessionContext,
+  ): Promise<{ person: Person; stateApply: StateApply }> {
+    // Must look up even if deleted (deactivated users can self-reactivate).
+    const id = this.#state.personIdBySlug.get(slug);
+    if (!id) throw new ApiNotFoundError(`Person '${slug}' not found`);
+    const existing = this.#state.people.get(id);
+    if (!existing) throw new ApiNotFoundError(`Person '${slug}' not found`);
+
+    requireAuth('self | staff', { session, selfId: existing.id });
+
+    if (!existing.deletedAt) {
+      // Already active — idempotent.
+      return { person: existing, stateApply: new StateApply() };
+    }
+
+    const now = nowIso();
+    const updated: Person = PersonSchema.parse({
+      ...existing,
+      deletedAt: null,
+      updatedAt: now,
+    });
+
+    await tx.public.people.upsert(updated);
+    const stateApply = new StateApply().upsertPerson(updated);
+    return { person: updated, stateApply };
+  }
+
+  /**
+   * Purge — admin-only cascading hard delete.
+   *
+   * One transaction that hard-deletes:
+   *   - the person record
+   *   - all project-memberships for the person
+   *   - all help-wanted-interest expressions for the person
+   *   - all tag-assignments where taggableType = 'person' + taggableId = personId
+   *   - all project-updates authored by the person (DELETE, not null)
+   *   - all project-buzz posted by the person (DELETE, not null)
+   *   - all blog-posts authored by the person (DELETE, not null)
+   *
+   * Unlike the offline spam-prune (which nulls authorId on updates), purge
+   * DELETES authored content — it is the on-demand garbage-collection path.
+   * Spec: specs/behaviors/person-lifecycle.md
+   */
+  async purge(
+    tx: DualStoreTx,
+    slug: string,
+    session: SessionContext,
+  ): Promise<{ stateApply: StateApply }> {
+    requireAuth('administrator', { session });
+
+    const id = this.#state.personIdBySlug.get(slug);
+    if (!id) throw new ApiNotFoundError(`Person '${slug}' not found`);
+    const existing = this.#state.people.get(id);
+    if (!existing) throw new ApiNotFoundError(`Person '${slug}' not found`);
+
+    const stateApply = new StateApply();
+    const personId = existing.id;
+
+    // 1. Delete the person record.
+    await tx.public.people.delete(existing);
+    stateApply.removePerson(personId, existing.slug);
+
+    // 2. Cascade-delete project-memberships.
+    const membershipIds = this.#state.membershipsByPerson.get(personId) ?? new Set<string>();
+    for (const mId of membershipIds) {
+      const m = this.#state.projectMemberships.get(mId);
+      if (m) {
+        await tx.public['project-memberships'].delete(m);
+        stateApply.removeMembership(m);
+      }
+    }
+
+    // 3. Cascade-delete help-wanted-interest.
+    for (const interest of this.#state.helpWantedInterest.values()) {
+      if (interest.personId === personId) {
+        await tx.public['help-wanted-interest'].delete(interest);
+        stateApply.removeInterest(interest);
+      }
+    }
+
+    // 4. Cascade-delete person tag-assignments.
+    const taIds = this.#state.tagAssignmentsByTaggable.get(personId) ?? new Set<string>();
+    for (const taId of taIds) {
+      const ta = this.#state.tagAssignments.get(taId);
+      if (ta && ta.taggableType === 'person') {
+        await tx.public['tag-assignments'].delete(ta);
+        stateApply.removeTagAssignment(ta);
+      }
+    }
+
+    // 5. Delete authored project-updates.
+    for (const update of this.#state.projectUpdates.values()) {
+      if (update.authorId === personId) {
+        await tx.public['project-updates'].delete(update);
+        stateApply.removeProjectUpdate(update);
+      }
+    }
+
+    // 6. Delete posted project-buzz.
+    for (const buzz of this.#state.projectBuzz.values()) {
+      if (buzz.postedById === personId) {
+        await tx.public['project-buzz'].delete(buzz);
+        stateApply.removeProjectBuzz(buzz);
+      }
+    }
+
+    // 7. Delete authored blog-posts.
+    for (const post of this.#state.blogPosts.values()) {
+      if (post.authorId === personId) {
+        await tx.public['blog-posts'].delete(post);
+        stateApply.removeBlogPost(post);
+      }
+    }
+
     return { stateApply };
   }
 
