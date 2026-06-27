@@ -4,7 +4,7 @@ depends: []
 specs: []
 issues:
   - 130
-pr:
+pr: 143
 ---
 
 # Plan: import legacy person avatars
@@ -32,6 +32,7 @@ What ships:
 ## Implements
 
 # 130. No spec change — the avatar storage contract (api/people.md, behaviors/
+
 storage.md attachments) already exists; this just populates it at import time.
 
 ## Approach
@@ -39,6 +40,7 @@ storage.md attachments) already exists; this just populates it at import time.
 `fetchAndMaterializePersonAvatars(photoIdBySlug, sourceHost, …)` mirrors
 `fetchAndMaterializeBlogMedia`: parallel fetch + `processAvatar`, returning
 slug → {original, thumbnail}. The transact's people loop wires the attachments
+
 - `avatarKey` for people that have one; failed fetches/decodes are skipped with
 a warning (the person still imports). `hologit` hoisted to the transact top
 (shared by people + blog attachment writes).
