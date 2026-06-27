@@ -58,6 +58,7 @@ import type {
 } from '@cfp/shared/schemas';
 
 import { openPublicStore, type PublicStore } from '../../src/store/public.js';
+import { processAvatar } from '../../src/lib/avatar.js';
 import {
   fetchAllPages,
   RawBlogPostSchema,
@@ -235,6 +236,9 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   log(`[import] fetching people from ${opts.sourceHost} (this is the large one)`);
   const people: Person[] = [];
   const tagAssignments: TagAssignment[] = [];
+  // slug → laddr PrimaryPhotoID, for people who have a profile photo. Their
+  // avatars are fetched from `/media/<id>` and stored as gitsheets attachments.
+  const photoIdBySlug = new Map<string, number>();
   for await (const row of fetchAllPages<RawPerson>(
     '/people',
     RawPersonSchema,
@@ -253,6 +257,9 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
     if (parsed) {
       people.push(parsed);
       counts.people!.imported++;
+      if (typeof row.PrimaryPhotoID === 'number') {
+        photoIdBySlug.set(parsed.slug, row.PrimaryPhotoID);
+      }
       for (const rawTag of row.Tags ?? []) {
         const ta = translateTagAssignment(rawTag, row.ID, 'person', ctx);
         if (ta === null) {
@@ -460,6 +467,16 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
     warnings,
   );
 
+  // Fetch + process person avatars from laddr (`/media/<PrimaryPhotoID>`) into
+  // square original + 128px thumbnail buffers, keyed by person slug.
+  const avatarsBySlug = await fetchAndMaterializePersonAvatars(
+    photoIdBySlug,
+    opts.sourceHost,
+    fetchOpts,
+    log,
+    warnings,
+  );
+
   // -------------------------------------------------------------------------
   // 3. One atomic gitsheets transaction:
   //    - clear() each importer-owned sheet (deletes capture for free)
@@ -480,13 +497,33 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
       },
     },
     async (tx) => {
+      if (publicRepo === null) {
+        throw new Error('[import-laddr] internal: publicRepo not opened');
+      }
+      const hologit = publicRepo.hologitRepo;
+
       log(`[import] clear + upsert tags (${tags.length})`);
       await tx.tags.clear();
       for (const t of tags) await tx.tags.upsert(t);
 
-      log(`[import] clear + upsert people (${people.length})`);
+      log(`[import] clear + upsert people (${people.length}, avatars: ${avatarsBySlug.size})`);
       await tx.people.clear();
-      for (const p of people) await tx.people.upsert(p);
+      for (const p of people) {
+        const avatar = avatarsBySlug.get(p.slug);
+        if (avatar) {
+          // Mirror POST /api/people/:slug/avatar: store original + 128 thumb
+          // as attachments and point avatarKey at the conventional path.
+          const originalBlob = await BlobObject.write(hologit, avatar.original as unknown as string);
+          const thumbnailBlob = await BlobObject.write(hologit, avatar.thumbnail as unknown as string);
+          await tx.people.setAttachments(p, {
+            'avatar.jpg': originalBlob,
+            'avatar-128.jpg': thumbnailBlob,
+          });
+          await tx.people.upsert({ ...p, avatarKey: `people/${p.slug}/avatar.jpg` });
+        } else {
+          await tx.people.upsert(p);
+        }
+      }
 
       log(`[import] clear + upsert projects (${projects.length})`);
       await tx.projects.clear();
@@ -540,10 +577,6 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
         `[import] clear + upsert blog-posts (${blogTranslations.length}) + media attachments`,
       );
       await tx['blog-posts'].clear();
-      if (publicRepo === null) {
-        throw new Error('[import-laddr] internal: publicRepo not opened');
-      }
-      const hologit = publicRepo.hologitRepo;
       for (const { record } of blogTranslations) {
         const artifacts = mediaArtifactsBySlug.get(record.slug) ?? [];
         if (artifacts.length > 0) {
@@ -837,6 +870,61 @@ async function fetchMediaBytes(
   } catch {
     return null;
   }
+}
+
+/**
+ * Fetch each person's laddr photo (`/media/<PrimaryPhotoID>`) and process it
+ * into a square original + 128px thumbnail (the same outputs the avatar-upload
+ * route produces). Returns a map of person slug → buffers for the transact
+ * callback to wire in via setAttachments. Failed fetches/decodes are skipped
+ * with a warning — the person still imports, just without an avatar.
+ *
+ * Concurrency 4, matching the blog-media fetcher's politeness compromise.
+ */
+async function fetchAndMaterializePersonAvatars(
+  photoIdBySlug: Map<string, number>,
+  sourceHost: string,
+  fetchOpts: FetchOptions,
+  log: (msg: string) => void,
+  warnings: Warnings,
+): Promise<Map<string, { original: Buffer; thumbnail: Buffer }>> {
+  const fetchImpl = fetchOpts.fetchImpl ?? fetch;
+  const userAgent = fetchOpts.userAgent ?? 'cfp-importer/dev';
+  const entries = [...photoIdBySlug.entries()];
+  const out = new Map<string, { original: Buffer; thumbnail: Buffer }>();
+  if (entries.length === 0) return out;
+
+  log(`[import] fetching ${entries.length} person avatars`);
+
+  const CONCURRENCY = 4;
+  let cursor = 0;
+  const workers: Promise<void>[] = [];
+  for (let w = 0; w < CONCURRENCY; w++) {
+    workers.push(
+      (async () => {
+        while (true) {
+          const idx = cursor++;
+          if (idx >= entries.length) return;
+          const [slug, photoId] = entries[idx]!;
+          const url = `https://${sourceHost}/media/${photoId}`;
+          const fetched = await fetchMediaBytes(url, fetchImpl, userAgent);
+          if (fetched === null) {
+            warnings.push(`[people] avatar fetch failed: ${url} (/${slug})`);
+            continue;
+          }
+          try {
+            const processed = await processAvatar(fetched.bytes);
+            out.set(slug, { original: processed.original, thumbnail: processed.thumbnail });
+          } catch (err) {
+            warnings.push(`[people] avatar decode failed for /${slug} (${url}): ${describe(err)}`);
+          }
+        }
+      })(),
+    );
+  }
+  await Promise.all(workers);
+  log(`[import] processed ${out.size}/${entries.length} person avatars`);
+  return out;
 }
 
 /**
