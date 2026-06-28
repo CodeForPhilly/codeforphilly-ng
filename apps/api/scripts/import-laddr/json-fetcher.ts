@@ -75,6 +75,8 @@ export const RawPersonSchema = z
     AccountLevel: z.string().nullable().optional(),
     Newsletter: z.union([z.boolean(), z.number(), z.string()]).nullable().optional(),
     Twitter: z.string().nullable().optional(),
+    /** Emergence Media ID of the person's photo; fetch at `/media/<id>`. */
+    PrimaryPhotoID: z.number().int().nullable().optional(),
     Created: z.number().int().nullable().optional(),
     Modified: z.number().int().nullable().optional(),
     /** Present when `?include=Tags` */
