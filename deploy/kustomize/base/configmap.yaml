@@ -19,18 +19,16 @@ data:
   NODE_ENV: "production"
   # Bump Node's old-space heap ceiling above the default (~400Mi on Linux
   # containers) so the in-memory record set + secondary indices + FTS fit.
-  # Keep ~25% headroom below the container's memory limit for ephemeral
-  # work (request handling, gitsheets tree mutations, etc.).
   #
-  # 2048 (was 1536): a fresh boot rebuilding in-memory state from the full
-  # `published` import (~31.8k people + ~10.4k tag-assignments + secondary
-  # indices) OOM'd at the 1536 ceiling. The native FTS5 store is off-heap;
-  # the V8 heap holds the record maps + indices. 2048 boots cleanly and runs
-  # stable; it is deliberately kept modest because these nodes are only
-  # ~3.9Gi — an earlier 3072/3.5Gi trial let the pod grow until it starved
-  # the node's kubelet (NodeNotReady). See the memory-optimization issue for
-  # the (suspiciously large ~60x) on-disk-to-heap expansion worth reducing.
-  NODE_OPTIONS: "--max-old-space-size=2048"
+  # 512 (was 2048): gitsheets 1.4.1 switched the TOML parser to smol-toml,
+  # fixing the #132 heap blowup at its root (@iarna's parser pinned ~12x each
+  # record's source in V8 sliced/cons-strings). A full boot from the
+  # `published` import now measures ~123Mi heap / ~321Mi RSS (FTS5 is off-heap
+  # and tiny, ~40Mi). 512 is ~4x the measured boot heap — ample for request
+  # handling + gitsheets tree mutations — while leaving the node (~3.9Gi) most
+  # of its memory back. The earlier 2048/2.5Gi was sized for the leak, not the
+  # real working set.
+  NODE_OPTIONS: "--max-old-space-size=512"
   PORT: "3001"
   STORAGE_BACKEND: "filesystem"
   # The runtime-served branch. `published` is the long-term sandbox + prod
