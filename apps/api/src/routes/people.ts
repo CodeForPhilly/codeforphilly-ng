@@ -3,7 +3,9 @@
  *   GET    /api/people
  *   GET    /api/people/:slug
  *   PATCH  /api/people/:slug
- *   DELETE /api/people/:slug
+ *   POST   /api/people/:slug/deactivate
+ *   POST   /api/people/:slug/reactivate
+ *   POST   /api/people/:slug/purge
  *   PATCH  /api/people/:slug/newsletter (private-only mutation)
  */
 import type { FastifyInstance } from 'fastify';
@@ -139,11 +141,11 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     return ok(await fastify.services.people.get(result.value.person.slug, caller));
   });
 
-  // DELETE /api/people/:slug (admin-only soft-delete)
+  // DELETE /api/people/:slug (admin-only soft-delete — legacy, kept for backward compat)
   fastify.delete('/api/people/:slug', {
     schema: {
       tags: ['people'],
-      summary: 'Soft-delete a person (admin only)',
+      summary: 'Soft-delete a person (admin only, legacy)',
       params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
     },
   }, async (request, reply) => {
@@ -157,6 +159,80 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
         responseCode: 204,
       }),
       async (tx) => fastify.services.peopleWrite.softDelete(tx, slug, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    return reply.code(204).send();
+  });
+
+  // POST /api/people/:slug/deactivate (self | staff)
+  // Spec: specs/behaviors/person-lifecycle.md, specs/api/people.md
+  fastify.post('/api/people/:slug/deactivate', {
+    schema: {
+      tags: ['people'],
+      summary: 'Deactivate a person account (self or staff)',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'person.deactivate',
+        subjectType: 'person',
+        subjectSlug: slug,
+        responseCode: 200,
+      }),
+      async (tx) => fastify.services.peopleWrite.deactivate(tx, slug, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    const caller = getCallerSession(request);
+    return ok(await fastify.services.people.get(result.value.person.slug, caller));
+  });
+
+  // POST /api/people/:slug/reactivate (self | staff)
+  // Spec: specs/behaviors/person-lifecycle.md, specs/api/people.md
+  fastify.post('/api/people/:slug/reactivate', {
+    schema: {
+      tags: ['people'],
+      summary: 'Reactivate a deactivated person account (self or staff)',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'person.reactivate',
+        subjectType: 'person',
+        subjectSlug: slug,
+        responseCode: 200,
+      }),
+      async (tx) => fastify.services.peopleWrite.reactivate(tx, slug, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    const caller = getCallerSession(request);
+    return ok(await fastify.services.people.get(result.value.person.slug, caller));
+  });
+
+  // POST /api/people/:slug/purge (administrator only)
+  // Spec: specs/behaviors/person-lifecycle.md, specs/api/people.md
+  fastify.post('/api/people/:slug/purge', {
+    schema: {
+      tags: ['people'],
+      summary: 'Purge a person and all their content (admin only)',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+    },
+  }, async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'person.purge',
+        subjectType: 'person',
+        subjectSlug: slug,
+        responseCode: 204,
+      }),
+      async (tx) => fastify.services.peopleWrite.purge(tx, slug, request.session),
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
     return reply.code(204).send();

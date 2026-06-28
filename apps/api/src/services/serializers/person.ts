@@ -69,6 +69,8 @@ export interface PersonDetail {
   readonly permissions: PersonPermissions;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** Set when the person is deactivated; visible to staff and self callers only. */
+  readonly deletedAt: string | null;
 }
 
 export function serializePersonListItem(
@@ -181,5 +183,7 @@ export function serializePersonDetail(
     permissions: opts.permissions,
     createdAt: person.createdAt,
     updatedAt: person.updatedAt,
+    // deletedAt is visible to self and staff; everyone else gets null.
+    deletedAt: (isSelf || callerIsStaff) ? (person.deletedAt ?? null) : null,
   };
 }

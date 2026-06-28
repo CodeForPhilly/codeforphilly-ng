@@ -13,7 +13,9 @@ See [data-model.md](../data-model.md#person).
 | `PATCH` | `/api/people/:slug` | self \| staff | Update profile. |
 | `POST` | `/api/people/:slug/avatar` | self \| staff | Upload an avatar image (multipart). |
 | `PATCH` | `/api/people/:slug/newsletter` | self \| staff | Update newsletter opt-in state (private-store mutation; no public commit). |
-| `DELETE` | `/api/people/:slug` | administrator | Soft-delete (close account). |
+| `POST` | `/api/people/:slug/deactivate` | self \| staff | Soft-deactivate (sets `deletedAt`). |
+| `POST` | `/api/people/:slug/reactivate` | self \| staff | Reactivate (clears `deletedAt`). |
+| `POST` | `/api/people/:slug/purge` | administrator | Cascading hard-delete of person + their content. |
 
 ## GET /api/people
 
@@ -166,11 +168,58 @@ Server crops to a square and stores the original plus the 128x128 thumbnail as g
 { "success": true, "data": { "avatarUrl": "https://..." } }
 ```
 
-## DELETE /api/people/:slug
+## POST /api/people/:slug/deactivate
 
-Administrator-only. Sets `deletedAt = now()`. Profile becomes 404 to non-staff; their authored updates and buzz remain with `author = null`.
+Self or staff. Sets `deletedAt = now()`. Profile becomes 404 to non-staff. References to this person in other records render a placeholder. The person can still sign in and reactivate.
+
+### Response — 200
+
+```json
+{ "success": true, "data": Person }
+```
+
+### Errors
+
+- `403 forbidden` — caller is not the person themselves, staff, or admin
+- `404 not_found` — slug doesn't exist
+
+## POST /api/people/:slug/reactivate
+
+Self or staff. Clears `deletedAt`. Person becomes visible again.
+
+### Response — 200
+
+```json
+{ "success": true, "data": Person }
+```
+
+### Errors
+
+- `403 forbidden` — caller is not the person themselves, staff, or admin
+- `404 not_found` — slug doesn't exist (even for non-staff, to allow self-reactivation)
+
+## POST /api/people/:slug/purge
+
+Administrator-only. Atomically hard-deletes the person record and cascades: project-memberships, help-wanted-interest, person tag-assignments, project-updates (authored), project-buzz (posted), and blog-posts (authored). All in one gitsheets commit. Git-revertable.
+
+Unlike the offline spam-prune (which nulls `authorId` on updates), purge DELETES the authored content — it is the on-demand garbage-collection path for spam accounts.
 
 ### Response — 204
+
+### Errors
+
+- `403 forbidden` — caller is not an administrator
+- `404 not_found` — slug doesn't exist
+
+## Deactivated person placeholder
+
+When a deactivated person is referenced in a serialized response (e.g. project member, update author, blog author, help-wanted postedBy), the reference must be substituted with a placeholder rather than omitted, so counts and history stay coherent:
+
+```json
+{ "slug": null, "fullName": "Deactivated user", "avatarUrl": null, "deactivated": true }
+```
+
+This placeholder shape applies to the `PersonAvatar` reference type used in: project memberships, project-update `author`, project-buzz `postedBy`, help-wanted `postedBy`/`filledBy`, and blog-post `author`.
 
 ## Staff-only sub-endpoints (deferred to staff specs)
 

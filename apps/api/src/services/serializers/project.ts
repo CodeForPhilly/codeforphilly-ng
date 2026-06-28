@@ -195,7 +195,7 @@ export function serializeProjectDetail(
         id: m.id,
         projectSlug: project.slug,
         person: serializePersonAvatar(person) ?? {
-          slug: '',
+          slug: null,
           fullName: 'Unknown',
           avatarUrl: null,
         },

@@ -144,7 +144,10 @@ export class PersonService {
 
     const isStaff =
       caller?.accountLevel === 'staff' || caller?.accountLevel === 'administrator';
-    if (person.deletedAt && !isStaff) return null;
+    const isSelfCaller = caller?.id === person.id;
+    // Deactivated profiles 404 for everyone except staff and the person
+    // themselves (self may view to reactivate). Per specs/behaviors/person-lifecycle.md.
+    if (person.deletedAt && !isStaff && !isSelfCaller) return null;
 
     const memberships = this.#getMembershipsForPerson(person.id);
     const projectsMap = this.#getProjectsForMemberships(memberships);
