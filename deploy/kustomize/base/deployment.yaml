@@ -64,19 +64,21 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 1Gi
+              # ~321Mi measured steady-state RSS (full `published` import +
+              # indices + FTS) with gitsheets 1.4.1; request sits above that.
+              memory: 512Mi
             limits:
               cpu: 1000m
               # Holds the full public dataset + secondary indices + FTS in
               # memory (~31.8k people, 268 projects, 10.4k tag-assignments, …).
-              # 2.5Gi (was 2Gi): a cold boot rebuilding state from the full
-              # `published` import exceeded the prior 1536Mi heap; raised to
-              # NODE_OPTIONS=--max-old-space-size=2048 (see configmap.yaml),
-              # with the container limit just above that for the off-heap FTS5
-              # store + ephemeral request work. Kept at 2.5Gi (not higher) so
-              # a single pod can't starve a node — these nodes are only ~3.9Gi
-              # and a 3.5Gi trial drove one NodeNotReady. ~1.4Gi node headroom.
-              memory: 2560Mi
+              # 1Gi (was 2.5Gi): gitsheets 1.4.1's smol-toml parser fixed the
+              # #132 heap blowup — a full boot now measures ~123Mi heap /
+              # ~321Mi RSS (vs >500Mi heap before). With the heap ceiling at
+              # NODE_OPTIONS=--max-old-space-size=512 (see configmap.yaml), 1Gi
+              # gives ~3x the steady RSS for heap-ceiling growth + off-heap FTS5
+              # + ephemeral request work, and hands the ~3.9Gi node ~1.5Gi back
+              # vs the old 2.5Gi limit.
+              memory: 1Gi
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
