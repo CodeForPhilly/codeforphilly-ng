@@ -26,7 +26,7 @@ See [data-model.md](../data-model.md#person).
 | ----- | ---- | ----- |
 | `q` | string | Full-text on `fullName`, `bio`. |
 | `tag` | string | Repeatable. Tag handle (e.g., `tech.python`). AND across repeats. |
-| `accountLevel` | enum | `user` \| `staff` \| `administrator`. Staff-only filter. |
+| `accountLevel` | enum | `user` \| `staff` \| `administrator`. Staff-only filter — for a non-staff caller it returns an empty list (a 200 with no items), not a `403`, so the filter's existence isn't a signal. |
 | `sort` | sort | Default `-createdAt`. Allowed: `createdAt`, `fullName`. |
 | `page`, `perPage` | int | Default `perPage = 30`. |
 
@@ -80,7 +80,9 @@ See [data-model.md](../data-model.md#person).
   "avatarUrl": "https://...",
   "bio": "Markdown source...",
   "bioHtml": "<p>...</p>",
+  "slackHandle": "janedoe",                 // null if unset
   "accountLevel": "staff",                  // visible to self and staff only; "user" otherwise
+  "deletedAt": null,                        // ISO timestamp if deactivated; null otherwise. Visible to self + staff only (always null to others)
   "tags": { "topic": [Tag, ...], "tech": [Tag, ...] },
   "memberships": [
     {
@@ -102,6 +104,7 @@ Fields visible only to self or staff:
 - `email` (not in the shape above; added only when authorized)
 - `firstName`, `lastName` (visible to all but editable only by self/staff)
 - `accountLevel` value beyond a generic "user" — public callers always see `"user"` regardless of true level
+- `deletedAt` — the real timestamp is shown to self + staff; everyone else always sees `null`
 
 ### Errors
 
@@ -109,7 +112,7 @@ Fields visible only to self or staff:
 
 ## PATCH /api/people/:slug
 
-Self or staff. Self cannot change their own `accountLevel`; only administrators can change account levels (and only via a staff-only sub-endpoint, not by passing `accountLevel` in a generic PATCH).
+Self or staff. Self cannot change their own `accountLevel`; only administrators can change account levels (and only via the dedicated [`POST /api/people/:slug/account-level`](#post-apipeopleslugaccount-level) endpoint — `accountLevel` passed in a generic PATCH body is rejected by the schema, not silently applied).
 
 ### Request
 

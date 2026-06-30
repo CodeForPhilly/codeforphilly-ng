@@ -122,7 +122,31 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       tags: ['people'],
       summary: 'Update profile',
       params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
-      body: { type: 'object' },
+      // Enumerate the editable fields and reject anything else, so privileged
+      // fields (e.g. accountLevel — see POST /api/people/:slug/account-level)
+      // can't be smuggled through the generic profile PATCH. Per
+      // specs/api/people.md → "PATCH /api/people/:slug".
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          fullName: { type: 'string' },
+          firstName: { type: ['string', 'null'] },
+          lastName: { type: ['string', 'null'] },
+          bio: { type: ['string', 'null'] },
+          slug: { type: 'string' },
+          email: { type: 'string' },
+          slackHandle: { type: ['string', 'null'] },
+          tags: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              topic: { type: 'array', items: { type: 'string' } },
+              tech: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
     },
   }, async (request) => {
     const { slug } = request.params as { slug: string };
@@ -140,29 +164,6 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
     const caller = getCallerSession(request);
     return ok(await fastify.services.people.get(result.value.person.slug, caller));
-  });
-
-  // DELETE /api/people/:slug (admin-only soft-delete — legacy, kept for backward compat)
-  fastify.delete('/api/people/:slug', {
-    schema: {
-      tags: ['people'],
-      summary: 'Soft-delete a person (admin only, legacy)',
-      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
-    },
-  }, async (request, reply) => {
-    const { slug } = request.params as { slug: string };
-    const result = await fastify.store.transact(
-      buildTransactionOptions({
-        request,
-        action: 'person.soft-delete',
-        subjectType: 'person',
-        subjectSlug: slug,
-        responseCode: 204,
-      }),
-      async (tx) => fastify.services.peopleWrite.softDelete(tx, slug, request.session),
-    );
-    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
-    return reply.code(204).send();
   });
 
   // POST /api/people/:slug/deactivate (self | staff)

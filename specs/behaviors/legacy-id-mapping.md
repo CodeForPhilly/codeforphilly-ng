@@ -25,7 +25,7 @@ If we ever need to re-import (e.g., catching up on changes made after cutover), 
 
 ## Lookup
 
-`legacyId` lookups go through the in-memory `byLegacyId.<entity>` indices documented in [data-model.md](../data-model.md). These indices are built at boot by iterating the sheet and skipping records where `legacyId` is absent.
+`legacyId` lookups that back a live redirect go through in-memory `byLegacyId` indices, built at boot by iterating the sheet and skipping records where `legacyId` is absent. These indices exist only for the entities whose laddr URLs actually referenced numeric IDs — **`people`, `projects`, and `blog-posts`**. The other migrated sheets (`tags`, `project-buzz`, `project-updates`) carry `legacyId` for *import idempotence* but have no runtime `byLegacyId` index, because no live URL resolves them by numeric ID (their legacy URLs were always slug-based). If a future redirect ever needs one of those by numeric ID, add the index then.
 
 Uniqueness of `legacyId` per sheet is enforced by the API's write mutex: a record's `legacyId` is checked against the index before commit, just like `slug` and `email`.
 

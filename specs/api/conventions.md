@@ -170,6 +170,8 @@ Exceeded → `429 rate_limited`, `Retry-After` header in seconds.
 
 Mutating endpoints accept an optional `Idempotency-Key` header (any client-generated string). The API caches the response in-memory keyed by `(personId, idempotencyKey)` for 24 hours; repeat requests with the same key return the same response. In-memory by design — single replica, restart-tolerant: a key that hasn't seen a duplicate within 24h won't see one after a restart either. This matters for cases like "post project update" where a double-tap shouldn't create two updates.
 
+> **Status:** the idempotency plugin (`apps/api/src/plugins/idempotency.ts`) is implemented and registered, but not yet wired into any route handler — mutating endpoints don't honor the header *yet*. Wiring the at-risk endpoints (starting with `POST /api/projects/:slug/updates`) and the per-route tests are tracked as a follow-up; until then, treat this section as the target contract, not current behavior.
+
 ## Logging and trace IDs
 
 Every request has a `traceId` (UUIDv7). It's included in logs and surfaced in error responses' `error.traceId`. If a user reports a problem, the traceId is the link to the server logs.
