@@ -6,6 +6,7 @@
  *   POST   /api/people/:slug/deactivate
  *   POST   /api/people/:slug/reactivate
  *   POST   /api/people/:slug/purge
+ *   POST   /api/people/:slug/account-level (administrator)
  *   PATCH  /api/people/:slug/newsletter (private-only mutation)
  */
 import type { FastifyInstance } from 'fastify';
@@ -236,6 +237,51 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
     return reply.code(204).send();
+  });
+
+  // POST /api/people/:slug/account-level (administrator only)
+  // Spec: specs/api/people.md → POST /api/people/:slug/account-level
+  fastify.post('/api/people/:slug/account-level', {
+    schema: {
+      tags: ['people'],
+      summary: "Change a person's account level (admin only)",
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      body: {
+        type: 'object',
+        properties: { level: { type: 'string', enum: ['user', 'staff', 'administrator'] } },
+        required: ['level'],
+        additionalProperties: false,
+      },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const { level } = request.body as { level: Person['accountLevel'] };
+
+    // Resolve the current level up-front so the audit trailers capture the
+    // before/after. Reads in-memory state, which is current under the write
+    // mutex; if the slug is unknown, setAccountLevel below 404s.
+    const existingId = fastify.inMemoryState.personIdBySlug.get(slug);
+    const previousLevel = existingId
+      ? fastify.inMemoryState.people.get(existingId)?.accountLevel
+      : undefined;
+
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'account-level.change',
+        subjectType: 'person',
+        subjectSlug: slug,
+        responseCode: 200,
+        extraTrailers: {
+          'Previous-Account-Level': previousLevel ?? 'unknown',
+          'New-Account-Level': level,
+        },
+      }),
+      async (tx) => fastify.services.peopleWrite.setAccountLevel(tx, slug, level, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    const caller = getCallerSession(request);
+    return ok(await fastify.services.people.get(result.value.person.slug, caller));
   });
 
   // PATCH /api/people/:slug/newsletter (private-store only — no public commit)

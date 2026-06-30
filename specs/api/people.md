@@ -16,6 +16,7 @@ See [data-model.md](../data-model.md#person).
 | `POST` | `/api/people/:slug/deactivate` | self \| staff | Soft-deactivate (sets `deletedAt`). |
 | `POST` | `/api/people/:slug/reactivate` | self \| staff | Reactivate (clears `deletedAt`). |
 | `POST` | `/api/people/:slug/purge` | administrator | Cascading hard-delete of person + their content. |
+| `POST` | `/api/people/:slug/account-level` | administrator | Change `accountLevel` (audit-logged). |
 
 ## GET /api/people
 
@@ -221,7 +222,36 @@ When a deactivated person is referenced in a serialized response (e.g. project m
 
 This placeholder shape applies to the `PersonAvatar` reference type used in: project memberships, project-update `author`, project-buzz `postedBy`, help-wanted `postedBy`/`filledBy`, and blog-post `author`.
 
-## Staff-only sub-endpoints (deferred to staff specs)
+## POST /api/people/:slug/account-level
 
-- `POST /api/people/:slug/account-level` — change `accountLevel` (admin-only). Body: `{ "level": "staff" }`. Audit-logged.
+Administrator-only. Changes a person's `accountLevel`. This is the *only* way to change `accountLevel` — it is deliberately a dedicated endpoint, not a field on the generic `PATCH /api/people/:slug`, so the privilege change is explicit and audit-logged.
+
+### Request body
+
+```json
+{ "level": "staff" }
+```
+
+`level` is one of `user` | `staff` | `administrator`. Setting the person's current level is an idempotent no-op (still 200).
+
+### Response — 200
+
+Returns the updated person (same shape as `GET /api/people/:slug`), so the caller sees the new `accountLevel`.
+
+### Audit trail
+
+The gitsheets commit carries `Action: account-level.change` plus `Previous-Account-Level` and `New-Account-Level` trailers (in addition to the standard actor/subject trailers), so privilege changes are traceable in the data-repo history.
+
+### Last-administrator guard
+
+Demoting the **last** administrator (the only person with `accountLevel: administrator`) is rejected with `422` — otherwise the change would lock everyone out of admin operations. This covers an admin demoting themselves when they are the sole administrator.
+
+### Errors
+
+- `403 forbidden` — caller is not an administrator
+- `404 not_found` — slug doesn't exist
+- `422 validation_failed` — `level` missing / not one of the three enum values (schema validation), or the change would demote the last administrator
+
+## Deferred admin sub-endpoints
+
 - `POST /api/people/:slug/impersonate` — admin-only. Starts a temporary impersonation session. Not in v1; flagged here so admin tooling has a place to grow into.

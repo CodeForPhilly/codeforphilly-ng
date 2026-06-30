@@ -354,6 +354,60 @@ export class PersonWriteService {
     return { stateApply };
   }
 
+  /**
+   * Set a person's accountLevel — administrator only. This is the sole path
+   * for changing accountLevel (never via the generic PATCH), so the privilege
+   * change is explicit and audit-logged. Rejects demoting the last
+   * administrator with a 422 to avoid locking everyone out.
+   * Spec: specs/api/people.md → POST /api/people/:slug/account-level
+   */
+  async setAccountLevel(
+    tx: DualStoreTx,
+    slug: string,
+    level: Person['accountLevel'],
+    session: SessionContext,
+  ): Promise<{ person: Person; previousLevel: Person['accountLevel']; stateApply: StateApply }> {
+    requireAuth('administrator', { session });
+
+    const id = this.#state.personIdBySlug.get(slug);
+    if (!id) throw new ApiNotFoundError(`Person '${slug}' not found`);
+    const existing = this.#state.people.get(id);
+    if (!existing) throw new ApiNotFoundError(`Person '${slug}' not found`);
+
+    const previousLevel = existing.accountLevel;
+
+    // Idempotent: setting the current level is a no-op (no commit).
+    if (previousLevel === level) {
+      return { person: existing, previousLevel, stateApply: new StateApply() };
+    }
+
+    // Last-administrator guard: never let the count of administrators reach
+    // zero, or admin operations become unreachable for everyone (this covers
+    // an admin demoting themselves while sole administrator).
+    if (previousLevel === 'administrator' && level !== 'administrator') {
+      let adminCount = 0;
+      for (const p of this.#state.people.values()) {
+        if (p.accountLevel === 'administrator') adminCount += 1;
+      }
+      if (adminCount <= 1) {
+        throw new ApiValidationError(
+          'Cannot demote the last administrator — at least one administrator must remain.',
+          { level: 'last_administrator' },
+        );
+      }
+    }
+
+    const updated: Person = PersonSchema.parse({
+      ...existing,
+      accountLevel: level,
+      updatedAt: nowIso(),
+    });
+
+    await tx.public.people.upsert(updated);
+    const stateApply = new StateApply().upsertPerson(updated);
+    return { person: updated, previousLevel, stateApply };
+  }
+
   async updateNewsletter(
     slug: string,
     optedIn: boolean,
