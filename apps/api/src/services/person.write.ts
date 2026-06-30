@@ -166,31 +166,6 @@ export class PersonWriteService {
     return { person: updated, stateApply };
   }
 
-  async softDelete(
-    tx: DualStoreTx,
-    slug: string,
-    session: SessionContext,
-  ): Promise<{ stateApply: StateApply }> {
-    const existing = this.#personOrThrow(slug);
-    requireAuth('administrator', { session });
-
-    if (existing.deletedAt) {
-      return { stateApply: new StateApply() };
-    }
-
-    const now = nowIso();
-    const updated: Person = PersonSchema.parse({
-      ...existing,
-      deletedAt: now,
-      updatedAt: now,
-    });
-
-    await tx.public.people.upsert(updated);
-
-    const stateApply = new StateApply().upsertPerson(updated);
-    return { stateApply };
-  }
-
   /**
    * Deactivate — self-service or staff.
    * Sets `deletedAt = now()`. The person can still sign in and reactivate.

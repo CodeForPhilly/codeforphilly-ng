@@ -8,6 +8,7 @@
  * The User-Ip / User-Agent / Authorization / Cookie headers are deliberately
  * NOT included — the public commit log is forever-public.
  */
+import { STATUS_CODES } from 'node:http';
 import type { Author, TransactionOptions } from 'gitsheets';
 import type { FastifyRequest } from 'fastify';
 import type { SessionContext } from '../auth/middleware.js';
@@ -61,6 +62,9 @@ export function buildTransactionOptions(ctx: CommitContext): TransactionOptions 
     Host: request.hostname || 'unknown',
     'Content-Type': String(request.headers['content-type'] ?? 'unknown'),
     'Response-Code': String(responseCode),
+    // HTTP reason phrase for the response code, per
+    // specs/behaviors/storage.md#commit-message-shape.
+    'Response-Message': STATUS_CODES[responseCode] ?? 'Unknown',
   };
 
   if (subjectType) trailers['Subject-Type'] = subjectType;
