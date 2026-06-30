@@ -90,9 +90,12 @@ export class ApiError extends Error {
 }
 
 export interface PersonAvatar {
-  readonly slug: string;
+  /** null when the person is deactivated (placeholder). */
+  readonly slug: string | null;
   readonly fullName: string;
   readonly avatarUrl: string | null;
+  /** True when the person has deactivated their account. */
+  readonly deactivated?: true;
 }
 
 export interface TagItem {
@@ -175,6 +178,7 @@ export interface ProjectDetail {
   readonly featured: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly deletedAt: string | null;
 }
 
 export interface PersonListItem {
@@ -205,6 +209,10 @@ export interface ProjectUpdateSummary {
 export interface PersonPermissions {
   readonly canEdit: boolean;
   readonly canChangeAccountLevel: boolean;
+  /** Self or staff: can deactivate/reactivate this account. */
+  readonly canDeactivate: boolean;
+  /** Admin only: can purge this person and all their content. */
+  readonly canPurge: boolean;
 }
 
 export interface PersonDetail {
@@ -227,6 +235,8 @@ export interface PersonDetail {
   readonly permissions: PersonPermissions;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** Set when the person is deactivated. Staff-only visibility. */
+  readonly deletedAt: string | null;
 }
 
 export interface TagResponse {
@@ -296,6 +306,7 @@ export interface BlogPostResponse {
   readonly featuredImageUrl: string | null;
   readonly body: string;
   readonly bodyHtml: string;
+  readonly tags: TagItem[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -591,6 +602,10 @@ export const api = {
       request(`/api/projects/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
     restore: (slug: string): Promise<SuccessEnvelope<ProjectDetail>> =>
       request(`/api/projects/${encodeURIComponent(slug)}/restore`, { method: 'POST' }),
+    join: (slug: string): Promise<void> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/members/join`, { method: 'POST' }),
+    leave: (slug: string): Promise<void> =>
+      request(`/api/projects/${encodeURIComponent(slug)}/members/leave`, { method: 'POST' }),
     changeMaintainer: (slug: string, personSlug: string): Promise<SuccessEnvelope<ProjectDetail>> =>
       request(`/api/projects/${encodeURIComponent(slug)}/change-maintainer`, {
         method: 'POST',
@@ -693,6 +708,12 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ optedIn }),
       }),
+    deactivate: (slug: string): Promise<SuccessEnvelope<PersonDetail>> =>
+      request(`/api/people/${encodeURIComponent(slug)}/deactivate`, { method: 'POST' }),
+    reactivate: (slug: string): Promise<SuccessEnvelope<PersonDetail>> =>
+      request(`/api/people/${encodeURIComponent(slug)}/reactivate`, { method: 'POST' }),
+    purge: (slug: string): Promise<void> =>
+      request(`/api/people/${encodeURIComponent(slug)}/purge`, { method: 'POST' }),
   },
   tags: {
     list: (params: TagListParams = {}): Promise<PaginatedEnvelope<TagResponse>> =>

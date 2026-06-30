@@ -3,7 +3,10 @@
  *   GET    /api/people
  *   GET    /api/people/:slug
  *   PATCH  /api/people/:slug
- *   DELETE /api/people/:slug
+ *   POST   /api/people/:slug/deactivate
+ *   POST   /api/people/:slug/reactivate
+ *   POST   /api/people/:slug/purge
+ *   POST   /api/people/:slug/account-level (administrator)
  *   PATCH  /api/people/:slug/newsletter (private-only mutation)
  */
 import type { FastifyInstance } from 'fastify';
@@ -119,7 +122,31 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       tags: ['people'],
       summary: 'Update profile',
       params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
-      body: { type: 'object' },
+      // Enumerate the editable fields and reject anything else, so privileged
+      // fields (e.g. accountLevel — see POST /api/people/:slug/account-level)
+      // can't be smuggled through the generic profile PATCH. Per
+      // specs/api/people.md → "PATCH /api/people/:slug".
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          fullName: { type: 'string' },
+          firstName: { type: ['string', 'null'] },
+          lastName: { type: ['string', 'null'] },
+          bio: { type: ['string', 'null'] },
+          slug: { type: 'string' },
+          email: { type: 'string' },
+          slackHandle: { type: ['string', 'null'] },
+          tags: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              topic: { type: 'array', items: { type: 'string' } },
+              tech: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
     },
   }, async (request) => {
     const { slug } = request.params as { slug: string };
@@ -139,11 +166,62 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     return ok(await fastify.services.people.get(result.value.person.slug, caller));
   });
 
-  // DELETE /api/people/:slug (admin-only soft-delete)
-  fastify.delete('/api/people/:slug', {
+  // POST /api/people/:slug/deactivate (self | staff)
+  // Spec: specs/behaviors/person-lifecycle.md, specs/api/people.md
+  fastify.post('/api/people/:slug/deactivate', {
     schema: {
       tags: ['people'],
-      summary: 'Soft-delete a person (admin only)',
+      summary: 'Deactivate a person account (self or staff)',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'person.deactivate',
+        subjectType: 'person',
+        subjectSlug: slug,
+        responseCode: 200,
+      }),
+      async (tx) => fastify.services.peopleWrite.deactivate(tx, slug, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    const caller = getCallerSession(request);
+    return ok(await fastify.services.people.get(result.value.person.slug, caller));
+  });
+
+  // POST /api/people/:slug/reactivate (self | staff)
+  // Spec: specs/behaviors/person-lifecycle.md, specs/api/people.md
+  fastify.post('/api/people/:slug/reactivate', {
+    schema: {
+      tags: ['people'],
+      summary: 'Reactivate a deactivated person account (self or staff)',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'person.reactivate',
+        subjectType: 'person',
+        subjectSlug: slug,
+        responseCode: 200,
+      }),
+      async (tx) => fastify.services.peopleWrite.reactivate(tx, slug, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    const caller = getCallerSession(request);
+    return ok(await fastify.services.people.get(result.value.person.slug, caller));
+  });
+
+  // POST /api/people/:slug/purge (administrator only)
+  // Spec: specs/behaviors/person-lifecycle.md, specs/api/people.md
+  fastify.post('/api/people/:slug/purge', {
+    schema: {
+      tags: ['people'],
+      summary: 'Purge a person and all their content (admin only)',
       params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
     },
   }, async (request, reply) => {
@@ -151,15 +229,60 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     const result = await fastify.store.transact(
       buildTransactionOptions({
         request,
-        action: 'person.soft-delete',
+        action: 'person.purge',
         subjectType: 'person',
         subjectSlug: slug,
         responseCode: 204,
       }),
-      async (tx) => fastify.services.peopleWrite.softDelete(tx, slug, request.session),
+      async (tx) => fastify.services.peopleWrite.purge(tx, slug, request.session),
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
     return reply.code(204).send();
+  });
+
+  // POST /api/people/:slug/account-level (administrator only)
+  // Spec: specs/api/people.md → POST /api/people/:slug/account-level
+  fastify.post('/api/people/:slug/account-level', {
+    schema: {
+      tags: ['people'],
+      summary: "Change a person's account level (admin only)",
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      body: {
+        type: 'object',
+        properties: { level: { type: 'string', enum: ['user', 'staff', 'administrator'] } },
+        required: ['level'],
+        additionalProperties: false,
+      },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    const { level } = request.body as { level: Person['accountLevel'] };
+
+    // Resolve the current level up-front so the audit trailers capture the
+    // before/after. Reads in-memory state, which is current under the write
+    // mutex; if the slug is unknown, setAccountLevel below 404s.
+    const existingId = fastify.inMemoryState.personIdBySlug.get(slug);
+    const previousLevel = existingId
+      ? fastify.inMemoryState.people.get(existingId)?.accountLevel
+      : undefined;
+
+    const result = await fastify.store.transact(
+      buildTransactionOptions({
+        request,
+        action: 'account-level.change',
+        subjectType: 'person',
+        subjectSlug: slug,
+        responseCode: 200,
+        extraTrailers: {
+          'Previous-Account-Level': previousLevel ?? 'unknown',
+          'New-Account-Level': level,
+        },
+      }),
+      async (tx) => fastify.services.peopleWrite.setAccountLevel(tx, slug, level, request.session),
+    );
+    result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    const caller = getCallerSession(request);
+    return ok(await fastify.services.people.get(result.value.person.slug, caller));
   });
 
   // PATCH /api/people/:slug/newsletter (private-store only — no public commit)

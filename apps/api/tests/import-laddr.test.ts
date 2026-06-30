@@ -55,12 +55,22 @@ function makeFetch(routes: MockRoutes): typeof fetch {
       return new Response('Not found', { status: 404 });
     }
     const body = queue.shift()!;
+    // Binary routes (e.g. /media/<id>) queue a Buffer — serve it raw.
+    if (Buffer.isBuffer(body)) {
+      return new Response(body, { status: 200, headers: { 'content-type': 'image/png' } });
+    }
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
   }) as typeof fetch;
 }
+
+/** Smallest valid PNG (1×1) — sharp can decode it, so processAvatar works. */
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 function envelope(rows: unknown[], total: number, limit: number, offset: number) {
   return {
@@ -1004,6 +1014,44 @@ describe('importLaddrFromJson — orchestrator', () => {
         expect(content, `email-like in ${path}`).not.toMatch(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
         expect(content, `bcrypt-like in ${path}`).not.toMatch(/\$2[ayb]\$/);
       }
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('imports a person avatar from /media/<PrimaryPhotoID> and sets avatarKey', async () => {
+    const { path: repo, cleanup } = await makeRepo();
+    try {
+      const routes = mockRoutes();
+      // Give alice a photo + serve it as a tiny PNG at /media/555.
+      const peopleResp = routes.responses.get(
+        '/people?format=json&include=Tags&limit=200&offset=0',
+      ) as Array<{ data: Array<Record<string, unknown>> }>;
+      peopleResp[0]!.data[0]!.PrimaryPhotoID = 555;
+      routes.responses.set('/media/555?', [TINY_PNG]);
+
+      const report = await importLaddrFromJson({
+        sourceHost: 'example.test',
+        dataRepo: repo,
+        branch: 'legacy-import',
+        initialParent: 'empty',
+        now: '2026-05-18T00:00:00.000Z',
+        delayMs: 0,
+        pageSize: 200,
+        fetchImpl: makeFetch(routes),
+      });
+      expect(report.commitHash).not.toBeNull();
+
+      const tree = await exec('git', ['ls-tree', '-r', '--name-only', 'HEAD'], { cwd: repo });
+      const paths = tree.stdout.split('\n').filter(Boolean);
+      // alice has a photo → original + thumbnail attachments
+      expect(paths).toContain('people/alice/avatar.jpg');
+      expect(paths).toContain('people/alice/avatar-128.jpg');
+      // bob has no photo → no avatar attachments
+      expect(paths).not.toContain('people/bob/avatar.jpg');
+
+      const aliceToml = await exec('git', ['show', 'HEAD:people/alice.toml'], { cwd: repo });
+      expect(aliceToml.stdout).toContain('avatarKey = "people/alice/avatar.jpg"');
     } finally {
       await cleanup();
     }

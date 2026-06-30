@@ -1,8 +1,14 @@
 /**
  * BlogPost serializer.
  */
-import type { BlogPost, Person } from '@cfp/shared/schemas';
-import { renderMarkdown, serializePersonAvatar, type PersonAvatar } from './common.js';
+import type { BlogPost, Person, Tag } from '@cfp/shared/schemas';
+import {
+  renderMarkdown,
+  serializePersonAvatar,
+  serializeTagItem,
+  type PersonAvatar,
+  type TagItem,
+} from './common.js';
 
 export interface BlogPostResponse {
   readonly id: string;
@@ -16,13 +22,14 @@ export interface BlogPostResponse {
   readonly featuredImageUrl: string | null;
   readonly body: string;
   readonly bodyHtml: string;
+  readonly tags: TagItem[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
 export function serializeBlogPost(
   post: BlogPost,
-  opts: { author: Person | null },
+  opts: { author: Person | null; tags?: Tag[] },
 ): BlogPostResponse {
   return {
     id: post.id,
@@ -38,6 +45,7 @@ export function serializeBlogPost(
       : null,
     body: post.body,
     bodyHtml: renderMarkdown(post.body).html,
+    tags: (opts.tags ?? []).map(serializeTagItem),
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
   };

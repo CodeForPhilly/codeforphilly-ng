@@ -130,11 +130,14 @@ Fetches a single project by slug.
     "canDelete": false
   },
   "createdAt": "...",
-  "updatedAt": "..."
+  "updatedAt": "...",
+  "deletedAt": "..." | null
 }
 ```
 
 `permissions` is the *current caller's* permissions on this project — the frontend uses it to decide which actions to render. The server still enforces the same rules on each mutation endpoint.
+
+`deletedAt` is `null` for active projects. It is non-null only when a soft-deleted project is fetched by staff (non-staff get `404`), so the SPA can render the soft-delete banner with a Restore action.
 
 ### Errors
 

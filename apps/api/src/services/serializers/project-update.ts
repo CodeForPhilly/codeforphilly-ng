@@ -3,13 +3,13 @@
  */
 import type { Person, Project, ProjectUpdate } from '@cfp/shared/schemas';
 import type { UpdatePermissions } from '../permissions.js';
-import { renderMarkdown, serializePersonAvatar } from './common.js';
+import { renderMarkdown, serializePersonAvatar, type PersonAvatar } from './common.js';
 
 export interface ProjectUpdateResponse {
   readonly id: string;
   readonly number: number;
   readonly project: { readonly slug: string; readonly title: string };
-  readonly author: { readonly slug: string; readonly fullName: string; readonly avatarUrl: string | null } | null;
+  readonly author: PersonAvatar | null;
   readonly body: string;
   readonly bodyHtml: string;
   readonly permissions: UpdatePermissions;

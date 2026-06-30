@@ -43,6 +43,10 @@ export interface ProjectPermissions {
 export interface PersonPermissions {
   readonly canEdit: boolean;
   readonly canChangeAccountLevel: boolean;
+  /** Self or staff: can deactivate/reactivate this account. */
+  readonly canDeactivate: boolean;
+  /** Admin only: can purge this person and all their content. */
+  readonly canPurge: boolean;
 }
 
 export interface UpdatePermissions {
@@ -111,10 +115,13 @@ export function computePersonPermissions(
   person: Person,
 ): PersonPermissions {
   const staff = isStaff(caller);
+  const admin = caller?.accountLevel === 'administrator';
   const isSelf = caller?.id === person.id;
   return {
     canEdit: isSelf || staff,
-    canChangeAccountLevel: caller?.accountLevel === 'administrator',
+    canChangeAccountLevel: admin,
+    canDeactivate: isSelf || staff,
+    canPurge: admin,
   };
 }
 

@@ -18,6 +18,8 @@ export interface AuthPerson {
   fullName: string;
   avatarUrl: string | null;
   accountLevel: AccountLevel;
+  /** Set when the account is deactivated; surfaced so /account can offer reactivation. */
+  deletedAt?: string | null;
 }
 
 export interface AuthState {

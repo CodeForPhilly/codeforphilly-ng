@@ -26,7 +26,10 @@ export function PersonAvatar({ person, size = 32, asLink = true, className, titl
     <span
       title={title ?? person.fullName}
       className={cn(
-        'inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground font-medium',
+        'inline-flex items-center justify-center rounded-full font-medium',
+        person.deactivated
+          ? 'bg-muted text-muted-foreground'
+          : 'bg-primary text-primary-foreground',
         className,
       )}
       style={{ width: size, height: size, fontSize: size * 0.4 }}
@@ -36,7 +39,8 @@ export function PersonAvatar({ person, size = 32, asLink = true, className, titl
     </span>
   );
 
-  if (!asLink) return inner;
+  // Deactivated users or callers that set asLink=false do not link.
+  if (!asLink || !person.slug || person.deactivated) return inner;
 
   return (
     <Link to={`/members/${person.slug}`} aria-label={person.fullName}>

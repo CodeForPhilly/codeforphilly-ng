@@ -1,16 +1,34 @@
-import { Link, useParams } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { MarkdownView } from '@/components/MarkdownView';
 import { StageBadge } from '@/components/StageBadge';
 import { TagChip } from '@/components/TagChip';
 import { PersonAvatar } from '@/components/PersonAvatar';
+import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
 import { formatMonthYear, formatRelativeTime } from '@/lib/time';
 
 export function PersonDetail() {
   const params = useParams();
   const slug = params['slug']!;
+  const { person: viewer } = useAuth();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [actionPending, setActionPending] = useState(false);
+  const [confirmPurgeOpen, setConfirmPurgeOpen] = useState(false);
 
   const personQ = useQuery({
     queryKey: ['person', slug],
@@ -37,7 +55,46 @@ export function PersonDetail() {
   }
 
   const person = personQ.data!.data;
+  const isSelf = viewer !== null && viewer.slug === person.slug;
   const allTags = [...person.tags.tech, ...person.tags.topic];
+
+  const handleDeactivate = async () => {
+    setActionPending(true);
+    try {
+      await api.people.deactivate(person.slug);
+      await queryClient.invalidateQueries({ queryKey: ['person', slug] });
+      toast.success(`${person.fullName}'s account has been deactivated.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to deactivate account');
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  const handleReactivate = async () => {
+    setActionPending(true);
+    try {
+      await api.people.reactivate(person.slug);
+      await queryClient.invalidateQueries({ queryKey: ['person', slug] });
+      toast.success(`${person.fullName}'s account has been reactivated.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to reactivate account');
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  const handlePurge = async () => {
+    setActionPending(true);
+    try {
+      await api.people.purge(person.slug);
+      toast.success(`${person.fullName} and all their content have been permanently purged.`);
+      void navigate('/members', { replace: true });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to purge account');
+      setActionPending(false);
+    }
+  };
 
   // Memberships sorted: maintainer desc, joinedAt desc
   const memberships = [...person.memberships].sort((a, b) => {
@@ -193,6 +250,92 @@ export function PersonDetail() {
           </h3>
           <p>{formatMonthYear(person.createdAt)}</p>
         </section>
+        {isSelf && (
+          <section>
+            <Link to="/account" className="text-primary underline hover:no-underline">
+              Manage account
+            </Link>
+          </section>
+        )}
+
+        {/* Danger Zone — staff/admin only */}
+        {(person.permissions.canDeactivate || person.permissions.canPurge) && !isSelf && (
+          <Card className="border-destructive/40 text-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-destructive text-sm">Danger zone</CardTitle>
+              {person.deletedAt && (
+                <CardDescription className="text-xs">
+                  This account is deactivated.
+                </CardDescription>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {person.permissions.canDeactivate && (
+                <>
+                  {person.deletedAt ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={actionPending}
+                      onClick={() => void handleReactivate()}
+                    >
+                      Reactivate account
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={actionPending}
+                      onClick={() => void handleDeactivate()}
+                    >
+                      Deactivate account
+                    </Button>
+                  )}
+                </>
+              )}
+              {person.permissions.canPurge && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={actionPending}
+                    onClick={() => setConfirmPurgeOpen(true)}
+                  >
+                    Purge account
+                  </Button>
+                  <Dialog open={confirmPurgeOpen} onOpenChange={setConfirmPurgeOpen}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Permanently purge {person.fullName}?</DialogTitle>
+                        <DialogDescription>
+                          This will permanently delete this person record and ALL their
+                          content (project updates, buzz, blog posts, memberships). This
+                          cannot be undone except via git history. Only use this for spam
+                          accounts.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setConfirmPurgeOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          disabled={actionPending}
+                          onClick={() => {
+                            setConfirmPurgeOpen(false);
+                            void handlePurge();
+                          }}
+                        >
+                          {actionPending ? 'Purging…' : 'Purge permanently'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </aside>
     </div>
   );
