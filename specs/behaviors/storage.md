@@ -2,7 +2,7 @@
 
 ## Rule
 
-**Public** persistent data lives in a **gitsheets-backed git repository** — TOML records in templated paths, committed atomically, pushed to a publicly cloneable GitHub remote. There is no relational database. At runtime the API loads all records into typed in-memory structures and serves reads from there; mutations write to the gitsheets repo and update the in-memory state synchronously.
+**Public-by-design** persistent data lives in a **gitsheets-backed git repository** — TOML records in templated paths, committed atomically, pushed to the `codeforphilly-data` GitHub remote. The repo is access-controlled (private) today, but its contents are curated to be publicly shareable (civic transparency), and the commit log is redacted of PII accordingly — treat everything in it as forever-public (see [PII-aware redaction](#pii-aware-redaction)). There is no relational database. At runtime the API loads all records into typed in-memory structures and serves reads from there; mutations write to the gitsheets repo and update the in-memory state synchronously.
 
 **Private** data — emails, password hashes during migration, newsletter subscription state — lives in a separate S3-compatible bucket. See [behaviors/private-storage.md](private-storage.md). This spec covers only the public side.
 
@@ -54,7 +54,7 @@ There are two git repositories:
 | Repo | Purpose | Visibility |
 | ---- | ------- | ---------- |
 | `codeforphilly-rewrite` | The application code (this repo) | Public |
-| `codeforphilly-data` | The live gitsheets data | **Private** — contains emails, real names, IPs |
+| `codeforphilly-data` | The live gitsheets data | **Private repo today**, but **public-by-design** content — member names + projects are public-facing; the commit log is redacted (no emails, IPs, or password hashes — those live in the private store). Treat as forever-public. |
 
 The code repo references the data repo by env (`CFP_DATA_REPO_PATH`). They are not git submodules — too much friction. Sibling clones, locally and in production.
 
@@ -81,7 +81,7 @@ A scrubbed snapshot of the data repo is published as a public tag (e.g., `snapsh
 - `slackHandle` → null
 - `bio`, `overview`, `body` content → unchanged (assumed safe; staff may flag specific records for redaction)
 
-A `scripts/scrub-data.ts` in the code repo produces the snapshot. The contributor bootstrap is:
+An `apps/api/scripts/scrub-data.ts` in the code repo produces the snapshot. The contributor bootstrap is:
 
 ```bash
 git clone https://github.com/CodeForPhilly/codeforphilly-rewrite.git
@@ -264,12 +264,12 @@ Rules:
 
 ### PII-aware redaction
 
-The public data repo is, well, public — redaction is essential, not defense-in-depth:
+The data repo is public-by-design (and may be made public outright) — redaction is essential, not defense-in-depth:
 
 - **No real emails as commit authors.** Author = `<slug>@users.noreply.codeforphilly.org`, never the user's actual email.
 - **No `User-Ip` or `User-Agent` trailers in public commits** (rule above).
 - `Authorization` and `Cookie` request headers are never embedded anywhere.
-- Any request body field matching `/email|password|token|secret/i` is replaced with `[REDACTED]` before embedding in the commit message body.
+- **Commit message bodies carry only the caller-provided `summary` string — never the raw request body** — so request PII can't reach the commit message in the first place. If a `summary` is ever derived from request input, fields matching `/email|password|token|secret/i` must be `[REDACTED]` before embedding.
 - `Set-Cookie` response headers and JWT bodies are not embedded.
 - Trailers for actions on the private store (`PrivateProfile`, `LegacyPasswordCredential`) appear in the public log as semantic action only — `Action: private-profile.update`, with no field-level diff. The actual change details live in the private bucket's object-version history (see [private-storage.md](private-storage.md)).
 
