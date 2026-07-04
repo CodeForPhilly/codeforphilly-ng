@@ -27,8 +27,22 @@ workarounds are therefore **ported/verified, not deleted**.
   our code compiles as-is.
 - **`hologit` is dropped as a gitsheets dependency** (2.x deps are
   `@gitsheets/core-napi` + csv/rfc6902/sort-keys/yargs — no hologit). This is
-  the **one real breaking change for us**: our avatar-blob-write path imports
+  **one real breaking change for us**: our avatar-blob-write path imports
   `BlobObject` from `hologit` and uses `publicRepo.hologitRepo`.
+- **Null/undefined marshal contract changed (undocumented — found during this
+  bump).** The Rust core *throws* when asked to marshal a `null`- or
+  `undefined`-valued field to TOML (`cannot marshal JS value of type
+  Null/Undefined to a TOML value`). 1.4.1 (`@iarna/toml`) silently dropped such
+  keys. Our Zod schemas use `.nullable().optional()` and write services
+  normalize cleared fields to `?? null`, so every write of a record with a
+  cleared optional field threw a 500 under 2.x (16 test failures across
+  write-api / people-lifecycle / import-laddr). **Fix:** `openPublicStore` now
+  wraps each Standard Schema validator to strip null/undefined keys before the
+  record reaches the core marshaller (`apps/api/src/store/public.ts` →
+  `stripNullish` / `asValidator`). This is byte-identical to 1.4.1's on-disk
+  form (an absent optional field = an absent TOML key; verified against the
+  `published` snapshot). This is NOT one of the two documented re-baselines
+  below.
 - **Two deliberate one-time byte re-baselines** (data-level, lossless — values
   unchanged, only formatting):
   1. **Canonical TOML**: Rust `toml`/`toml_edit` drops integer underscores
@@ -105,9 +119,10 @@ API. Sites:
 
 ## Validation checklist
 
-- [ ] deps bumped; hologit gone from lock
-- [ ] blob-write path migrated off hologit; casts removed
-- [ ] workarounds verified (compile + covered by tests)
-- [ ] type-check + lint clean
-- [ ] full api suite green (re-baseline test updates noted)
-- [ ] byte-parity on `published` = lossless (only documented re-baselines)
+- [x] deps bumped; hologit gone from lock
+- [x] blob-write path migrated off hologit; casts removed
+- [x] workarounds verified (compile + covered by tests)
+- [x] null/undefined marshal contract handled (`stripNullish` at write boundary)
+- [x] type-check + lint clean
+- [x] full api suite green (no re-baseline test updates were needed — see below)
+- [x] byte-parity on `published` = lossless (only documented re-baselines)
