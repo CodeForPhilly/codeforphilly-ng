@@ -92,7 +92,7 @@ import {
   type TranslateCtx,
   type Warnings,
 } from './translators.js';
-import { BlobObject } from 'hologit';
+import type { BlobHandle } from 'gitsheets';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -187,7 +187,7 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   // -------------------------------------------------------------------------
   let store: PublicStore | null = null;
   // Gitsheets Repository — needed to write attachment blobs via
-  // BlobObject.write into the underlying git object DB.
+  // repo.writeBlob into the underlying git object DB.
   let publicRepo: Awaited<ReturnType<typeof openPublicStore>>['repo'] | null = null;
   let existingIds: ExistingIds;
 
@@ -500,7 +500,6 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
       if (publicRepo === null) {
         throw new Error('[import-laddr] internal: publicRepo not opened');
       }
-      const hologit = publicRepo.hologitRepo;
 
       log(`[import] clear + upsert tags (${tags.length})`);
       await tx.tags.clear();
@@ -513,8 +512,8 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
         if (avatar) {
           // Mirror POST /api/people/:slug/avatar: store original + 128 thumb
           // as attachments and point avatarKey at the conventional path.
-          const originalBlob = await BlobObject.write(hologit, avatar.original as unknown as string);
-          const thumbnailBlob = await BlobObject.write(hologit, avatar.thumbnail as unknown as string);
+          const originalBlob = await publicRepo.writeBlob(avatar.original);
+          const thumbnailBlob = await publicRepo.writeBlob(avatar.thumbnail);
           await tx.people.setAttachments(p, {
             'avatar.jpg': originalBlob,
             'avatar-128.jpg': thumbnailBlob,
@@ -580,16 +579,10 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
       for (const { record } of blogTranslations) {
         const artifacts = mediaArtifactsBySlug.get(record.slug) ?? [];
         if (artifacts.length > 0) {
-          const blobs: Record<string, BlobObject> = {};
+          const blobs: Record<string, BlobHandle> = {};
           for (const a of artifacts) {
-            // BlobObject.write hashes the buffer into the git object DB.
-            // Same `as unknown as string` cast as the avatar route — the
-            // declared signature is too narrow; the underlying
-            // git-client `$putBlob` accepts Buffer at runtime.
-            blobs[a.filename] = await BlobObject.write(
-              hologit,
-              a.bytes as unknown as string,
-            );
+            // repo.writeBlob hashes the Buffer into the git object DB.
+            blobs[a.filename] = await publicRepo.writeBlob(a.bytes);
           }
           await tx['blog-posts'].setAttachments(record, blobs);
         }
