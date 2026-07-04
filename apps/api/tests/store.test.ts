@@ -154,7 +154,9 @@ describe('public store (gitsheets)', () => {
       expect(toml).not.toMatch(/^bio\s*=/m);
       expect(toml).not.toMatch(/^avatarKey\s*=/m);
       expect(toml).not.toMatch(/^deletedAt\s*=/m);
-      expect(toml).not.toContain('null');
+      // No field is assigned a bare `null` value. (Substring 'null' on its own
+      // would false-match the fixture's "Nullish Person" / "nullish-person".)
+      expect(toml).not.toMatch(/=\s*null\b/);
     } finally {
       await repo.cleanup();
     }
