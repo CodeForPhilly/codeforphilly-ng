@@ -120,7 +120,10 @@ export function StageProgressBar({ stage, showLabel = true }: StageProgressProps
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="w-full flex items-center gap-3" tabIndex={0}>
+        {/* When the badge is shown it is its own focusable tooltip trigger, so
+            the wrapper stays out of the tab order to avoid two adjacent stops
+            opening the same tooltip. */}
+        <div className="w-full flex items-center gap-3" tabIndex={showLabel ? undefined : 0}>
           <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
             <div
               role="progressbar"
