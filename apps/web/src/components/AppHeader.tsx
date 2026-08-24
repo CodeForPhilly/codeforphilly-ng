@@ -288,9 +288,11 @@ export function AppHeader() {
               <SheetHeader className="pb-0">
                 <SheetTitle>Menu</SheetTitle>
               </SheetHeader>
+              {/* min-h-0 + overflow-y-auto so the list stays reachable on
+                  short viewports instead of overflowing the panel. */}
               <nav
                 aria-label="Mobile navigation"
-                className="flex flex-col gap-2 px-4"
+                className="flex flex-col gap-2 px-4 min-h-0 overflow-y-auto"
               >
                 <NavLink
                   to="/projects"
