@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownView } from '@/components/MarkdownView';
 import { StageBadge } from '@/components/StageBadge';
 import { TagChip } from '@/components/TagChip';
@@ -103,6 +104,9 @@ export function PersonDetail() {
   });
 
   return (
+    <>
+    {/* specs/behaviors/app-shell.md → Breadcrumbs: Members › <fullName> */}
+    <Breadcrumbs items={[{ label: 'Members', href: '/members' }, { label: person.fullName }]} />
     <div className="container mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
       <div className="lg:col-span-2 space-y-8">
         <header className="flex items-start gap-6">
@@ -338,5 +342,6 @@ export function PersonDetail() {
         )}
       </aside>
     </div>
+    </>
   );
 }

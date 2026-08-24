@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { ProjectCard } from '@/components/ProjectCard';
 import { PersonCard } from '@/components/PersonCard';
 import { HelpWantedCard } from '@/components/HelpWantedCard';
@@ -102,6 +103,15 @@ export function TagDetail() {
   };
 
   return (
+    <>
+    {/* specs/behaviors/app-shell.md → Breadcrumbs: Tags › <namespace> › <title> */}
+    <Breadcrumbs
+      items={[
+        { label: 'Tags', href: '/tags' },
+        { label: tag.namespace, href: `/tags/${tag.namespace}` },
+        { label: tag.title },
+      ]}
+    />
     <div className="container mx-auto px-4 py-8 space-y-10">
       <header className="flex items-start justify-between gap-3">
         <div>
@@ -224,5 +234,6 @@ export function TagDetail() {
         </section>
       )}
     </div>
+    </>
   );
 }

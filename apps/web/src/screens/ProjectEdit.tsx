@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { TagPicker } from '@/components/TagPicker';
 import { STAGES, type Stage } from '@/components/StageBadge';
@@ -268,6 +269,20 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
           : '';
 
   return (
+    <>
+    {/* specs/behaviors/app-shell.md → Breadcrumbs:
+        create → Projects › New project; edit → Projects › <title> › Edit */}
+    <Breadcrumbs
+      items={
+        mode === 'create'
+          ? [{ label: 'Projects', href: '/projects' }, { label: 'New project' }]
+          : [
+              { label: 'Projects', href: '/projects' },
+              { label: project?.title ?? '', href: `/projects/${project?.slug ?? ''}` },
+              { label: 'Edit' },
+            ]
+      }
+    />
     <div className="container mx-auto px-4 py-8 max-w-3xl">
       <header className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">
@@ -503,5 +518,6 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
         )}
       </form>
     </div>
+    </>
   );
 }

@@ -17,6 +17,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownView } from '@/components/MarkdownView';
 import { StageProgressBar, StageBadge } from '@/components/StageBadge';
 import { StageInfoDialog } from '@/components/StageInfoDialog';
@@ -187,6 +188,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
   const allTags = [...project.tags.tech, ...project.tags.topic, ...project.tags.event];
 
   return (
+    <>
+    {/* specs/behaviors/app-shell.md → Breadcrumbs: Projects › <title> */}
+    <Breadcrumbs items={[{ label: 'Projects', href: '/projects' }, { label: project.title }]} />
     <div className="container mx-auto px-4 py-8">
       {/* Soft-delete banner — staff only (project-detail.md) */}
       {showDeletedBanner && (
@@ -678,5 +682,6 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 }

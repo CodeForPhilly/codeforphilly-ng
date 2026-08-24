@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import {
   Dialog,
   DialogContent,
@@ -154,6 +155,9 @@ export function Account() {
   const sessions = sessionsQ.data?.data ?? [];
 
   return (
+    <>
+    {/* specs/behaviors/app-shell.md → Breadcrumbs: Settings */}
+    <Breadcrumbs items={[{ label: 'Settings' }]} />
     <div className="container mx-auto px-4 py-8 max-w-3xl space-y-6">
       <h1 className="text-2xl font-bold">Account Settings</h1>
 
@@ -373,5 +377,6 @@ export function Account() {
         </CardContent>
       </Card>
     </div>
+    </>
   );
 }
