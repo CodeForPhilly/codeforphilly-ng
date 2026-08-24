@@ -436,9 +436,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
 
           {/* Project info */}
           <section>
-            <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+            <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
               Project Info
-            </h3>
+            </h2>
             <div className="flex flex-col gap-2">
               {project.links.usersUrl && (
                 <Button asChild>
@@ -468,9 +468,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           {project.memberships.length > 0 && (
             <section>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                   Members ({project.counts.members})
-                </h3>
+                </h2>
                 {perms.canManageMembers && (
                   <Button
                     size="sm"
@@ -499,9 +499,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           {/* Tags */}
           {allTags.length > 0 && (
             <section>
-              <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+              <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
                 Tags
-              </h3>
+              </h2>
               <div className="space-y-2">
                 {project.tags.tech.length > 0 && (
                   <div>
@@ -539,9 +539,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
 
           {/* Share */}
           <section>
-            <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+            <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
               Share
-            </h3>
+            </h2>
             <div className="flex flex-col gap-2">
               <Button
                 variant="outline"

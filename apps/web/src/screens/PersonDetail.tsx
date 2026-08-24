@@ -219,9 +219,9 @@ export function PersonDetail() {
       <aside className="space-y-4 text-sm">
         {(person.slackHandle || person.email) && (
           <section>
-            <h3 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+            <h2 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
               Contact
-            </h3>
+            </h2>
             <ul className="space-y-1">
               {person.slackHandle && (
                 <li>
@@ -249,9 +249,9 @@ export function PersonDetail() {
           </section>
         )}
         <section>
-          <h3 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+          <h2 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
             Member since
-          </h3>
+          </h2>
           <p>{formatMonthYear(person.createdAt)}</p>
         </section>
         {isSelf && (
