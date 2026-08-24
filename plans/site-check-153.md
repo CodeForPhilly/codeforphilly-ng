@@ -136,10 +136,13 @@ One-line repo URL swap to `codeforphilly-ng`.
 
 (To be populated at closeout. Recorded during implementation:)
 
-- **`apps/api` tests do not pass on Windows, independent of this plan.** Ten
-  failures across `scrub-data.test.ts` (4), `internal-reload.test.ts` (4), and
-  `store.test.ts` (2), on a tree where `git diff develop..HEAD -- apps/api
-  packages/` is empty — this branch touches no API code. The mechanism is
+- **`apps/api` tests do not pass on Windows, independent of this plan.**
+  `apps/api` finishes 3 failed | 30 passed (33 files), 10 failed | 413 passed
+  (423 tests) — the ten spread across `scrub-data.test.ts` (4),
+  `internal-reload.test.ts` (4), and `store.test.ts` (2), on a tree where
+  `git diff develop..HEAD -- apps/api packages/` is empty — this branch touches
+  no API code. Checking out `develop` and re-running `store.test.ts` there
+  reproduces its 2 failed | 11 passed exactly. The mechanism is
   POSIX-isms in the test fixtures: `store.test.ts` injects a write failure by
   pointing the private store at `/dev/null/impossible-path` and asserting the
   transaction rejects, but on Windows that is an ordinary creatable directory,
