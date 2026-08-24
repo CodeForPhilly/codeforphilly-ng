@@ -146,22 +146,28 @@ Covers `ActivityCard` (×2), `ProjectDetail` (×2), `BlogDetail`, `Account`,
 
 ## Validation
 
-- [ ] Breadcrumbs render on all six screens the spec's table names, with the
+- [x] Breadcrumbs render on all six screens the spec's table names, with the
       exact trails prescribed, and each non-final crumb links to its parent.
-- [ ] No two buttons in the audited lists share an accessible name; every
+- [x] No two buttons in the audited lists share an accessible name; every
       added `aria-label` contains the button's visible text (SC 2.5.3).
-- [ ] `PeopleIndex` / `HelpWantedIndex` no longer skip `h1` → `h3`;
+- [x] `PeopleIndex` / `HelpWantedIndex` no longer skip `h1` → `h3`;
       `ProjectDetail` / `PersonDetail` aside headings are `h2`.
-- [ ] The `MarkdownEditor` toolbar exposes `role="toolbar"`, named buttons,
+- [x] The `MarkdownEditor` toolbar exposes `role="toolbar"`, named buttons,
       and a working roving tabindex (Arrow/Home/End).
-- [ ] Copy actions on `ProjectDetail` and `Sponsor` announce; `ProfileEdit`
+- [x] Copy actions on `ProjectDetail` and `Sponsor` announce; `ProfileEdit`
       upload and `ConnectGitHubBanner` are live regions.
-- [ ] Dates expose `datetime`; no date is `title`-only.
-- [ ] Exactly one `complementary` landmark per index screen.
-- [ ] `npm run -w packages/shared build && npm run type-check && npm run lint
-      && npm run -w apps/web test && npm run -w packages/shared test` clean.
-- [ ] Browser test — breadcrumbs, toolbar keyboard nav, and the copy toasts
-      verified in a real browser. _(for the coordinator)_
+- [x] Dates expose `datetime`; no date is `title`-only.
+- [x] Exactly one `complementary` landmark per index screen.
+- [x] `npm run -w packages/shared build && npm run type-check && npm run lint
+      && npm run -w apps/web test && npm run -w packages/shared test` clean
+      (web 116/116, shared 75/75; run twice — implementer and coordinator).
+- [x] Browser test (headed Chrome against the live dev stack — api booted on
+      a `setup-dev-data` repo with two seeded records): breadcrumb trails
+      verified on `/projects/qa-sandbox` ("Projects › QA Sandbox Project")
+      and `/members/ada-tester` ("Members › Ada Tester"); "Copy link" fires
+      the "Link copied" toast; the count badge sits outside the `h1` with
+      the visual unchanged; `PersonCard` whole-card click still navigates.
+      Toolbar keyboard nav verified in jsdom only (`MarkdownEditor.test.tsx`).
 
 ## Risks / unknowns
 
