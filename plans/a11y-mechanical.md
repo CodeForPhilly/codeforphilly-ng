@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/app-shell.md
 issues: []
+pr: 157
 ---
 
 # Plan: mechanical accessibility fixes across the SPA
