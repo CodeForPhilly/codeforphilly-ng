@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/app-shell.md
 issues: []
+pr: 155
 ---
 
 # Plan: repair invalid and missing ARIA across the SPA
