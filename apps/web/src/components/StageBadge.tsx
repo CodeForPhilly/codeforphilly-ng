@@ -92,7 +92,10 @@ export function StageBadge({ stage, className }: StageBadgeProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
+        {/* tabIndex makes the trigger focusable so the tooltip — which carries
+            the stage description — is reachable without a pointer. */}
         <span
+          tabIndex={0}
           className={cn(
             'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
             meta.className,
@@ -117,9 +120,14 @@ export function StageProgressBar({ stage, showLabel = true }: StageProgressProps
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="w-full flex items-center gap-3" aria-label={`Stage: ${meta.label}`}>
+        <div className="w-full flex items-center gap-3" tabIndex={0}>
           <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
             <div
+              role="progressbar"
+              aria-label={`Stage: ${meta.label}`}
+              aria-valuenow={meta.progress}
+              aria-valuemin={0}
+              aria-valuemax={100}
               className={cn('h-full transition-all', meta.barClassName)}
               style={{ width: `${meta.progress}%` }}
             />

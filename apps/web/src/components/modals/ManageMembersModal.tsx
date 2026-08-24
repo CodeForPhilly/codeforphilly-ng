@@ -113,6 +113,7 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                           setEditingRole((r) => ({ ...r, [rowKey]: e.target.value }))
                         }
                         placeholder="Role"
+                        aria-label="Role"
                         className="h-7 mt-1 text-xs"
                       />
                     ) : (

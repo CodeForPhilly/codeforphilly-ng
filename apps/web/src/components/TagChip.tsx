@@ -38,7 +38,7 @@ export function TagChip({ tag, count, showNamespace = false, active = false, asL
 
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={classes}>
+      <button type="button" onClick={onClick} aria-pressed={active} className={classes}>
         {inner}
       </button>
     );

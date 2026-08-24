@@ -24,6 +24,7 @@ export function PersonAvatar({ person, size = 32, asLink = true, className, titl
     />
   ) : (
     <span
+      role="img"
       title={title ?? person.fullName}
       className={cn(
         'inline-flex items-center justify-center rounded-full font-medium',

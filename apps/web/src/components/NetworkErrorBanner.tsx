@@ -33,11 +33,7 @@ export function NetworkErrorProvider({ children }: { children: ReactNode }) {
           data-testid="network-error-banner"
         >
           <span>{error}</span>
-          <button
-            onClick={clearError}
-            className="ml-4 underline hover:no-underline"
-            aria-label="Dismiss error"
-          >
+          <button onClick={clearError} className="ml-4 underline hover:no-underline">
             Retry
           </button>
         </div>

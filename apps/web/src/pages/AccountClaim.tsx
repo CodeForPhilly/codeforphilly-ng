@@ -105,8 +105,12 @@ export function AccountClaim() {
 
   if (loading || authLoading) {
     return (
-      <div className="flex justify-center py-20" aria-live="polite" aria-label="Loading claim candidates">
-        <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div role="status" className="flex justify-center py-20">
+        <div
+          className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin"
+          aria-hidden="true"
+        />
+        <span className="sr-only">Loading claim candidates…</span>
       </div>
     );
   }

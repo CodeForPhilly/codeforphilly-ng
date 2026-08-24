@@ -53,7 +53,6 @@ export function ConnectGitHubBanner() {
           variant="ghost"
           size="sm"
           onClick={() => setDismissed(true)}
-          aria-label="Dismiss"
         >
           Dismiss
         </Button>

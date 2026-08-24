@@ -200,16 +200,20 @@ export function ProjectsIndex() {
                       />
                     );
                   })}
-                  {stages.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => handleToggleStage(s)}
-                      className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs hover:bg-accent"
-                    >
-                      Stage: {STAGES[s as Stage]?.label ?? s} ×
-                    </button>
-                  ))}
+                  {stages.map((s) => {
+                    const stageLabel = STAGES[s as Stage]?.label ?? s;
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => handleToggleStage(s)}
+                        aria-label={`Remove filter: Stage: ${stageLabel}`}
+                        className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs hover:bg-accent"
+                      >
+                        Stage: {stageLabel} ×
+                      </button>
+                    );
+                  })}
                   <button
                     type="button"
                     onClick={handleClearAll}
