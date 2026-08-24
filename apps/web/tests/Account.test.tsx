@@ -5,7 +5,7 @@
  * by AppShell on every page), and is covered by its own test file.
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { renderScreen, mockOk } from './test-utils.js';
 import { Account } from '../src/screens/Account.js';
 import { AuthProvider } from '../src/hooks/useAuth.js';
@@ -17,7 +17,24 @@ interface MeShape {
   lastLoginMethod: 'github' | 'legacy_password' | 'password_reset' | null;
 }
 
-function mockApi(me: MeShape): void {
+const SESSIONS = [
+  {
+    jti: 'sess-1',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X) Chrome/120',
+    ipAddress: '203.0.113.1',
+    issuedAt: '2026-05-01T00:00:00Z',
+    current: false,
+  },
+  {
+    jti: 'sess-2',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0) Firefox/121',
+    ipAddress: '203.0.113.2',
+    issuedAt: '2026-05-02T00:00:00Z',
+    current: false,
+  },
+];
+
+function mockApi(me: MeShape, sessions: unknown[] = []): void {
   vi.spyOn(globalThis, 'fetch').mockImplementation(((input: string) => {
     if (input.startsWith('/api/auth/me')) {
       return Promise.resolve(
@@ -29,7 +46,7 @@ function mockApi(me: MeShape): void {
     }
     if (input.startsWith('/api/auth/sessions')) {
       return Promise.resolve(
-        new Response(JSON.stringify(mockOk([])), {
+        new Response(JSON.stringify(mockOk(sessions)), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),
@@ -103,5 +120,40 @@ describe('Account — Identity card', () => {
     expect(
       document.querySelectorAll('form[action="/api/auth/link-github"]').length,
     ).toBe(0);
+  });
+});
+
+describe('Account — accessibility structure', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders the "Settings" breadcrumb trail from app-shell.md', async () => {
+    mockApi(githubPerson);
+    render();
+    const trail = await screen.findByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByText('Settings')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('names each Revoke button after its own session', async () => {
+    mockApi(githubPerson, SESSIONS);
+    render();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Revoke session on Chrome on macOS' }))
+        .toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole('button', { name: 'Revoke session on Firefox on Windows' }),
+    ).toBeInTheDocument();
+    // The visible text is still "Revoke" on both (SC 2.5.3 keeps it a substring).
+    expect(screen.getAllByRole('button', { name: /^Revoke session on/ })).toHaveLength(2);
+  });
+
+  it('exposes session timestamps as machine-readable <time>', async () => {
+    mockApi(githubPerson, SESSIONS);
+    render();
+    await waitFor(() => {
+      expect(document.querySelector('time[datetime="2026-05-01T00:00:00Z"]')).not.toBeNull();
+    });
   });
 });
