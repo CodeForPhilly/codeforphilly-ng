@@ -106,17 +106,20 @@ One-line repo URL swap to `codeforphilly-ng`.
 
 ## Validation
 
-- [ ] Specs updated before code: app-shell header clusters + volunteer link targets.
-- [ ] Desktop header order is Projects · Help Wanted · Members · About ▾ … GitHub · Search · Sign in · Volunteer, with Volunteer rightmost and still green.
-- [ ] No `ml-1` spacing hacks remain among the header nav's children.
-- [ ] GitHub link is icon-only, labelled "Code for Philly on GitHub", and opens `https://github.com/CodeForPhilly` in a new tab with `rel="noopener noreferrer"`.
-- [ ] Mobile sheet has a "Menu" title, horizontal padding on nav + search, and no `pt-8`; the title does not collide with the close button.
-- [ ] The sheet dialog exposes an accessible name; Radix still supplies `aria-expanded` on the trigger.
-- [ ] Loading skeleton uses `aria-hidden`; About trigger's accessible name is its visible text; account-menu label retained.
-- [ ] Every mobile sheet item closes the sheet on click, including Contact.
-- [ ] No `codeforphilly.gitbook.io` URL remains in `apps/web/src`.
-- [ ] Footer "view this site on GitHub" points at `codeforphilly-ng`.
-- [ ] `npm run -w packages/shared build && npm run type-check && npm run lint && npm test` clean.
+- [x] Specs updated before code: app-shell header clusters + volunteer link targets.
+- [x] Desktop header order is Projects · Help Wanted · Members · About ▾ … GitHub · Search · Sign in · Volunteer, with Volunteer rightmost and still green.
+- [x] No `ml-1` spacing hacks remain among the header nav's children.
+- [x] GitHub link is icon-only, labelled "Code for Philly on GitHub", and opens `https://github.com/CodeForPhilly` in a new tab with `rel="noopener noreferrer"`.
+- [x] Mobile sheet has a "Menu" title, horizontal padding on nav + search, and no `pt-8`; the title does not collide with the close button.
+- [x] The sheet dialog exposes an accessible name; Radix still supplies `aria-expanded` on the trigger.
+- [x] Loading skeleton uses `aria-hidden`; About trigger's accessible name is its visible text; account-menu label retained.
+- [x] Every mobile sheet item closes the sheet on click, including Contact.
+- [x] No `codeforphilly.gitbook.io` URL remains in `apps/web/src`.
+- [x] Footer "view this site on GitHub" points at `codeforphilly-ng`.
+- [x] Both replacement URLs return 200 and carry the expected content.
+- [x] `npm run -w packages/shared build`, `npm run type-check`, and `npm run lint` clean.
+- [x] `npm test` clean for the workspaces this plan touches: web 96/96, shared 75/75.
+- [ ] `npm test` clean for **all** workspaces — `apps/api` cannot pass on the Windows dev box used here (see Notes); needs a Linux run or CI to close.
 - [ ] Browser test: desktop header order + mobile sheet padding at < md, both breakpoints.
 
 ## Risks
@@ -131,7 +134,20 @@ One-line repo URL swap to `codeforphilly-ng`.
 
 ## Notes
 
-(To be populated at closeout.)
+(To be populated at closeout. Recorded during implementation:)
+
+- **`apps/api` tests do not pass on Windows, independent of this plan.** Ten
+  failures across `scrub-data.test.ts` (4), `internal-reload.test.ts` (4), and
+  `store.test.ts` (2), on a tree where `git diff develop..HEAD -- apps/api
+  packages/` is empty — this branch touches no API code. The mechanism is
+  POSIX-isms in the test fixtures: `store.test.ts` injects a write failure by
+  pointing the private store at `/dev/null/impossible-path` and asserting the
+  transaction rejects, but on Windows that is an ordinary creatable directory,
+  so the write succeeds and the expected throw never happens. They reproduce
+  with the files run alone, so it is not test-runner contention. CI runs the
+  same gate on Linux, where the fixture behaves as intended. Worth a
+  cross-platform fixture cleanup if Windows dev boxes are to be supported;
+  filed under Follow-ups.
 
 ## Follow-ups
 
@@ -149,3 +165,16 @@ One-line repo URL swap to `codeforphilly-ng`.
   worker, unsubscribe tokens). Building an anonymous-capture CTA ahead of that
   spec would invent unspecified behavior. `Home.tsx` is deliberately untouched
   here; the CTA swap should follow the newsletter spec work, not precede it.
+
+- **Tracked as: dead file, not fixed here — `apps/web/src/pages/HomeStub.tsx`.**
+  It carries the same stale `codeforphilly-rewrite` URL the footer had, but
+  nothing imports or routes it (`App.tsx` imports only `LoginPlaceholder` from
+  `src/pages/`; every live screen lives in `src/screens/`). Left alone because
+  the right fix is deleting the file, not patching a URL nobody renders — and
+  that deletion wants its own scope. Flagging so a future grep for the old repo
+  name doesn't read as an unfixed live link.
+
+- **Issue — make the `apps/api` test fixtures cross-platform.** The `/dev/null`
+  failure-injection idiom (and whatever the other seven failures share) makes
+  the API suite unrunnable on a Windows dev box, so the documented validation
+  gate can only be completed on Linux or in CI. See Notes for the mechanism.
