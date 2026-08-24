@@ -120,7 +120,15 @@ One-line repo URL swap to `codeforphilly-ng`.
 - [x] `npm run -w packages/shared build`, `npm run type-check`, and `npm run lint` clean.
 - [x] `npm test` clean for the workspaces this plan touches: web 96/96, shared 75/75.
 - [ ] `npm test` clean for **all** workspaces — `apps/api` cannot pass on the Windows dev box used here (see Notes); needs a Linux run or CI to close.
-- [ ] Browser test: desktop header order + mobile sheet padding at < md, both breakpoints.
+- [x] Browser test (headed Chrome, Vite dev server): desktop header order,
+      spacing, GitHub icon, and Volunteer-rightmost verified at 1400px; the
+      sheet verified open — "Menu" title, padded nav/search, no title/close
+      collision — and Escape closes it. Caveat: the harness could not shrink
+      the (maximized) window below md, so the sheet was opened via its
+      CSS-hidden trigger at desktop width. The sheet is a fixed `w-72`
+      portal, so its rendering is identical at < md; the < md *header bar*
+      (logo + auth + hamburger row) still rides on the jsdom tests, same
+      limitation `web-shell.md:109` recorded.
 
 ## Risks
 
