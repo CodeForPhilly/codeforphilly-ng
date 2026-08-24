@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -543,10 +544,17 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
               Share
             </h2>
             <div className="flex flex-col gap-2">
+              {/* Both buttons used to copy silently — nothing changed on
+                  screen, so nobody (sighted or not) could tell it worked.
+                  sonner is what this screen's own modals already use for
+                  action confirmations. */}
               <Button
                 variant="outline"
                 onClick={() => {
-                  void navigator.clipboard.writeText(`https://codeforphilly.org/projects/${slug}`);
+                  void navigator.clipboard
+                    .writeText(`https://codeforphilly.org/projects/${slug}`)
+                    .then(() => toast.success('Link copied'))
+                    .catch(() => toast.error("Couldn't copy the link"));
                 }}
               >
                 Copy link
@@ -557,9 +565,12 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                   // Copy a pre-formatted Slack message. Spec calls this
                   // out as either system-share or copy; copy works in every
                   // browser context without a Web Share API gate.
-                  void navigator.clipboard.writeText(
-                    `Check out ${project.title} on Code for Philly: https://codeforphilly.org/projects/${slug}`,
-                  );
+                  void navigator.clipboard
+                    .writeText(
+                      `Check out ${project.title} on Code for Philly: https://codeforphilly.org/projects/${slug}`,
+                    )
+                    .then(() => toast.success('Slack message copied'))
+                    .catch(() => toast.error("Couldn't copy the message"));
                 }}
               >
                 Share to Slack

@@ -70,11 +70,11 @@ describe('ConnectGitHubBanner', () => {
     render();
     await waitFor(() => {
       expect(
-        screen.getByRole('region', { name: /connect github/i }),
+        screen.getByRole('status', { name: /connect github/i }),
       ).toBeInTheDocument();
     });
     // CTA form posts to the link endpoint.
-    const region = screen.getByRole('region', { name: /connect github/i });
+    const region = screen.getByRole('status', { name: /connect github/i });
     expect(region.querySelector('form[action="/api/auth/link-github"]')).not.toBeNull();
     expect(screen.getByRole('button', { name: /dismiss/i })).toBeInTheDocument();
   });
@@ -84,7 +84,7 @@ describe('ConnectGitHubBanner', () => {
     render();
     await waitFor(() => {
       expect(
-        screen.getByRole('region', { name: /connect github/i }),
+        screen.getByRole('status', { name: /connect github/i }),
       ).toBeInTheDocument();
     });
   });
@@ -101,7 +101,7 @@ describe('ConnectGitHubBanner', () => {
     // microtask gap.
     await new Promise((r) => setTimeout(r, 0));
     expect(
-      screen.queryByRole('region', { name: /connect github/i }),
+      screen.queryByRole('status', { name: /connect github/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -110,7 +110,7 @@ describe('ConnectGitHubBanner', () => {
     render();
     await new Promise((r) => setTimeout(r, 0));
     expect(
-      screen.queryByRole('region', { name: /connect github/i }),
+      screen.queryByRole('status', { name: /connect github/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -121,7 +121,7 @@ describe('ConnectGitHubBanner', () => {
     fireEvent.click(dismissBtn);
     await waitFor(() => {
       expect(
-        screen.queryByRole('region', { name: /connect github/i }),
+        screen.queryByRole('status', { name: /connect github/i }),
       ).not.toBeInTheDocument();
     });
   });

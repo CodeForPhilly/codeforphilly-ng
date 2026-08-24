@@ -210,9 +210,11 @@ export function ProfileEdit() {
                 disabled={avatarUploading}
                 className="block"
               />
-              {avatarUploading && (
-                <span className="block mt-1 text-xs text-muted-foreground">Uploading…</span>
-              )}
+              {/* role="status" so the upload's progress is announced rather
+                  than only appearing next to the file input. */}
+              <span role="status" className="block mt-1 text-xs text-muted-foreground">
+                {avatarUploading ? 'Uploading…' : ''}
+              </span>
             </div>
           </div>
         </div>

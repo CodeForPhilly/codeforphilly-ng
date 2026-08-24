@@ -30,8 +30,11 @@ export function ConnectGitHubBanner() {
   if (dismissed) return null;
 
   return (
+    // role="status", not "region": the banner appears only once auth has
+    // resolved, so it arrives after first paint and a landmark would never
+    // announce it. The aria-label stays as its accessible name.
     <div
-      role="region"
+      role="status"
       aria-label="Connect GitHub"
       className="border-b border-primary/40 bg-primary/5 print:hidden"
     >
