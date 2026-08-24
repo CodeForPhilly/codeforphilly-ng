@@ -200,7 +200,7 @@ export function AppFooter() {
             Copyright &copy; Code for Philly {FOUNDED_YEAR}&ndash;{CURRENT_YEAR}
           </p>
           <a
-            href="https://github.com/CodeForPhilly/codeforphilly-rewrite"
+            href="https://github.com/CodeForPhilly/codeforphilly-ng"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-foreground transition-colors"

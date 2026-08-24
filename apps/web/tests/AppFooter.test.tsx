@@ -17,7 +17,7 @@ describe('AppFooter', () => {
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute(
       'href',
-      'https://github.com/CodeForPhilly/codeforphilly-rewrite',
+      'https://github.com/CodeForPhilly/codeforphilly-ng',
     );
   });
 
