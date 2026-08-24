@@ -295,9 +295,12 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
             maxLength={200}
             required
             aria-invalid={fieldErrors['title'] ? 'true' : 'false'}
+            aria-describedby={fieldErrors['title'] ? 'title-error' : undefined}
           />
           {fieldErrors['title'] && (
-            <p className="text-xs text-destructive">{fieldErrors['title']}</p>
+            <p id="title-error" className="text-xs text-destructive">
+              {fieldErrors['title']}
+            </p>
           )}
         </div>
 
@@ -317,8 +320,16 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
                 pattern="^[a-z0-9][a-z0-9-_]{1,79}$"
                 required
                 className="flex-1"
+                aria-invalid={fieldErrors['slug'] ? 'true' : 'false'}
+                aria-describedby={
+                  fieldErrors['slug'] ? 'slug-status slug-error' : 'slug-status'
+                }
               />
+              {/* role="status" so the debounced availability check is announced
+                  — it is otherwise a purely visual ✓/✗ next to the field. */}
               <span
+                id="slug-status"
+                role="status"
                 className={
                   slugAvailability === 'available'
                     ? 'text-xs text-green-600'
@@ -334,7 +345,9 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
               URL: /projects/<strong>{form.slug || 'your-slug'}</strong>
             </p>
             {fieldErrors['slug'] && (
-              <p className="text-xs text-destructive">{fieldErrors['slug']}</p>
+              <p id="slug-error" className="text-xs text-destructive">
+                {fieldErrors['slug']}
+              </p>
             )}
           </div>
         )}
@@ -393,9 +406,13 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
               value={form.usersUrl}
               onChange={(e) => setForm((f) => ({ ...f, usersUrl: e.target.value }))}
               placeholder="https://"
+              aria-invalid={fieldErrors['usersUrl'] ? 'true' : 'false'}
+              aria-describedby={fieldErrors['usersUrl'] ? 'usersUrl-error' : undefined}
             />
             {fieldErrors['usersUrl'] && (
-              <p className="text-xs text-destructive">{fieldErrors['usersUrl']}</p>
+              <p id="usersUrl-error" className="text-xs text-destructive">
+                {fieldErrors['usersUrl']}
+              </p>
             )}
           </div>
           <div className="space-y-1.5">
@@ -406,9 +423,15 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
               value={form.developersUrl}
               onChange={(e) => setForm((f) => ({ ...f, developersUrl: e.target.value }))}
               placeholder="https://"
+              aria-invalid={fieldErrors['developersUrl'] ? 'true' : 'false'}
+              aria-describedby={
+                fieldErrors['developersUrl'] ? 'developersUrl-error' : undefined
+              }
             />
             {fieldErrors['developersUrl'] && (
-              <p className="text-xs text-destructive">{fieldErrors['developersUrl']}</p>
+              <p id="developersUrl-error" className="text-xs text-destructive">
+                {fieldErrors['developersUrl']}
+              </p>
             )}
           </div>
         </div>
@@ -422,10 +445,16 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
               value={form.chatChannel}
               onChange={(e) => setForm((f) => ({ ...f, chatChannel: e.target.value }))}
               placeholder="my-channel"
+              aria-invalid={fieldErrors['chatChannel'] ? 'true' : 'false'}
+              aria-describedby={
+                fieldErrors['chatChannel'] ? 'chatChannel-error' : undefined
+              }
             />
           </div>
           {fieldErrors['chatChannel'] && (
-            <p className="text-xs text-destructive">{fieldErrors['chatChannel']}</p>
+            <p id="chatChannel-error" className="text-xs text-destructive">
+              {fieldErrors['chatChannel']}
+            </p>
           )}
         </div>
 

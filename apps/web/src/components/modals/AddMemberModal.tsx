@@ -84,9 +84,14 @@ export function AddMemberModal({ open, onOpenChange, projectSlug }: AddMemberMod
                 placeholder="e.g. chris"
                 required
                 aria-invalid={fieldErrors['personSlug'] ? 'true' : 'false'}
+                aria-describedby={
+                  fieldErrors['personSlug'] ? 'member-slug-error' : undefined
+                }
               />
               {fieldErrors['personSlug'] && (
-                <p className="text-xs text-destructive">{fieldErrors['personSlug']}</p>
+                <p id="member-slug-error" className="text-xs text-destructive">
+                  {fieldErrors['personSlug']}
+                </p>
               )}
             </div>
             <div className="space-y-1.5">
