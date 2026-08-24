@@ -35,16 +35,31 @@ Sticky at the top of the viewport. Background opaque, slight shadow on scroll.
 
 ### Center / right at ≥ md
 
-Primary nav, items in this order:
+Two clusters. The **content cluster** sits next to the logo; the **utility
+cluster** is pinned to the right edge and carries the outbound link, search,
+auth, and the call to action.
+
+Content cluster, items in this order:
 
 | Item | Target | Style |
 | ---- | ------ | ----- |
 | Projects | `/projects` | text link |
 | Help Wanted | `/help-wanted` | text link |
 | Members | `/members` | text link |
-| Volunteer | `/volunteer` | button (success, filled) — emphasized because it's the call to action |
 | About ▾ | dropdown | text link with caret |
+
+Utility cluster, items in this order (left to right):
+
+| Item | Target | Style |
+| ---- | ------ | ----- |
+| GitHub | `https://github.com/CodeForPhilly` | icon-only external link, accessible name "Code for Philly on GitHub", opens in a new tab |
 | Search 🔍 | inline expand | icon button |
+| Sign in / account menu | see [Auth controls](#auth-controls) | button / avatar dropdown |
+| Volunteer | `/volunteer` | button (success, filled) — emphasized because it's the call to action |
+
+**Volunteer is the rightmost element in the header.** It sits after the auth
+control rather than among the content links so the call to action reads as the
+header's terminal step, not as one more section.
 
 ### About dropdown
 
@@ -57,7 +72,11 @@ Primary nav, items in this order:
 
 The `/pages/*` URLs serve **static content pages** authored as MDX/Markdown in the code repo (`apps/web/src/content/pages/`). They have no per-page screen spec — the content is the spec. Source copy ports from `codeforphilly.org/site-root/pages/` in the legacy repo.
 
-### Auth controls (rightmost)
+### Auth controls
+
+Second from the right in the utility cluster — between Search and the Volunteer
+button. On mobile the auth control sits in the header bar itself, outside the
+sheet.
 
 - **Anonymous:** "Sign in" (primary button) → `/login`. There is no separate "Sign up" button — sign-in and sign-up are the same flow once GitHub OAuth is specified (first sign-in creates the account).
 - **User:** Avatar + name dropdown:
@@ -75,7 +94,9 @@ The `/pages/*` URLs serve **static content pages** authored as MDX/Markdown in t
 
 ### Mobile (< md)
 
-Header collapses to: logo + hamburger menu + auth control. Hamburger opens a sheet (right-side overlay) with all nav items stacked vertically. Search is inside the sheet, not inline.
+Header collapses to: logo + hamburger menu + auth control. Hamburger opens a sheet (right-side overlay) with all nav items stacked vertically — the content-cluster links, the About items under an "About" label, the GitHub link, and Volunteer last, mirroring the desktop order. Search is inside the sheet, not inline. The auth control stays in the header bar, outside the sheet.
+
+Every item in the sheet closes the sheet when activated.
 
 ## Search
 
@@ -168,6 +189,8 @@ It does not block initial paint waiting on `me`. Auth controls render skeletons 
 - Skip link at the very top: "Skip to main content" → focuses the `<main>` element
 - All dropdowns are keyboard-navigable
 - The mobile sheet traps focus while open and returns it to the trigger on close
+- The mobile sheet is a dialog with the accessible name "Menu"
+- Every icon-only control carries an accessible name; controls with visible text use that text as their accessible name rather than duplicating it in a label
 
 ## Print
 

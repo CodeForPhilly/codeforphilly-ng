@@ -27,7 +27,7 @@ Three cards in a row at ≥ md, stacked below:
 
 1. **Join Slack** — "We coordinate everything in our Slack workspace." Button: "Open Slack →" → `/chat`
 2. **Pick a project** — "Browse 268 active projects and find one that matches your interests." Button: "Browse projects →" → `/projects`
-3. **Show up to meetups** — "We meet weekly. Bring your laptop, or just yourself." Button: "When we meet →" → external link (currently the GitBook hack-night-program-details URL)
+3. **Show up to meetups** — "We meet weekly. Bring your laptop, or just yourself." Button: "When we meet →" → external link to the Meetup group (`https://www.meetup.com/Code-for-Philly/`), where upcoming hack nights are listed. Same target as the footer's Meetup social link.
 
 The "268" is read from a cheap call to `GET /api/projects?perPage=1` and rendered live; falls back to "hundreds of" if the call fails.
 
@@ -48,7 +48,7 @@ Static content emphasizing the non-developer roles (designers, project managers,
 
 Footer-style band at the bottom: "Have an idea? Start your own project."
 
-- Link to the external GitBook "creating-new-partnerships/first-steps" page (matches current codeforphilly.org)
+- Link to the external "first steps" partnership guide (`https://github.com/CodeForPhilly/partnerships/blob/master/creating-new-partnerships/first-steps.md`) — the surviving canonical source of the retired GitBook page of the same name
 - Secondary link "or create one on the site →" to `/projects/create` (signed-in) or `/login?return=/projects/create` (anonymous)
 
 ## Actions
