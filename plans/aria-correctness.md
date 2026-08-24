@@ -142,6 +142,18 @@ _(filled in at closeout)_
 
 ## Follow-ups
 
+- **Spec↔code contradiction, surfaced not patched — the 5xx banner's "Retry"
+  button does not retry.** `NetworkErrorBanner`'s button calls `clearError()`
+  and nothing else: it dismisses the banner. Its visible text says "Retry" and
+  `specs/behaviors/app-shell.md:162` prescribes `[Retry]`, so spec and label
+  agree with each other and both disagree with the code. This plan only
+  removed the `aria-label="Dismiss error"` that contradicted the visible name
+  (SC 2.5.3) — note that the removed label was the one place the code admitted
+  what the button actually does. Resolving the contradiction is a behavior
+  question, not an ARIA one: either the banner gains a real retry (re-issuing
+  the failed call, which the context does not currently retain) or the spec and
+  label change to "Dismiss". Needs its own spec decision and plan; do not
+  settle it by renaming one side.
 - The audit surfaced further categories that are **not** ARIA-correctness
   defects and were deliberately excluded here — heading hierarchy, colour
   contrast, `document.title`, motion/pause controls, breadcrumbs,
