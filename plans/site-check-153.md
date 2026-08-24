@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/app-shell.md
   - specs/screens/volunteer.md
 issues: [153]
+pr: 154
 ---
 
 # Plan: site check — header order, mobile sheet padding, dead outbound links
