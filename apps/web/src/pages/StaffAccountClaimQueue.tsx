@@ -119,12 +119,13 @@ export function StaffAccountClaimQueue() {
                 </>
               )}
               {' · '}
-              <span
+              <time
+                dateTime={item.submittedAt}
                 title={formatAbsoluteDate(item.submittedAt)}
                 className="text-muted-foreground"
               >
                 {formatRelativeTime(item.submittedAt)}
-              </span>
+              </time>
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -148,7 +149,10 @@ export function StaffAccountClaimQueue() {
               />
             </div>
             <div className="flex gap-2">
+              {/* The queue renders one card per request, so a bare
+                  "Approve"/"Deny" repeats verbatim down the page. */}
               <Button
+                aria-label={`Approve claim from ${item.requesterGithubLogin}`}
                 onClick={() => void onApprove(item.requestId)}
                 disabled={pendingId !== null || !item.claimedPersonId}
               >
@@ -156,6 +160,7 @@ export function StaffAccountClaimQueue() {
               </Button>
               <Button
                 variant="outline"
+                aria-label={`Deny claim from ${item.requesterGithubLogin}`}
                 onClick={() => void onDeny(item.requestId)}
                 disabled={pendingId !== null}
               >

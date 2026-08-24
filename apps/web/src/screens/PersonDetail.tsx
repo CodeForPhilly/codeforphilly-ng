@@ -232,6 +232,7 @@ export function PersonDetail() {
                     className="text-primary underline hover:no-underline"
                   >
                     DM on Slack
+                    <span className="sr-only"> (opens in new tab)</span>
                   </a>
                 </li>
               )}

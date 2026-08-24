@@ -187,6 +187,7 @@ export function Account() {
                   rel="noopener noreferrer"
                 >
                   Manage on GitHub →
+                  <span className="sr-only"> (opens in new tab)</span>
                 </a>
               </Button>
             ) : (
@@ -270,8 +271,10 @@ export function Account() {
                   <tr key={s.jti}>
                     <td className="py-2">{parseUA(s.userAgent)}</td>
                     <td className="py-2 font-mono text-xs">{s.ipAddress}</td>
-                    <td className="py-2" title={formatAbsoluteDate(s.issuedAt)}>
-                      {formatRelativeTime(s.issuedAt)}
+                    <td className="py-2">
+                      <time dateTime={s.issuedAt} title={formatAbsoluteDate(s.issuedAt)}>
+                        {formatRelativeTime(s.issuedAt)}
+                      </time>
                     </td>
                     <td className="py-2 text-right">
                       {s.current ? (
@@ -283,6 +286,7 @@ export function Account() {
                           type="button"
                           size="sm"
                           variant="outline"
+                          aria-label={`Revoke session on ${parseUA(s.userAgent)}`}
                           onClick={() => revokeSession(s.jti)}
                         >
                           Revoke

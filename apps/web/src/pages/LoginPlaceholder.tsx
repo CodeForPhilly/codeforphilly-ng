@@ -41,6 +41,7 @@ const ERROR_MESSAGES: Record<ErrorCode, React.ReactNode> = {
         className="underline hover:no-underline"
       >
         verify a primary email on GitHub
+        <span className="sr-only"> (opens in new tab)</span>
       </a>{' '}
       and ensure email visibility is enabled for our app.
     </>
@@ -78,6 +79,7 @@ function WhyGitHub() {
             className="underline hover:no-underline"
           >
             create a GitHub account
+            <span className="sr-only"> (opens in new tab)</span>
           </a>{' '}
           in under a minute.
         </div>

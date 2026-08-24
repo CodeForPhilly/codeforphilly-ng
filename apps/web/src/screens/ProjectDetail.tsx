@@ -228,7 +228,11 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
               perms.canDelete) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline">More ▾</Button>
+                  {/* "More ▾" says nothing about what it opens; the label
+                      keeps the visible word so speech input still works. */}
+                  <Button variant="outline" aria-label="More actions">
+                    More ▾
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {perms.canManageMembers && (
@@ -315,10 +319,13 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                         {role.tags.topic.map((t) => <TagChip key={`topic.${t.slug}`} tag={t} />)}
                       </div>
                       <div className="flex items-center justify-end gap-2">
+                        {/* One row per open role, so these names repeat
+                            verbatim unless they carry the role title. */}
                         {role.permissions.canFill && (
                           <Button
                             size="sm"
                             variant="outline"
+                            aria-label={`Mark filled: ${role.title}`}
                             onClick={() => setFillRole(role)}
                           >
                             Mark filled
@@ -328,6 +335,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                           <Button
                             size="sm"
                             variant="ghost"
+                            aria-label={`Close ${role.title}`}
                             onClick={() => {
                               if (!window.confirm(`Close "${role.title}" without filling?`)) return;
                               api.helpWantedRole
@@ -445,6 +453,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                 <Button asChild>
                   <a href={project.links.usersUrl} target="_blank" rel="noopener noreferrer">
                     Users' Site
+                    <span className="sr-only"> (opens in new tab)</span>
                   </a>
                 </Button>
               )}
@@ -452,6 +461,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                 <Button asChild variant="outline">
                   <a href={project.links.developersUrl} target="_blank" rel="noopener noreferrer">
                     Developers' Site
+                    <span className="sr-only"> (opens in new tab)</span>
                   </a>
                 </Button>
               )}
@@ -582,15 +592,15 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           <section className="text-sm text-muted-foreground space-y-1">
             <p>
               <span className="font-medium text-foreground">Created:</span>{' '}
-              <span title={formatAbsoluteDate(project.createdAt)}>
+              <time dateTime={project.createdAt} title={formatAbsoluteDate(project.createdAt)}>
                 {formatRelativeTime(project.createdAt)}
-              </span>
+              </time>
             </p>
             <p>
               <span className="font-medium text-foreground">Last updated:</span>{' '}
-              <span title={formatAbsoluteDate(project.updatedAt)}>
+              <time dateTime={project.updatedAt} title={formatAbsoluteDate(project.updatedAt)}>
                 {formatRelativeTime(project.updatedAt)}
-              </span>
+              </time>
             </p>
             <p className="flex items-center gap-2">
               <span className="font-medium text-foreground">Stage:</span>
@@ -599,6 +609,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
             <p>
               <button
                 type="button"
+                aria-haspopup="dialog"
                 onClick={() => setStageInfoOpen(true)}
                 className="text-primary underline hover:no-underline"
               >
@@ -617,6 +628,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                 className="hover:text-foreground"
               >
                 Edit on GitHub →
+                <span className="sr-only"> (opens in new tab)</span>
               </a>
             </section>
           )}
