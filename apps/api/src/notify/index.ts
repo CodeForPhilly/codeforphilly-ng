@@ -5,7 +5,7 @@
  * Slack integration exists. Failures are logged but never fail the request —
  * the spec says express-interest returns 202 to the caller regardless.
  *
- * The Resend / email transport is also stubbed; this module exists so the
+ * The email transport is also stubbed; this module exists so the
  * surface is in place for write-api to call and for tests to spy on.
  */
 import type { FastifyBaseLogger } from 'fastify';
@@ -66,7 +66,8 @@ export interface Notifier {
 
 /**
  * Default no-op notifier — logs the intent and returns delivered:true.
- * Replace with a real notifier once the Resend / Slack transports land.
+ * Replaced at boot by EmailNotifier when POSTMARK_SERVER_TOKEN is set; the
+ * Slack transport is still to come (#95).
  */
 export class LoggingNotifier implements Notifier {
   readonly #log: FastifyBaseLogger;

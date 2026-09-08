@@ -519,7 +519,7 @@ describe('GET /api/auth/github/callback — fresh user outcome', () => {
     const ip = nextTestIp();
     const flow = await startFlow(app, '/', ip);
 
-    // Spy on the boot-installed LoggingNotifier (no Resend in tests).
+    // Spy on the boot-installed LoggingNotifier (no Postmark in tests).
     // The notifier call is fire-and-forget — we await the OAuth response
     // first, then assert the spy. The notifier's spawn is synchronous up
     // to the await inside it, so it's guaranteed to have been called by

@@ -541,7 +541,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         };
         await fastify.store.private.putPasswordToken(tokenRecord);
 
-        // Fire-and-forget — never block the response on Resend latency.
+        // Fire-and-forget — never block the response on email-provider latency.
         void fastify.notifier
           .notifyPasswordReset({
             email: profile.email,

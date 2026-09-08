@@ -190,13 +190,13 @@ describe('cutover-mailout', () => {
         privateStore,
         mode: 'send',
         send: async () => {
-          throw new Error('Resend 429');
+          throw new Error('Postmark 429');
         },
         now: NOW,
       });
       expect(report.sent).toBe(0);
       expect(report.failed).toHaveLength(1);
-      expect(report.failed[0]?.error).toContain('Resend 429');
+      expect(report.failed[0]?.error).toContain('Postmark 429');
     } finally {
       await repo.cleanup();
       await priv.cleanup();

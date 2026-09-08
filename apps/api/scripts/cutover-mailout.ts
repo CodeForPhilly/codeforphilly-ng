@@ -6,7 +6,7 @@
  * them to sign in and claim their account. Run manually at T+90 per
  * specs/behaviors/account-migration.md#cutover-window-policy.
  *
- * --dry-run prints the would-be send list and exits — no Resend calls, no
+ * --dry-run prints the would-be send list and exits — no Postmark calls, no
  * disk writes. The CI test exercises only --dry-run.
  *
  * Usage:
@@ -14,7 +14,8 @@
  *   npm run -w apps/api script:cutover-mailout -- --send --from=hello@codeforphilly.org
  *
  * Env:
- *   RESEND_API_KEY    — required for actual sends (otherwise --send refuses)
+ *   POSTMARK_SERVER_TOKEN   — required for actual sends (otherwise --send refuses)
+ *   POSTMARK_MESSAGE_STREAM — optional; defaults to `outbound`
  *   CFP_PUBLIC_URL    — base URL used in the email body (defaults to
  *                       https://codeforphilly.org)
  *   CFP_DATA_REPO_PATH + STORAGE_BACKEND + bucket envs — same shape as the API
@@ -22,6 +23,9 @@
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import { ServerClient } from 'postmark';
+
+import { PostmarkTransport } from '../src/notify/postmark-transport.js';
 import { openPublicStore, type PublicStore } from '../src/store/public.js';
 import {
   FilesystemPrivateStore,
@@ -195,7 +199,7 @@ export async function runMailout(opts: MailoutOptions): Promise<MailoutReport> {
 }
 
 // ---------------------------------------------------------------------------
-// Env wiring + Resend send
+// Env wiring + Postmark send
 // ---------------------------------------------------------------------------
 
 function requireEnv(name: string): string {
@@ -220,33 +224,19 @@ function buildPrivateStore(): PrivateStore {
   });
 }
 
-/** Resend HTTP send. Fetch-based to avoid adding a new dep at this stage. */
-async function resendSend(input: {
-  to: string;
-  from: string;
-  subject: string;
-  html: string;
-  text: string;
-}): Promise<void> {
-  const apiKey = requireEnv('RESEND_API_KEY');
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'authorization': `Bearer ${apiKey}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: input.from,
-      to: input.to,
-      subject: input.subject,
-      html: input.html,
-      text: input.text,
-    }),
+/**
+ * Postmark send via the same transport the API's notifier uses. The SDK
+ * throws on any non-2xx, which runMailout() records per-recipient in
+ * `failed` rather than aborting the run.
+ */
+function buildPostmarkSend(): NonNullable<MailoutOptions['send']> {
+  const transport = new PostmarkTransport({
+    client: new ServerClient(requireEnv('POSTMARK_SERVER_TOKEN')),
+    messageStream: process.env['POSTMARK_MESSAGE_STREAM'] || undefined,
   });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Resend ${res.status}: ${body.slice(0, 200)}`);
-  }
+  return async (input) => {
+    await transport.send(input);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +289,7 @@ async function main(): Promise<void> {
     mode: args.dryRun ? 'dry-run' : 'send',
     from: args.from,
     publicUrl: args.publicUrl ?? process.env['CFP_PUBLIC_URL'],
-    send: args.send ? resendSend : undefined,
+    send: args.send ? buildPostmarkSend() : undefined,
   });
 
   process.stderr.write(
