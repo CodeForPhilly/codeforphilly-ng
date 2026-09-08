@@ -1,11 +1,12 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/storage.md
   - specs/behaviors/legacy-id-mapping.md
   - specs/behaviors/slug-handles.md
 issues: []
+pr: 159
 ---
 
 # Plan: hot reload leaves three secondary indices stale
@@ -78,15 +79,15 @@ or the push daemon. Those paths were not affected.
 
 ## Validation
 
-- [ ] `specs/behaviors/storage.md` hot-reload Atomicity bullet names every
+- [x] `specs/behaviors/storage.md` hot-reload Atomicity bullet names every
       collection including legacy-id, buzz-by-slug, slug-history.
-- [ ] `swapInPlace` replaces every own property of `InMemoryState` without
+- [x] `swapInPlace` replaces every own property of `InMemoryState` without
       an explicit per-field list.
-- [ ] Unit test enumerates every collection field of a fresh state and
+- [x] Unit test enumerates every collection field of a fresh state and
       asserts the swap replaced each one; fails on the pre-fix code.
-- [ ] Integration test: after re-import + webhook, `/projects?ID=<n>`,
+- [x] Integration test: after re-import + webhook, `/projects?ID=<n>`,
       `/project-buzz/<slug>`, and old-slug URLs 301 to the new slug.
-- [ ] `npm run type-check && npm run lint && npm test` clean from repo root.
+- [x] `npm run type-check && npm run lint && npm test` clean from repo root.
 
 ## Risks / unknowns
 
@@ -99,8 +100,30 @@ or the push daemon. Those paths were not affected.
 
 ## Notes
 
-(Populated at closeout.)
+- **Diagnosis confirmed as stated.** Diffing the Map-typed fields of
+  `InMemoryState` against the `replaceMapContents` calls showed exactly the
+  three missing: `projectIdByLegacyId`, `buzzIdBySlug`, `slugHistory`. All
+  three are plain Maps (slug-history values are `{ newSlug, expiresAt }`
+  objects, no nested Sets), so the same copy-by-reference swap is correct
+  for them. No Set-typed top-level fields exist.
+- **The unit test failed 3/4 on the old code** (identity test passes
+  either way); the webhook re-import test failed at the post-reload legacy
+  redirect (404 instead of 301). Both verified by temporarily restoring the
+  pre-fix `reload.ts`.
+- **Boot-order gap found along the way.** `store` opens the gitsheets
+  Sheet snapshots before `reconcile` fast-forwards, and `services` builds
+  the in-memory state from those stale snapshots. Only bites when the
+  local clone is behind at boot (dev, tests) — production pods clone fresh.
+  The re-import test works around it with an explicit
+  `git fetch origin main:main` before boot. Filed as #160.
+- **Web test flakes under load.** `ProjectEdit` and `ExpressInterestModal`
+  timed out once while `npm test` ran concurrently with type-check + lint;
+  both pass on their own and on a quiet full `npm test -w apps/web` run.
+  Unrelated to this change (no `apps/web` files touched).
 
 ## Follow-ups
 
-(Populated at closeout.)
+- Issue [#160](https://github.com/CodeForPhilly/codeforphilly-ng/issues/160)
+  — boot-time reconcile should re-open the store snapshot (or open the
+  store after reconcile) so a behind-at-boot clone doesn't build
+  in-memory state from the pre-fast-forward tree.
