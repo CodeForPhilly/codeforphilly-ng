@@ -34,7 +34,7 @@ What we need from you BEFORE cutover:
 If you have questions: drop them in this thread or DM @{{ cutover_lead_slack }}.
 ```
 
-### Email (Resend, to all members)
+### Email (Postmark, to all members)
 
 Subject: `codeforphilly.org is migrating on {{ cutover_date_long }}`
 
