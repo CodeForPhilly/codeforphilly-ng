@@ -225,7 +225,8 @@ comments. Production pod gets these mounted:
 | `CFP_DATA_BRANCH` | ConfigMap | e.g. `fixture` / `main` |
 | `CFP_DATA_RELOAD_SECRET` | **Secret** | Shared bearer-token for the hot-reload webhook; when unset the `/api/_internal/reload-data` endpoint returns 503. See [runbook.md](runbook.md#hot-reload-webhook). |
 | `CFP_WEB_DIST_PATH` | ConfigMap | `/app/apps/web/dist` |
-| `CFP_SITE_HOST` | ConfigMap | Public-facing host (`codeforphilly.org` base, `next-v2.codeforphilly.org` sandbox). Drives the markdown renderer's external-link transform — anchors with a different host get `target="_blank" rel="noopener nofollow"`. |
+| `CFP_SITE_HOST` | ConfigMap | Public-facing host (`codeforphilly.org` base, `next-v2.codeforphilly.org` sandbox). Drives the markdown renderer's external-link transform — anchors with a different host get `target="_blank" rel="noopener nofollow"` — and the SAML IdP metadata's `SingleSignOnService` endpoint URLs. |
+| `SAML_ENTITY_ID` | ConfigMap | Optional. Stable SAML IdP entity ID / assertion `Issuer` (default `https://codeforphilly.org/api/saml/slack/metadata`). Leave unset everywhere Slack should keep trusting the production IdP identity — it deliberately does **not** follow `CFP_SITE_HOST`, so flipping the host at cutover doesn't require editing Slack's SAML config. Only set it when standing up a separate IdP registration (e.g. a sandbox pointed at a test workspace). See [specs/api/saml.md](../../specs/api/saml.md#idp-identity-and-hosts). |
 | `POSTMARK_SERVER_TOKEN` | **Secret** | Postmark server API token for outbound notifications. When unset, the email notifier falls back to a no-op LoggingNotifier — convenient for dev + tests but means no real emails go out. |
 | `POSTMARK_MESSAGE_STREAM` | ConfigMap | Postmark message stream for outbound mail (default `outbound`). Must exist on the server the token belongs to. |
 | `CFP_NOTIFICATION_FROM` | ConfigMap | RFC 5322 sender address for outbound notifications (default `"Code for Philly <notifications@codeforphilly.org>"`). Sender domain must be a verified Postmark sender signature (already true for `codeforphilly.org` via the legacy site) before flipping `POSTMARK_SERVER_TOKEN` on. |
@@ -237,6 +238,7 @@ comments. Production pod gets these mounted:
 | `GITHUB_OAUTH_CLIENT_SECRET` | **Secret** | OAuth app client secret |
 | `CFP_JWT_SIGNING_KEY` | **Secret** | HS256 key (`openssl rand -base64 64`) |
 | `SAML_PRIVATE_KEY` / `SAML_CERTIFICATE` | **Secret** | Slack IdP cert chain |
+| `SLACK_TEAM_HOST` | ConfigMap | Slack workspace host (default `codeforphilly.slack.com`). ACS URL, NameID `NameQualifier`, `/chat` + `/launch` redirect target. Never our own IdP identity. |
 | `GIT_SSH_COMMAND` | ConfigMap | Wires `ssh` to the mounted deploy key |
 
 ## Rollback

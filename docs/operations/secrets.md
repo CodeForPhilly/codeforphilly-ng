@@ -108,6 +108,11 @@ integration ([specs/api/saml.md](../../specs/api/saml.md)).
 - **Rotation impact:** Slack stops trusting assertions until its IdP config
   is updated with the new cert. **Do not rotate without coordinating with
   the Slack workspace admin.**
+- **Not a secret, but paired:** `SAML_ENTITY_ID` (ConfigMap, optional) is
+  the IdP identity Slack stores alongside this cert. It defaults to
+  `https://codeforphilly.org/api/saml/slack/metadata` and must stay stable
+  across host changes — see [deploy.md](deploy.md#environment-variables-reference)
+  and [specs/api/saml.md](../../specs/api/saml.md#idp-identity-and-hosts).
 - **Rotation procedure:**
   1. Generate new key + cert.
   2. Upload the *new cert* to Slack as a secondary signing cert.
