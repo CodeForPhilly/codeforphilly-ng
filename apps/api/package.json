@@ -37,7 +37,7 @@
     "fastify": "^5.8.5",
     "gitsheets": "^2.2.0",
     "jose": "^6.2.3",
-    "resend": "^6.12.4",
+    "postmark": "^5.1.0",
     "samlify": "^2.13.0",
     "sharp": "^0.34.5",
     "uuidv7": "^1.2.1",

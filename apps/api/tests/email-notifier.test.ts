@@ -1,9 +1,11 @@
 /**
- * Tests for the Resend-backed EmailNotifier (apps/api/src/notify/email-notifier.ts).
+ * Tests for the transport-backed EmailNotifier (apps/api/src/notify/email-notifier.ts).
  *
- * Mocks the Resend SDK at the `emails.send` boundary — verifies that the
+ * Stubs the `EmailTransport` seam with a `vi.fn()` — verifies that the
  * notifier composes the right payload + handles delivery success/failure
  * per the spec (express-interest must return 202 to the caller regardless).
+ * The Postmark adapter behind that seam has its own test
+ * (postmark-transport.test.ts).
  *
  * Template renderers are also exercised here with snapshot-style asserts
  * on the interpolated fields, since they're pure functions with simple
@@ -62,10 +64,9 @@ const baseWelcome: WelcomeNotification = {
   slug: 'new-user',
 };
 
-function makeNotifier(emails: { send: ReturnType<typeof vi.fn> }): EmailNotifier {
+function makeNotifier(transport: { send: ReturnType<typeof vi.fn> }): EmailNotifier {
   return new EmailNotifier({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    resend: { emails } as any,
+    transport,
     fromAddress: 'Code for Philly <notifications@codeforphilly.org>',
     siteHost: 'codeforphilly.org',
     logger: noopLogger,
@@ -120,8 +121,8 @@ describe('renderFilledEmail', () => {
 });
 
 describe('EmailNotifier.notifyHelpWantedInterest', () => {
-  it('sends via Resend and returns delivered:true', async () => {
-    const send = vi.fn().mockResolvedValue({ data: { id: 'msg-123' }, error: null });
+  it('sends via the transport and returns delivered:true', async () => {
+    const send = vi.fn().mockResolvedValue({ messageId: 'msg-123' });
     const notifier = makeNotifier({ send });
 
     const result = await notifier.notifyHelpWantedInterest(baseInterest);
@@ -135,7 +136,7 @@ describe('EmailNotifier.notifyHelpWantedInterest', () => {
     expect(arg.html).toContain('<strong>Jane Doe</strong>');
   });
 
-  it('returns delivered:false when maintainerEmail is null (no Resend call)', async () => {
+  it('returns delivered:false when maintainerEmail is null (no transport call)', async () => {
     const send = vi.fn();
     const notifier = makeNotifier({ send });
 
@@ -147,17 +148,20 @@ describe('EmailNotifier.notifyHelpWantedInterest', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('returns delivered:false when Resend reports an error', async () => {
+  it('returns delivered:false when the provider rejects the send', async () => {
+    // Postmark surfaces API rejections (unverified sender, inactive
+    // recipient, bad token) as thrown errors carrying code + statusCode.
     const send = vi
       .fn()
-      .mockResolvedValue({ data: null, error: { message: 'Sender domain unverified' } });
+      .mockRejectedValue(Object.assign(new Error('Sender signature not found'), { code: 400, statusCode: 422 }));
     const notifier = makeNotifier({ send });
 
     const result = await notifier.notifyHelpWantedInterest(baseInterest);
     expect(result).toEqual({ delivered: false });
+    expect(noopLogger.error).toHaveBeenCalled();
   });
 
-  it('returns delivered:false when the Resend SDK throws', async () => {
+  it('returns delivered:false when the transport throws', async () => {
     const send = vi.fn().mockRejectedValue(new Error('network blip'));
     const notifier = makeNotifier({ send });
 
@@ -196,8 +200,8 @@ describe('renderWelcomeEmail', () => {
 });
 
 describe('EmailNotifier.notifyWelcomeOnSignup', () => {
-  it('sends via Resend and returns delivered:true', async () => {
-    const send = vi.fn().mockResolvedValue({ data: { id: 'msg-welcome' }, error: null });
+  it('sends via the transport and returns delivered:true', async () => {
+    const send = vi.fn().mockResolvedValue({ messageId: 'msg-welcome' });
     const notifier = makeNotifier({ send });
 
     const result = await notifier.notifyWelcomeOnSignup(baseWelcome);
@@ -210,11 +214,10 @@ describe('EmailNotifier.notifyWelcomeOnSignup', () => {
     expect(arg.html).toContain('<strong>New User</strong>');
   });
 
-  it('returns delivered:false when Resend reports an error', async () => {
-    const send = vi.fn().mockResolvedValue({
-      data: null,
-      error: { message: 'Sender domain unverified' },
-    });
+  it('returns delivered:false when the provider rejects the send', async () => {
+    const send = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error('Inactive recipient'), { code: 406, statusCode: 422 }));
     const notifier = makeNotifier({ send });
     const result = await notifier.notifyWelcomeOnSignup(baseWelcome);
     expect(result).toEqual({ delivered: false });
@@ -237,8 +240,8 @@ describe('EmailNotifier.notifyWelcomeOnSignup', () => {
 });
 
 describe('EmailNotifier.notifyHelpWantedFilled', () => {
-  it('sends via Resend and returns delivered:true', async () => {
-    const send = vi.fn().mockResolvedValue({ data: { id: 'msg-456' }, error: null });
+  it('sends via the transport and returns delivered:true', async () => {
+    const send = vi.fn().mockResolvedValue({ messageId: 'msg-456' });
     const notifier = makeNotifier({ send });
 
     const result = await notifier.notifyHelpWantedFilled(baseFill);

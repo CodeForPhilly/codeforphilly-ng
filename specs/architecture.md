@@ -25,7 +25,7 @@ Out of scope for v1: see [deferred.md](deferred.md).
 | File uploads (avatars, buzz images) | **gitsheets attachments** | Binary blobs stored alongside their record via gitsheets' `setAttachment` API; served via streaming `GET /api/attachments/<key>`. |
 | Background jobs | **In-process timers + an in-memory queue** | At single-replica civic scale we don't need Redis/BullMQ for fan-out. Image thumbnailing, scheduled rollups, and async git pushes run in the same process. |
 | Logging | **pino** (Fastify default) | Pretty in dev, JSON in prod. |
-| Email | **Resend** (transactional) | For notifications like "help wanted interest expressed" and newsletter delivery (when that ships). Service account, not per-user OAuth. |
+| Email | **Postmark** (transactional) | For notifications like "help wanted interest expressed" and newsletter delivery (when that ships). Server token, not per-user OAuth. Postmark is what the legacy site already sends through, so the `codeforphilly.org` sender domain is already verified there. |
 
 ### What we deliberately *don't* use
 
@@ -178,8 +178,9 @@ Runtime configuration (sealed-secrets in our cluster):
 | `CFP_JWT_SIGNING_KEY` | HS256 key for session JWTs |
 | `SAML_PRIVATE_KEY` / `SAML_CERTIFICATE` | Slack SAML IdP cert chain — see [api/saml.md](api/saml.md) |
 | `SLACK_TEAM_HOST` | Slack workspace host (default `codeforphilly.slack.com`). Used by the `/chat` redirect ([api/chat](screens/chat.md)) and the SAML SP entity binding. |
-| `RESEND_API_KEY` | Optional. When set, mutates the notifier from the no-op `LoggingNotifier` to the live `EmailNotifier` (Resend SDK). |
-| `CFP_NOTIFICATION_FROM` | Required when `RESEND_API_KEY` is set; the `From:` address on outbound mail. |
+| `POSTMARK_SERVER_TOKEN` | Optional. When set, mutates the notifier from the no-op `LoggingNotifier` to the live `EmailNotifier` (Postmark transport). |
+| `POSTMARK_MESSAGE_STREAM` | Optional. Postmark message stream for outbound mail (default `outbound`). |
+| `CFP_NOTIFICATION_FROM` | Required when `POSTMARK_SERVER_TOKEN` is set; the `From:` address on outbound mail. |
 | `CFP_SITE_HOST` | Public site host (e.g., `codeforphilly.org`) — used by notifiers to build canonical URLs in email bodies. |
 | `CFP_DATA_RELOAD_SECRET` | Bearer token gating `POST /api/_internal/reload-data` — the hot-reload webhook. Optional in dev; required in prod. |
 

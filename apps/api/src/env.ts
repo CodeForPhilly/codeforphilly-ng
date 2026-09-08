@@ -68,15 +68,21 @@ export const EnvSchema = z.object({
    */
   CFP_SITE_HOST: z.string().default('codeforphilly.org'),
   /**
-   * Resend API key for the email notifier. When unset, the services plugin
-   * falls back to LoggingNotifier so dev + test runs don't need a real key.
-   * See plans/notifier-email.md.
+   * Postmark server token for the email notifier. When unset, the services
+   * plugin falls back to LoggingNotifier so dev + test runs don't need a
+   * real token. See plans/postmark-notifier.md.
    */
-  RESEND_API_KEY: z.string().optional(),
+  POSTMARK_SERVER_TOKEN: z.string().optional(),
+  /**
+   * Postmark message stream outbound mail is sent on. `outbound` is the
+   * transactional default stream every Postmark server ships with. Only
+   * relevant when POSTMARK_SERVER_TOKEN is set.
+   */
+  POSTMARK_MESSAGE_STREAM: z.string().default('outbound'),
   /**
    * From-address for outbound notifications. RFC 5322 form
    * (e.g. `"Code for Philly <notifications@codeforphilly.org>"`). Only
-   * relevant when RESEND_API_KEY is set.
+   * relevant when POSTMARK_SERVER_TOKEN is set.
    */
   CFP_NOTIFICATION_FROM: z
     .string()
@@ -118,7 +124,8 @@ export const envJsonSchema = {
     SLACK_TEAM_HOST: { type: 'string', default: 'codeforphilly.slack.com' },
     CFP_WEB_DIST_PATH: { type: 'string' },
     CFP_SITE_HOST: { type: 'string', default: 'codeforphilly.org' },
-    RESEND_API_KEY: { type: 'string' },
+    POSTMARK_SERVER_TOKEN: { type: 'string' },
+    POSTMARK_MESSAGE_STREAM: { type: 'string', default: 'outbound' },
     CFP_NOTIFICATION_FROM: {
       type: 'string',
       default: 'Code for Philly <notifications@codeforphilly.org>',
