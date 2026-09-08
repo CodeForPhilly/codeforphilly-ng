@@ -85,42 +85,31 @@ export async function reloadInMemoryStateAndFts(
 }
 
 /**
- * Synchronously replace the contents of every Map on `live` with the
- * contents from `fresh`. Object identity of `live` is preserved.
+ * Synchronously replace the contents of every collection on `live` with
+ * the contents from `fresh`. Object identity of `live` — and of every Map
+ * hanging off it — is preserved.
+ *
+ * Enumerates `fresh`'s own properties rather than naming each field: a
+ * hand-maintained list silently skipped three secondary indices
+ * (`projectIdByLegacyId`, `buzzIdBySlug`, `slugHistory`) and left legacy
+ * and slug-history redirects pointing at ids that no longer existed after
+ * a re-import + hot reload. Every own property of `InMemoryState` is a Map
+ * today; if a future field is anything else this throws so the author has
+ * to decide how it's swapped, instead of it being skipped again. Per
+ * specs/behaviors/storage.md#hot-reload → Atomicity.
  *
  * Exported for testability — production code should call
  * `reloadInMemoryStateAndFts`.
  */
 export function swapInPlace(live: InMemoryState, fresh: InMemoryState): void {
-  // Primary entity maps.
-  replaceMapContents(live.projects, fresh.projects);
-  replaceMapContents(live.people, fresh.people);
-  replaceMapContents(live.tags, fresh.tags);
-  replaceMapContents(live.tagAssignments, fresh.tagAssignments);
-  replaceMapContents(live.projectMemberships, fresh.projectMemberships);
-  replaceMapContents(live.projectUpdates, fresh.projectUpdates);
-  replaceMapContents(live.projectBuzz, fresh.projectBuzz);
-  replaceMapContents(live.blogPosts, fresh.blogPosts);
-  replaceMapContents(live.helpWantedRoles, fresh.helpWantedRoles);
-  replaceMapContents(live.helpWantedInterest, fresh.helpWantedInterest);
-
-  // Secondary indices.
-  replaceMapContents(live.projectSlugById, fresh.projectSlugById);
-  replaceMapContents(live.projectIdBySlug, fresh.projectIdBySlug);
-  replaceMapContents(live.personSlugById, fresh.personSlugById);
-  replaceMapContents(live.personIdBySlug, fresh.personIdBySlug);
-  replaceMapContents(live.tagIdByHandle, fresh.tagIdByHandle);
-  replaceMapContents(live.membershipsByProject, fresh.membershipsByProject);
-  replaceMapContents(live.membershipsByPerson, fresh.membershipsByPerson);
-  replaceMapContents(live.updatesByProject, fresh.updatesByProject);
-  replaceMapContents(live.updateByProjectAndNumber, fresh.updateByProjectAndNumber);
-  replaceMapContents(live.buzzByProject, fresh.buzzByProject);
-  replaceMapContents(live.buzzByProjectAndSlug, fresh.buzzByProjectAndSlug);
-  replaceMapContents(live.blogPostIdBySlug, fresh.blogPostIdBySlug);
-  replaceMapContents(live.blogPostIdByLegacyId, fresh.blogPostIdByLegacyId);
-  replaceMapContents(live.helpWantedByProject, fresh.helpWantedByProject);
-  replaceMapContents(live.tagAssignmentsByTaggable, fresh.tagAssignmentsByTaggable);
-  replaceMapContents(live.tagAssignmentsByTag, fresh.tagAssignmentsByTag);
-  replaceMapContents(live.interestByRoleAndPerson, fresh.interestByRoleAndPerson);
-  replaceMapContents(live.interestByRole, fresh.interestByRole);
+  for (const key of Object.keys(fresh) as (keyof InMemoryState)[]) {
+    const target: unknown = live[key];
+    const source: unknown = fresh[key];
+    if (!(target instanceof Map) || !(source instanceof Map)) {
+      throw new Error(
+        `swapInPlace: InMemoryState.${key} is not a Map — extend swapInPlace to handle it`,
+      );
+    }
+    replaceMapContents(target, source);
+  }
 }

@@ -15,6 +15,12 @@
  *    record introduced on the "remote" must be visible via a service
  *    call AFTER the reload completes (proves the in-memory state +
  *    FTS index actually got rebuilt against the new tree).
+ *  - Re-import scenario: a project is replaced on the remote by a
+ *    record with a fresh id and slug (what the laddr importer does on
+ *    every run). After the reload the legacy `/projects?ID=` redirect,
+ *    the `/project-buzz/<slug>` redirect, and the slug-history 301
+ *    must all resolve against the NEW records — the secondary indices
+ *    behind them were once skipped by the in-place swap.
  */
 import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -117,14 +123,14 @@ async function createRig(): Promise<Rig> {
 }
 
 /**
- * Advance the bare remote by one commit on `main` via an ephemeral
- * clone. Used to put the local working tree behind so a hot reload
- * fast-forwards. The new commit introduces a fresh project record at
- * `projects/<slug>.toml`.
+ * Advance the bare remote by one commit on `main` via an ephemeral clone.
+ * `mutate` edits the clone's working tree and stages whatever it changed
+ * (paths are relative to the clone root). Returns the new remote HEAD.
  */
-async function advanceRemoteWithProject(
+async function advanceRemote(
   rig: Rig,
-  fields: { id: string; slug: string; title: string; summary?: string },
+  message: string,
+  mutate: (wt: string) => Promise<void>,
 ): Promise<string> {
   const wt = `${rig.local}-advance-${Date.now()}-${Math.random()
     .toString(36)
@@ -135,12 +141,31 @@ async function advanceRemoteWithProject(
   await git(wt, 'config', 'commit.gpgsign', 'false');
   await git(wt, 'config', 'core.hooksPath', '/dev/null');
 
-  // Minimal Project TOML the gitsheets reader will accept + the Zod
-  // schema will validate at load time. The schema allows a lot of
-  // optional fields; we provide only the required ones plus a couple
-  // for the assertion.
-  const toml = [
+  await mutate(wt);
+  await git(wt, 'commit', '-m', message);
+  await git(wt, 'push', 'origin', 'main');
+  const head = await git(wt, 'rev-parse', 'HEAD');
+  await rm(wt, { recursive: true, force: true });
+  return head;
+}
+
+interface ProjectFields {
+  id: string;
+  slug: string;
+  title: string;
+  summary?: string;
+  legacyId?: number;
+}
+
+/**
+ * Minimal Project TOML the gitsheets reader will accept + the Zod schema
+ * will validate at load time. The schema allows a lot of optional fields;
+ * we provide only the required ones plus a couple for the assertions.
+ */
+function projectToml(fields: ProjectFields): string {
+  return [
     `id = '${fields.id}'`,
+    ...(fields.legacyId !== undefined ? [`legacyId = ${fields.legacyId}`] : []),
     `slug = '${fields.slug}'`,
     `title = '${fields.title}'`,
     ...(fields.summary ? [`summary = '${fields.summary}'`] : []),
@@ -150,14 +175,66 @@ async function advanceRemoteWithProject(
     `updatedAt = '2026-05-19T00:00:00Z'`,
     '',
   ].join('\n');
+}
+
+async function writeProject(wt: string, fields: ProjectFields): Promise<void> {
   await exec('mkdir', ['-p', join(wt, 'projects')]);
-  await writeFile(join(wt, 'projects', `${fields.slug}.toml`), toml);
+  await writeFile(join(wt, 'projects', `${fields.slug}.toml`), projectToml(fields));
   await git(wt, 'add', `projects/${fields.slug}.toml`);
-  await git(wt, 'commit', '-m', `seed: project ${fields.slug}`);
-  await git(wt, 'push', 'origin', 'main');
-  const head = await git(wt, 'rev-parse', 'HEAD');
-  await rm(wt, { recursive: true, force: true });
-  return head;
+}
+
+async function writeBuzz(
+  wt: string,
+  fields: { id: string; projectId: string; projectSlug: string; slug: string },
+): Promise<void> {
+  const rel = `project-buzz/${fields.projectSlug}/${fields.slug}.toml`;
+  await exec('mkdir', ['-p', join(wt, 'project-buzz', fields.projectSlug)]);
+  await writeFile(
+    join(wt, rel),
+    [
+      `id = '${fields.id}'`,
+      `projectId = '${fields.projectId}'`,
+      `slug = '${fields.slug}'`,
+      `headline = 'Buzz ${fields.slug}'`,
+      `url = 'https://example.test/${fields.slug}'`,
+      `publishedAt = '2026-05-19T00:00:00Z'`,
+      `createdAt = '2026-05-19T00:00:00Z'`,
+      `updatedAt = '2026-05-19T00:00:00Z'`,
+      '',
+    ].join('\n'),
+  );
+  await git(wt, 'add', rel);
+}
+
+async function writeSlugHistory(
+  wt: string,
+  fields: { id: string; entityId: string; oldSlug: string; newSlug: string },
+): Promise<void> {
+  const rel = `slug-history/project/${fields.oldSlug}.toml`;
+  await exec('mkdir', ['-p', join(wt, 'slug-history', 'project')]);
+  await writeFile(
+    join(wt, rel),
+    [
+      `id = '${fields.id}'`,
+      `entityType = 'project'`,
+      `oldSlug = '${fields.oldSlug}'`,
+      `newSlug = '${fields.newSlug}'`,
+      `entityId = '${fields.entityId}'`,
+      `changedAt = '2026-05-19T00:00:00Z'`,
+      `expiresAt = '2099-01-01T00:00:00Z'`,
+      '',
+    ].join('\n'),
+  );
+  await git(wt, 'add', rel);
+}
+
+/**
+ * Advance the remote by one commit that introduces a fresh project record
+ * at `projects/<slug>.toml`. Used to put the local clone behind so a hot
+ * reload fast-forwards.
+ */
+async function advanceRemoteWithProject(rig: Rig, fields: ProjectFields): Promise<string> {
+  return advanceRemote(rig, `seed: project ${fields.slug}`, (wt) => writeProject(wt, fields));
 }
 
 // ---------------------------------------------------------------------------
@@ -389,5 +466,86 @@ describe('POST /api/_internal/reload-data — short-circuit + reconcile', () => 
     // the TOML from the bare's HEAD tree (no working tree to filesystem-read).
     const contents = await git(rig.local, 'show', 'HEAD:projects/lazyloader.toml');
     expect(contents).toContain("slug = 'lazyloader'");
+  });
+
+  it('re-points legacy, buzz, and slug-history redirects after a re-import mints fresh ids', async () => {
+    // Seed the remote with a project carrying a laddr legacy id plus one
+    // buzz item, then bring the local clone up to date so the app boots
+    // in-sync with those records already indexed (production pods
+    // bare-clone fresh on every boot, so in-sync at boot is the norm).
+    const oldProjectId = '01951a3c-0000-7000-8000-000000000101';
+    await advanceRemote(rig, 'seed: alpha-v1 + buzz', async (wt) => {
+      await writeProject(wt, { id: oldProjectId, slug: 'alpha-v1', title: 'Alpha', legacyId: 42 });
+      await writeBuzz(wt, {
+        id: '01951a3c-0000-7000-8000-000000000103',
+        projectId: oldProjectId,
+        projectSlug: 'alpha-v1',
+        slug: 'alpha-launch',
+      });
+    });
+    await git(rig.local, 'fetch', 'origin', `${rig.branch}:${rig.branch}`);
+    app = await buildTestApp({ CFP_DATA_RELOAD_SECRET: VALID_SECRET });
+
+    const legacyBefore = await app.inject({ method: 'GET', url: '/projects?ID=42' });
+    expect(legacyBefore.statusCode).toBe(301);
+    expect(legacyBefore.headers.location).toBe('/projects/alpha-v1');
+
+    const buzzBefore = await app.inject({ method: 'GET', url: '/project-buzz/alpha-launch' });
+    expect(buzzBefore.statusCode).toBe(301);
+    expect(buzzBefore.headers.location).toBe('/projects/alpha-v1/buzz/alpha-launch');
+
+    // Re-import: the importer replaces the tree wholesale, minting fresh
+    // ids. Same legacy id, new project id + slug, new buzz id + slug, and
+    // a slug-history record so the old slug keeps resolving.
+    const newProjectId = '01951a3c-0000-7000-8000-000000000201';
+    const newRemoteHead = await advanceRemote(rig, 're-import: alpha-v2', async (wt) => {
+      await git(wt, 'rm', '-q', 'projects/alpha-v1.toml', 'project-buzz/alpha-v1/alpha-launch.toml');
+      await writeProject(wt, { id: newProjectId, slug: 'alpha-v2', title: 'Alpha', legacyId: 42 });
+      await writeBuzz(wt, {
+        id: '01951a3c-0000-7000-8000-000000000203',
+        projectId: newProjectId,
+        projectSlug: 'alpha-v2',
+        slug: 'alpha-relaunch',
+      });
+      await writeSlugHistory(wt, {
+        id: '01951a3c-0000-7000-8000-000000000206',
+        entityId: newProjectId,
+        oldSlug: 'alpha-v1',
+        newSlug: 'alpha-v2',
+      });
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/_internal/reload-data',
+      headers: { authorization: `Bearer ${VALID_SECRET}` },
+      payload: { branch: rig.branch, commitHash: newRemoteHead },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ data: { rebuilt: boolean } }>().data.rebuilt).toBe(true);
+
+    // Legacy id → the NEW project. Before the fix, projectIdByLegacyId
+    // still held the old id, projectSlugById no longer knew it, and the
+    // request fell through to the SPA.
+    const legacyAfter = await app.inject({ method: 'GET', url: '/projects?ID=42' });
+    expect(legacyAfter.statusCode).toBe(301);
+    expect(legacyAfter.headers.location).toBe('/projects/alpha-v2');
+
+    const updatesAfter = await app.inject({ method: 'GET', url: '/project-updates?ProjectID=42' });
+    expect(updatesAfter.statusCode).toBe(301);
+    expect(updatesAfter.headers.location).toBe('/projects/alpha-v2');
+
+    // Buzz slug → the NEW buzz under the NEW project slug; the retired
+    // buzz slug no longer redirects.
+    const buzzAfter = await app.inject({ method: 'GET', url: '/project-buzz/alpha-relaunch' });
+    expect(buzzAfter.statusCode).toBe(301);
+    expect(buzzAfter.headers.location).toBe('/projects/alpha-v2/buzz/alpha-relaunch');
+    const buzzRetired = await app.inject({ method: 'GET', url: '/project-buzz/alpha-launch' });
+    expect(buzzRetired.statusCode).not.toBe(301);
+
+    // Slug history → the old project URL 301s to the new slug.
+    const slugAfter = await app.inject({ method: 'GET', url: '/projects/alpha-v1' });
+    expect(slugAfter.statusCode).toBe(301);
+    expect(slugAfter.headers.location).toBe('/projects/alpha-v2');
   });
 });
