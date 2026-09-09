@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: [saml-idp]
 specs:
   - specs/api/saml.md
   - specs/architecture.md
 issues: []
+pr: 161
 ---
 
 # Plan: SAML IdP identity and endpoint hosts
@@ -75,18 +76,18 @@ any change to NameID or the attribute set.
 
 ## Validation
 
-- [ ] `GET /api/saml/slack/metadata` `entityID` is
+- [x] `GET /api/saml/slack/metadata` `entityID` is
       `https://codeforphilly.org/api/saml/slack/metadata` with no
       `SAML_ENTITY_ID` set, regardless of `SLACK_TEAM_HOST` / `CFP_SITE_HOST`.
-- [ ] Both `SingleSignOnService/@Location` values are
+- [x] Both `SingleSignOnService/@Location` values are
       `https://<CFP_SITE_HOST>/api/saml/slack/sso`; with
       `CFP_SITE_HOST=next.example.org` they use that host.
-- [ ] `<saml:Issuer>` on the Response and the Assertion equal the metadata
+- [x] `<saml:Issuer>` on the Response and the Assertion equal the metadata
       `entityID`, including when `SAML_ENTITY_ID` is overridden.
-- [ ] ACS URL, form action, `NameQualifier`, and `/launch` redirect still use
+- [x] ACS URL, form action, `NameQualifier`, and `/launch` redirect still use
       `SLACK_TEAM_HOST` (existing tests keep passing).
-- [ ] `SLACK_TEAM_HOST` no longer appears in any IdP-side URL (grep the route).
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] `SLACK_TEAM_HOST` no longer appears in any IdP-side URL (grep the route).
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -103,8 +104,30 @@ any change to NameID or the attribute set.
 
 ## Notes
 
-(Populated at closeout.)
+- **`config.ts` needed no logic change.** `SamlIdpSettings.entityId` already
+  fed both samlify's `IdentityProvider({ entityID })` (→ metadata) and
+  `SlackSamlEntities.entityId`, which the route passes as `issuerEntityId`
+  into `buildResponseSubstitutions` (→ `{Issuer}` on Response + Assertion).
+  The bug was entirely in `getSamlContext`'s choice of host. Only doc
+  comments changed there.
+- **Entity ID is a URI by convention, not a fetchable URL.** Nothing (Slack
+  included) dereferences it, which is why it can stay on `codeforphilly.org`
+  while the deployment answers on `next.codeforphilly.org`. `SAML_ENTITY_ID`
+  is validated as a URL (`z.url()`) only to catch typos.
+- **`SLACK_TEAM_HOST` was never in the deploy env table** — it rode on its
+  default. Added a row so operators see it next to `SAML_ENTITY_ID` and
+  don't confuse the two hosts again.
+- **Web-suite timeout flake.** `apps/web/tests/ProjectEdit.test.tsx` hit its
+  5s limit (5252ms) once under full-suite load and passed in isolation.
+  Unrelated to this change; noted in case it recurs.
 
 ## Follow-ups
 
-(Populated at closeout.)
+- Tracked as: operator action before deploying to `next.codeforphilly.org` —
+  if Slack's SAML config was seeded from the old metadata it holds the wrong
+  issuer (`https://codeforphilly.slack.com/...`) and will reject assertions
+  until re-synced from the metadata URL. Same metadata refresh (endpoint
+  URLs only) is needed again at cutover when `CFP_SITE_HOST` flips; see
+  `docs/operations/cutover.md` owners.
+- Tracked as: boot-time `slackSamlNameId` invariant scan — carried forward
+  unchanged from [`saml-idp`](saml-idp.md); not touched here.
