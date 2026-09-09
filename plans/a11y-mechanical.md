@@ -45,8 +45,8 @@ table of trails. **No spec change is needed anywhere in this plan.**
 `apps/web/src/components/Breadcrumbs.tsx` renders `nav[aria-label="Breadcrumb"]
 > ol > li` with `aria-current="page"` on the last crumb — correct as written,
 imported by nothing. Wired into the six screens the spec's table names, each
-placed as the first child of the screen's content container (the spec's "row
-below the header"):
+rendered as a fragment sibling immediately *above* the screen's content
+container (the spec's "row below the header"):
 
 | Route | Trail |
 |---|---|
@@ -97,7 +97,9 @@ The six formatting buttons were a bare `<div>` of buttons named "B", "I",
 `aria-label`'d with a full name that contains its visible label as a
 substring (B ⊂ Bold, I ⊂ Italic, Link ⊂ Insert link, List ⊂ Bulleted list),
 and a roving tabindex: only the active button is tabbable,
-ArrowLeft/ArrowRight move focus (wrapping), Home/End jump to the ends.
+ArrowLeft/ArrowRight move focus (wrapping), Home/End jump to the ends. The
+keydown handler derives its starting index from the event target rather
+than the `activeButton` state, which lags a focus change by one render.
 
 ### 5. Status announcements
 
@@ -109,16 +111,20 @@ Three places changed state visually with nothing announced:
 - `Sponsor`'s "Copy email" swaps its label to "Copied ✓" — visible text kept,
   with an `sr-only role="status"` mirror added.
 - `ProfileEdit`'s "Uploading…" span becomes `role="status"`.
-- `ConnectGitHubBanner` was `role="region"`, which is never announced; the
-  banner appears *after* auth resolves, so it becomes `role="status"`.
+- `ConnectGitHubBanner` is a `role="region"` that mounts only after auth
+  resolves, so its arrival is never announced. It *stays* a region (a
+  late-mounted `status` container is not read reliably either, and it would
+  wrap the two buttons) and gains a sibling sr-only `role="status"` span
+  carrying the headline — the same mirror idiom as `Sponsor`.
 
 ### 6. `<time dateTime>` for machine-readable dates
 
 `title` is not exposed to most screen readers and never on touch. Every date
 rendered as relative text inside a `title`-only `<span>` becomes
 `<time dateTime={iso} title={absolute}>` — the `BlogIndex.tsx` idiom.
-Covers `ActivityCard` (×2), `ProjectDetail` (×2), `BlogDetail`, `Account`,
-`StaffAccountClaimQueue`, `AccountClaim`. `ProjectCard`'s wrapper
+Covers `ActivityCard` (×2), `ProjectDetail` (×2), `PersonDetail` (×2),
+`HelpWantedCard`, `BlogDetail`, `Account`, `StaffAccountClaimQueue`,
+`AccountClaim`. `ProjectCard`'s wrapper
 `title={m.fullName}` is deleted outright — `PersonAvatar` already emits it.
 
 ### 7. Structure and one-liners
@@ -126,7 +132,8 @@ Covers `ActivityCard` (×2), `ProjectDetail` (×2), `BlogDetail`, `Account`,
 - `PersonCard` was one giant `<Link>`, so its accessible name concatenated
   avatar + name + project count + every tag chip. Restructured to the
   `ProjectCard` idiom: `<article>` with the `h3` wrapping the link. The hover
-  lift moves to the article via `group-hover`, so the affordance is unchanged.
+  lift (`hover:shadow-md hover:-translate-y-0.5`) stays on the article, so
+  the affordance is unchanged.
 - `AppHeader`'s two navs render bare links; wrapped in `<ul>/<li>` matching
   `AppFooter`. Flex/gap classes move to the `ul`; `li` contributes nothing.
   Sheet separators sit between the two lists rather than inside one.
@@ -134,8 +141,10 @@ Covers `ActivityCard` (×2), `ProjectDetail` (×2), `BlogDetail`, `Account`,
   level below the Radix `SheetTitle`, which renders `h2`), same classes.
 - `HelpWantedIndex`'s bare outer `<aside>` wrapped `FacetSidebar`, which
   renders its own labelled `<aside>` — two nested `complementary` landmarks.
-  Outer becomes a `<div>`. (`PeopleIndex`/`ProjectsIndex` render
-  `FacetSidebar` directly and never had this.)
+  `FacetSidebar` now accepts `children` inside its aside, and the Commitment
+  heading + fieldset ride there: one landmark ("Filters") holds every filter
+  control instead of leaving Commitment orphaned beside it. (`PeopleIndex`/
+  `ProjectsIndex` render `FacetSidebar` directly and never had this.)
 - Result-count badges move **out** of the `h1` into a flex sibling on all
   three index screens, so the heading's accessible name stops mutating as
   filters change.
@@ -155,13 +164,23 @@ Covers `ActivityCard` (×2), `ProjectDetail` (×2), `BlogDetail`, `Account`,
       `ProjectDetail` / `PersonDetail` aside headings are `h2`.
 - [x] The `MarkdownEditor` toolbar exposes `role="toolbar"`, named buttons,
       and a working roving tabindex (Arrow/Home/End).
-- [x] Copy actions on `ProjectDetail` and `Sponsor` announce; `ProfileEdit`
-      upload and `ConnectGitHubBanner` are live regions.
+- [x] Copy actions on `ProjectDetail` and `Sponsor` announce (including a
+      failure toast where `navigator.clipboard` is absent); `ProfileEdit`'s
+      upload is a live region; `ConnectGitHubBanner`'s arrival is announced
+      by its sibling status span.
 - [x] Dates expose `datetime`; no date is `title`-only.
-- [x] Exactly one `complementary` landmark per index screen.
-- [x] `npm run -w packages/shared build && npm run type-check && npm run lint
-      && npm run -w apps/web test && npm run -w packages/shared test` clean
-      (web 116/116, shared 75/75; run twice — implementer and coordinator).
+- [x] Exactly one `complementary` landmark per index screen, and on
+      `HelpWantedIndex` it contains the Commitment controls
+      (`HelpWantedIndex.test.tsx`).
+- [x] Full gate from the repo root, all workspaces: `npm ci && npm run -w
+      packages/shared build && npm run type-check && npm run lint && npm
+      test` clean after the rebase onto `develop` and the review fix-ups
+      (api 434/434 across 35 files, web 124/124 across 28, shared 75/75
+      across 3). The root `npm test` invocation was OOM-killed once on the
+      closeout machine, so the api suite was re-run alone with
+      `--maxWorkers=2`; every workspace suite ran to completion. The
+      contributor's earlier pass ran web + shared only (web 116/116,
+      shared 75/75).
 - [x] Browser test (headed Chrome against the live dev stack — api booted on
       a `setup-dev-data` repo with two seeded records): breadcrumb trails
       verified on `/projects/qa-sandbox` ("Projects › QA Sandbox Project")
@@ -174,17 +193,69 @@ Covers `ActivityCard` (×2), `ProjectDetail` (×2), `BlogDetail`, `Account`,
 
 - **Low.** Almost every change is attribute-level or a wrapper element.
 - The two structural edits (`PersonCard`, `AppHeader` nav lists) touch files
-  PR #154 rewrote. Both keep every existing behavior — the sheet's `onClick`
-  close handlers, the separators, the NavLink active styling — and are
-  covered by the existing `AppHeader.test.tsx` suite plus updated name
+  PR #154 rewrote. Both keep every existing behavior — the sheet closing on
+  navigation (derived from `location.key` since #154, so the NavLinks carry
+  no per-item `onClick`), the separators, the NavLink active styling — and
+  are covered by the existing `AppHeader.test.tsx` suite plus updated name
   matchers.
-- The `apps/api` suite is deliberately not run: it has a known pre-existing
-  Windows fixture failure and no `apps/api` file changes here.
+- The `apps/api` suite was skipped on the contributor's Windows pass (known
+  fixture failure there, tracked in #162); it was run in full on Linux at
+  closeout — see Validation.
 
 ## Notes
 
-_(filled in at closeout)_
+- **`aria-label` supersets on visible-text buttons are deliberate.** "More ▾"
+  → `aria-label="More actions"`, "Mark filled" → `Mark filled: <role>`,
+  "Remove" → `Remove <name>`, and the toolbar's "B" → "Bold". In every case
+  the visible text is a prefix (or, for the toolbar, a substring) of the
+  accessible name, which is what SC 2.5.3 Label in Name asks for and what
+  the specs already assume for the per-row actions. Speech-input users
+  saying what they see still hit the control.
+- **jsdom's accname drops the leading space in sr-only cues** — it
+  computes `"GitHub(opens in new tab)"` where Chrome computes
+  `"GitHub (opens in new tab)"`. Tests match with `\s*` regexes rather than
+  encoding either engine's answer.
+- **Rebase.** The branch was cut from a local merge of #154 and #155; both
+  were patched during review before landing on `develop`, so the eight
+  commits here were rebased onto `develop` after #155 merged. The one
+  conflict was `AppHeader.tsx`: #154 replaced the per-NavLink `onClick`
+  closers with a sheet state derived from `location.key`, and this branch
+  wrapped the same links in `<ul>/<li>`. Resolved by keeping the list
+  structure without the closers (the two plain `<a>`s — Contact, GitHub —
+  keep theirs, since they don't navigate client-side).
+- **Review fix-ups applied on top of the six commits:** `block` on sheet
+  anchors so the `<li>` wrap doesn't shrink their tap targets; Commitment
+  moved inside `FacetSidebar`'s aside (via a new `children` slot) instead
+  of sitting outside every landmark; `ConnectGitHubBanner` kept as a region
+  with a sibling status announcer; `Breadcrumbs` keyed by index (the PR's
+  own "pre-existing, flagged" item); the namespace crumb labelled via
+  `TagsNamespace`'s `NS_LABELS` so it matches the destination `h1`;
+  `ProjectEdit` holds its loading state when the edit query settles empty
+  instead of rendering a blank crumb to `/projects/`; a `copyWithToast`
+  helper on `ProjectDetail` that guards `navigator.clipboard` (undefined in
+  insecure contexts, and reading `.writeText` off it throws synchronously,
+  so the old `.catch()` never fired); `ProfileEdit`'s status span only
+  reserves `mt-1` while it has text; three `<time>`s the first sweep missed
+  (`HelpWantedCard`, `PersonDetail` ×2); the toolbar keydown handler reads
+  its index from the event target rather than the `activeButton` closure.
+- `NS_LABELS` is now exported from `screens/TagsNamespace.tsx` and imported
+  by `screens/TagDetail.tsx` — a screen importing from a screen, chosen as
+  the smallest change. `FacetSidebar` carries its own copy of the same map;
+  a shared tags-label module could absorb both.
 
 ## Follow-ups
 
-_(filled in at closeout)_
+- Issue [#166](https://github.com/CodeForPhilly/codeforphilly-ng/issues/166)
+  — render breadcrumbs from the shell via route `handle`s (`useMatches`)
+  per app-shell.md, so skip-to-main lands past them rather than on them.
+- Issue [#167](https://github.com/CodeForPhilly/codeforphilly-ng/issues/167)
+  — `ExternalLink` component for the 16 hand-rolled "(opens in new tab)"
+  copies.
+- Issue [#168](https://github.com/CodeForPhilly/codeforphilly-ng/issues/168)
+  — `RelativeTime` component for the 13 `<time dateTime title>` sites.
+- Issue [#169](https://github.com/CodeForPhilly/codeforphilly-ng/issues/169)
+  — `MarkdownEditor` toolbar should use Radix `Toolbar` from the
+  already-installed `radix-ui` instead of the hand-rolled roving tabindex.
+- Issue [#170](https://github.com/CodeForPhilly/codeforphilly-ng/issues/170)
+  — card heading level should be a prop; `TagDetail` renders a section `h2`
+  followed by `ProjectCard` `h2`s.
