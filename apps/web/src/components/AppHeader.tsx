@@ -250,7 +250,10 @@ export function AppHeader() {
 
         {/* Desktop utility cluster: GitHub, search, auth, then the Volunteer
             CTA pinned rightmost (specs/behaviors/app-shell.md). */}
-        <div className="hidden md:flex items-center gap-2 ml-auto">
+        <nav
+          aria-label="Utility"
+          className="hidden md:flex items-center gap-2 ml-auto"
+        >
           <GitHubLink />
           <SearchBox />
           <AuthControls />
@@ -261,7 +264,7 @@ export function AppHeader() {
           >
             <NavLink to="/volunteer">Volunteer</NavLink>
           </Button>
-        </div>
+        </nav>
 
         {/* Mobile: auth + hamburger */}
         <div className="flex md:hidden items-center gap-2 ml-auto">

@@ -190,6 +190,7 @@ It does not block initial paint waiting on `me`. Auth controls render skeletons 
 - All dropdowns are keyboard-navigable
 - The mobile sheet traps focus while open and returns it to the trigger on close
 - The mobile sheet is a dialog with the accessible name "Menu"
+- At ≥ md the header exposes two navigation landmarks: "Primary navigation" (the content cluster) and "Utility" (GitHub, search, auth, Volunteer)
 - Every icon-only control carries an accessible name; controls with visible text use that text as their accessible name rather than duplicating it in a label
 
 ## Print
