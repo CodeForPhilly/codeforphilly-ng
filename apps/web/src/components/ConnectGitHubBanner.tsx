@@ -30,11 +30,9 @@ export function ConnectGitHubBanner() {
   if (dismissed) return null;
 
   return (
-    // role="status", not "region": the banner appears only once auth has
-    // resolved, so it arrives after first paint and a landmark would never
-    // announce it. The aria-label stays as its accessible name.
+    <>
     <div
-      role="status"
+      role="region"
       aria-label="Connect GitHub"
       className="border-b border-primary/40 bg-primary/5 print:hidden"
     >
@@ -61,5 +59,14 @@ export function ConnectGitHubBanner() {
         </Button>
       </div>
     </div>
+    {/* The banner mounts only once auth resolves, and a landmark arriving
+        after first paint is never announced on its own — so mirror the
+        headline in a live region (the Sponsor / ProfileEdit idiom). It stays
+        a region rather than becoming one: a late-mounted status container
+        is not read reliably either, and it would swallow the two buttons. */}
+    <span role="status" className="sr-only">
+      Connect your GitHub account
+    </span>
+    </>
   );
 }

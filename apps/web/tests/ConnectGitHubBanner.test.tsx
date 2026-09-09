@@ -70,13 +70,16 @@ describe('ConnectGitHubBanner', () => {
     render();
     await waitFor(() => {
       expect(
-        screen.getByRole('status', { name: /connect github/i }),
+        screen.getByRole('region', { name: /connect github/i }),
       ).toBeInTheDocument();
     });
     // CTA form posts to the link endpoint.
-    const region = screen.getByRole('status', { name: /connect github/i });
+    const region = screen.getByRole('region', { name: /connect github/i });
     expect(region.querySelector('form[action="/api/auth/link-github"]')).not.toBeNull();
     expect(screen.getByRole('button', { name: /dismiss/i })).toBeInTheDocument();
+    // The landmark mounts after first paint, so its arrival is announced
+    // through a sibling live region carrying the headline.
+    expect(screen.getByRole('status')).toHaveTextContent('Connect your GitHub account');
   });
 
   it('renders for a user whose session was minted via password reset', async () => {
@@ -84,7 +87,7 @@ describe('ConnectGitHubBanner', () => {
     render();
     await waitFor(() => {
       expect(
-        screen.getByRole('status', { name: /connect github/i }),
+        screen.getByRole('region', { name: /connect github/i }),
       ).toBeInTheDocument();
     });
   });
@@ -101,7 +104,7 @@ describe('ConnectGitHubBanner', () => {
     // microtask gap.
     await new Promise((r) => setTimeout(r, 0));
     expect(
-      screen.queryByRole('status', { name: /connect github/i }),
+      screen.queryByRole('region', { name: /connect github/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -110,7 +113,7 @@ describe('ConnectGitHubBanner', () => {
     render();
     await new Promise((r) => setTimeout(r, 0));
     expect(
-      screen.queryByRole('status', { name: /connect github/i }),
+      screen.queryByRole('region', { name: /connect github/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -121,7 +124,7 @@ describe('ConnectGitHubBanner', () => {
     fireEvent.click(dismissBtn);
     await waitFor(() => {
       expect(
-        screen.queryByRole('status', { name: /connect github/i }),
+        screen.queryByRole('region', { name: /connect github/i }),
       ).not.toBeInTheDocument();
     });
   });
