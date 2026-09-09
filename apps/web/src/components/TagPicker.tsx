@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -40,6 +40,7 @@ export function TagPicker({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const baseId = useId();
   const inputId = `${baseId}-input`;
@@ -77,22 +78,22 @@ export function TagPicker({
   // filtering can shrink the option set out from under the cursor.
   const activeIdx = activeIndex >= 0 && activeIndex < optionCount ? activeIndex : -1;
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setActiveIndex(-1);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
+  const close = () => {
+    setOpen(false);
+    setActiveIndex(-1);
+  };
+
+  // Close when focus leaves the widget entirely — Tab out, or a click
+  // anywhere outside. Options carry tabIndex={-1} so a click on one lands
+  // focus inside the container (relatedTarget) and does not count as leaving.
+  const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (!containerRef.current?.contains(e.relatedTarget as Node | null)) close();
+  };
 
   const addTag = (slug: string) => {
     if (!value.includes(slug)) onChange([...value, slug]);
     setQuery('');
-    setOpen(false);
-    setActiveIndex(-1);
+    close();
   };
 
   const removeTag = (slug: string) => {
@@ -106,6 +107,11 @@ export function TagPicker({
 
   /** Activate the option at `i`: an existing tag, or the trailing create entry. */
   const selectOption = (i: number) => {
+    // A pointer selection lands focus on the option, which is about to
+    // unmount; bring it back to the input so the next tag can be typed.
+    // Done first so the input's onFocus (which opens) is superseded by the
+    // close() inside addTag.
+    inputRef.current?.focus();
     const tag = filtered[i];
     if (tag) {
       addTag(tag.slug);
@@ -132,8 +138,7 @@ export function TagPicker({
       return;
     }
     if (e.key === 'Escape') {
-      setOpen(false);
-      setActiveIndex(-1);
+      close();
       return;
     }
     if (e.key === 'Enter') {
@@ -166,7 +171,7 @@ export function TagPicker({
     );
 
   return (
-    <div className="space-y-1.5" ref={containerRef}>
+    <div className="space-y-1.5" ref={containerRef} onBlur={handleBlur}>
       {label && (
         <Label htmlFor={inputId} className="text-sm font-medium">
           {label}
@@ -195,6 +200,7 @@ export function TagPicker({
       </div>
       <div className="relative">
         <Input
+          ref={inputRef}
           id={inputId}
           role="combobox"
           value={query}
@@ -211,6 +217,9 @@ export function TagPicker({
             setActiveIndex(-1);
           }}
           onFocus={() => setOpen(true)}
+          // Focus stays here after a mouse selection, so onFocus alone can
+          // never reopen the list; a click has to.
+          onClick={() => setOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder={
             allowCreate
@@ -223,8 +232,9 @@ export function TagPicker({
             id={listboxId}
             role="listbox"
             aria-label={label ?? `${namespace} tags`}
-            // Keep focus on the input when an option is clicked.
-            onMouseDown={(e) => e.preventDefault()}
+            // Focusable (but not tabbable) so a scrollbar drag inside the
+            // list keeps focus within the container instead of closing it.
+            tabIndex={-1}
             className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-popover shadow-md"
           >
             {filtered.map((t: TagResponse, i) => (
@@ -233,8 +243,13 @@ export function TagPicker({
                 id={optionId(i)}
                 role="option"
                 aria-selected={i === activeIdx}
+                tabIndex={-1}
                 onClick={() => selectOption(i)}
-                onMouseEnter={() => setActiveIndex(i)}
+                // onMouseMove (guarded), not onMouseEnter: options arriving
+                // under a stationary pointer must not steal the highlight.
+                onMouseMove={() => {
+                  if (i !== activeIdx) setActiveIndex(i);
+                }}
                 className={optionClass(i)}
               >
                 {t.title}{' '}
@@ -248,8 +263,11 @@ export function TagPicker({
                 id={optionId(filtered.length)}
                 role="option"
                 aria-selected={filtered.length === activeIdx}
+                tabIndex={-1}
                 onClick={() => selectOption(filtered.length)}
-                onMouseEnter={() => setActiveIndex(filtered.length)}
+                onMouseMove={() => {
+                  if (filtered.length !== activeIdx) setActiveIndex(filtered.length);
+                }}
                 className={cn(optionClass(filtered.length), 'text-primary')}
               >
                 Create new tag “{trimmedQuery}”

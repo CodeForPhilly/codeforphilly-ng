@@ -143,6 +143,55 @@ describe('TagPicker', () => {
     });
   }, 20000);
 
+  it('selects with the mouse, keeps focus, and reopens on the next click', async () => {
+    const user = userEvent.setup();
+    renderScreen(<Harness />);
+
+    const input = await findCombobox();
+    await user.click(input);
+    await waitFor(() => {
+      expect(screen.getAllByRole('option')).toHaveLength(2);
+    });
+
+    await user.click(screen.getByRole('option', { name: /Housing/ }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Remove housing' })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(input).toHaveFocus();
+
+    // Focus never left, so only a click can reopen the list.
+    await user.click(input);
+    await waitFor(() => {
+      expect(screen.getAllByRole('option')).toHaveLength(1);
+    });
+  }, 20000);
+
+  it('closes the listbox when focus leaves the widget', async () => {
+    const user = userEvent.setup();
+    renderScreen(
+      <>
+        <Harness />
+        <button type="button">Elsewhere</button>
+      </>,
+    );
+
+    const input = await findCombobox();
+    await user.click(input);
+    await waitFor(() => {
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+    });
+
+    await user.tab();
+
+    expect(screen.getByRole('button', { name: 'Elsewhere' })).toHaveFocus();
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+    expect(input).toHaveAttribute('aria-expanded', 'false');
+  }, 20000);
+
   it('removes the last tag on Backspace in an empty input', async () => {
     const user = userEvent.setup();
     renderScreen(<Harness />);
