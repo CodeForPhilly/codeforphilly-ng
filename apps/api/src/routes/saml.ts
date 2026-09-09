@@ -128,18 +128,21 @@ function getSamlContext(fastify: FastifyInstance): SamlContext {
     throw new ApiValidationError('SAML IdP is not configured');
   }
 
-  const base = `https://${cfg.SLACK_TEAM_HOST}`.replace('https://', '');
-  const issuerHost = base;
-  // Fallback to the team host for the metadata entity ID if we can't see
-  // the inbound request origin. Per spec the entityID is our own URL —
-  // we'll prefer the request origin when building responses.
+  // Three distinct sources, per specs/api/saml.md#idp-identity-and-hosts:
+  //   - entityId (metadata entityID + assertion Issuer) is the stable
+  //     SAML_ENTITY_ID — it must NOT track the serving host, because Slack
+  //     stored it at setup and the host flips at cutover;
+  //   - the SSO endpoint Locations follow CFP_SITE_HOST so the metadata
+  //     points Slack at whatever host this deployment answers on;
+  //   - SLACK_TEAM_HOST is Slack's side only (ACS URL, NameQualifier).
+  const ssoUrl = `https://${cfg.CFP_SITE_HOST}/api/saml/slack/sso`;
   const ctx: SamlContext = {
     entities: buildSlackSamlEntities({
       privateKey: cfg.SAML_PRIVATE_KEY,
       certificate: cfg.SAML_CERTIFICATE,
-      entityId: `https://${issuerHost}/api/saml/slack/metadata`,
-      ssoLoginPostUrl: `https://${issuerHost}/api/saml/slack/sso`,
-      ssoLoginRedirectUrl: `https://${issuerHost}/api/saml/slack/sso`,
+      entityId: cfg.SAML_ENTITY_ID,
+      ssoLoginPostUrl: ssoUrl,
+      ssoLoginRedirectUrl: ssoUrl,
       slackTeamHost: cfg.SLACK_TEAM_HOST,
     }),
   };
