@@ -11,8 +11,9 @@ data:
   # Sandbox overlay overrides this to next-v2.codeforphilly.org.
   CFP_SITE_HOST: "codeforphilly.org"
   # From-address for outbound notifications. Sender domain (codeforphilly.org)
-  # must be verified in Resend with SPF + DKIM + DMARC before flipping this
-  # on in production. See plans/notifier-email.md and docs/operations/secrets.md.
+  # must be a verified Postmark sender signature (SPF + DKIM + Return-Path)
+  # before flipping POSTMARK_SERVER_TOKEN on in production. See
+  # plans/postmark-notifier.md and docs/operations/secrets.md.
   CFP_NOTIFICATION_FROM: "Code for Philly <notifications@codeforphilly.org>"
   GIT_AUTHOR_EMAIL: "api@codeforphilly.org"
   GIT_AUTHOR_NAME: "CodeForPhilly API"

@@ -7,17 +7,26 @@ import {
 } from 'react';
 
 interface NetworkErrorContextValue {
-  showError: (message?: string) => void;
+  /**
+   * Show the banner. Pass `retry` when the failed work can be re-issued; the
+   * button then reads "Retry" and runs it. Without one it reads "Dismiss".
+   */
+  showError: (message?: string, retry?: () => void) => void;
   clearError: () => void;
+}
+
+interface NetworkErrorState {
+  message: string;
+  retry?: () => void;
 }
 
 const NetworkErrorContext = createContext<NetworkErrorContextValue | null>(null);
 
 export function NetworkErrorProvider({ children }: { children: ReactNode }) {
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NetworkErrorState | null>(null);
 
-  const showError = useCallback((message?: string) => {
-    setError(message ?? 'Something went wrong. We are looking at it.');
+  const showError = useCallback((message?: string, retry?: () => void) => {
+    setError({ message: message ?? 'Something went wrong. We are looking at it.', retry });
   }, []);
 
   const clearError = useCallback(() => {
@@ -32,13 +41,15 @@ export function NetworkErrorProvider({ children }: { children: ReactNode }) {
           className="bg-destructive text-destructive-foreground px-4 py-2 text-sm flex items-center justify-between"
           data-testid="network-error-banner"
         >
-          <span>{error}</span>
+          <span>{error.message}</span>
           <button
-            onClick={clearError}
+            onClick={() => {
+              error.retry?.();
+              clearError();
+            }}
             className="ml-4 underline hover:no-underline"
-            aria-label="Dismiss error"
           >
-            Retry
+            {error.retry ? 'Retry' : 'Dismiss'}
           </button>
         </div>
       )}

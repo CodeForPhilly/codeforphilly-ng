@@ -12,13 +12,14 @@ interface TagChipProps {
   tag: Pick<TagItem, 'namespace' | 'slug' | 'title'>;
   count?: number;
   showNamespace?: boolean;
+  /** Toggle state. Only pass it for real toggles — it emits `aria-pressed`. */
   active?: boolean;
   asLink?: boolean;
   onClick?: () => void;
   className?: string;
 }
 
-export function TagChip({ tag, count, showNamespace = false, active = false, asLink = true, onClick, className }: TagChipProps) {
+export function TagChip({ tag, count, showNamespace = false, active, asLink = true, onClick, className }: TagChipProps) {
   const nsClass = NAMESPACE_CLASSES[tag.namespace] ?? NAMESPACE_CLASSES['topic']!;
   const display = showNamespace ? `${tag.namespace} · ${tag.title}` : tag.title;
   const inner = (
@@ -38,7 +39,7 @@ export function TagChip({ tag, count, showNamespace = false, active = false, asL
 
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={classes}>
+      <button type="button" onClick={onClick} aria-pressed={active} className={classes}>
         {inner}
       </button>
     );

@@ -3,10 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { ProjectCard } from '@/components/ProjectCard';
 import { PersonCard } from '@/components/PersonCard';
 import { HelpWantedCard } from '@/components/HelpWantedCard';
 import { TagEditModal } from '@/components/modals/TagEditModal';
+import { NS_LABELS } from '@/screens/TagsNamespace';
 import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
 
@@ -102,6 +104,17 @@ export function TagDetail() {
   };
 
   return (
+    <>
+    {/* specs/behaviors/app-shell.md → Breadcrumbs: Tags › <namespace> › <title>.
+        The namespace crumb carries the same display label as the page it
+        links to (TagsNamespace's h1), not the raw slug. */}
+    <Breadcrumbs
+      items={[
+        { label: 'Tags', href: '/tags' },
+        { label: NS_LABELS[tag.namespace] ?? tag.namespace, href: `/tags/${tag.namespace}` },
+        { label: tag.title },
+      ]}
+    />
     <div className="container mx-auto px-4 py-8 space-y-10">
       <header className="flex items-start justify-between gap-3">
         <div>
@@ -224,5 +237,6 @@ export function TagDetail() {
         </section>
       )}
     </div>
+    </>
   );
 }

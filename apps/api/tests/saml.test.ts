@@ -26,6 +26,36 @@ import { getSamlTestKeyPair, type SamlTestKeyPair } from './helpers/saml-cert.js
 
 const JWT_KEY = 'test-jwt-signing-key-at-least-32-chars!!';
 const SLACK_TEAM_HOST = 'codeforphilly.slack.com';
+/** Default SAML_ENTITY_ID per specs/api/saml.md#idp-identity-and-hosts. */
+const DEFAULT_ENTITY_ID = 'https://codeforphilly.org/api/saml/slack/metadata';
+/** Default CFP_SITE_HOST — the SSO endpoint Locations are built on it. */
+const DEFAULT_SITE_HOST = 'codeforphilly.org';
+
+const MD_NS = 'urn:oasis:names:tc:SAML:2.0:metadata';
+const ASSERTION_NS = 'urn:oasis:names:tc:SAML:2.0:assertion';
+
+function ssoLocations(metadataXml: string): { entityId: string | null; locations: string[] } {
+  const doc = new DOMParser().parseFromString(metadataXml, 'application/xml');
+  const root = doc.documentElement;
+  const locations = Array.from(root?.getElementsByTagNameNS(MD_NS, 'SingleSignOnService') ?? [])
+    .map((el) => el.getAttribute('Location'))
+    .filter((v): v is string => typeof v === 'string');
+  return { entityId: root?.getAttribute('entityID') ?? null, locations };
+}
+
+/** Every `<saml:Issuer>` text in a decoded SAMLResponse (Response + Assertion). */
+function issuers(responseXml: string): string[] {
+  const doc = new DOMParser().parseFromString(responseXml, 'application/xml');
+  return Array.from(doc.documentElement?.getElementsByTagNameNS(ASSERTION_NS, 'Issuer') ?? []).map(
+    (el) => el.textContent ?? '',
+  );
+}
+
+function decodeSamlResponse(html: string): string {
+  const match = /name="SAMLResponse" value="([^"]+)"/.exec(html);
+  expect(match).not.toBeNull();
+  return Buffer.from(match![1]!, 'base64').toString('utf8');
+}
 
 async function seedPerson(
   repoDir: string,
@@ -129,10 +159,17 @@ describe('SAML IdP — Slack', () => {
     const root = doc.documentElement;
     expect(root?.localName).toBe('EntityDescriptor');
 
-    // entityID present
-    expect(root?.getAttribute('entityID')).toBe(
-      `https://${SLACK_TEAM_HOST}/api/saml/slack/metadata`,
-    );
+    // entityID is the stable SAML_ENTITY_ID default — NOT built on
+    // SLACK_TEAM_HOST (Slack's host) and NOT on the serving host.
+    expect(root?.getAttribute('entityID')).toBe(DEFAULT_ENTITY_ID);
+
+    // Both SSO bindings point at our own site host.
+    const { locations } = ssoLocations(res.body);
+    expect(locations).toHaveLength(2);
+    for (const loc of locations) {
+      expect(loc).toBe(`https://${DEFAULT_SITE_HOST}/api/saml/slack/sso`);
+    }
+    expect(res.body).not.toContain(`https://${SLACK_TEAM_HOST}/api/saml`);
 
     // IDPSSODescriptor + at least one SingleSignOnService and an X509Certificate.
     const idpDescriptors = root?.getElementsByTagNameNS(
@@ -189,6 +226,10 @@ describe('SAML IdP — Slack', () => {
     const doc = new DOMParser().parseFromString(xml, 'application/xml');
     const root = doc.documentElement;
     expect(root?.localName).toBe('Response');
+
+    // Issuer on both the Response and the Assertion is the entity ID — the
+    // same value the metadata advertises as entityID.
+    expect(issuers(xml)).toEqual([DEFAULT_ENTITY_ID, DEFAULT_ENTITY_ID]);
 
     // NameID is the slackSamlNameId, format persistent
     const nameIdEl = root?.getElementsByTagNameNS(
@@ -316,6 +357,72 @@ describe('SAML IdP — Slack', () => {
     expect(res.body).toContain(`action="https://${SLACK_TEAM_HOST}/sso/saml"`);
     expect(res.body).toContain('name="SAMLResponse"');
     expect(res.body).toContain('name="RelayState" value="opaque-state-from-slack"');
+  });
+});
+
+describe('SAML IdP — entity ID vs. site host', () => {
+  let dataRepo: { path: string; cleanup: () => Promise<void> };
+  let privateStore: { path: string; cleanup: () => Promise<void> };
+  let keyPair: SamlTestKeyPair;
+  const personId = '01951a3c-0000-7000-8000-000000000002';
+  const slug = 'sam';
+
+  beforeAll(async () => {
+    keyPair = await getSamlTestKeyPair();
+    dataRepo = await createFullDataRepo();
+    privateStore = await createPrivateStorageDir();
+    await seedPerson(dataRepo.path, { id: personId, slug, slackSamlNameId: slug });
+    await seedPrivateProfile(privateStore.path, { personId, email: 'sam@example.com' });
+  });
+
+  afterAll(async () => {
+    await dataRepo.cleanup();
+    await privateStore.cleanup();
+  });
+
+  it('CFP_SITE_HOST moves the SSO Locations but leaves entityID alone', async () => {
+    const app = await buildTestApp(dataRepo.path, privateStore.path, keyPair, {
+      CFP_SITE_HOST: 'next.example.org',
+    });
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/saml/slack/metadata' });
+      expect(res.statusCode).toBe(200);
+      const { entityId, locations } = ssoLocations(res.body);
+      expect(locations).toHaveLength(2);
+      for (const loc of locations) {
+        expect(loc).toBe('https://next.example.org/api/saml/slack/sso');
+      }
+      // The pre-cutover host does not leak into the identifier Slack stores.
+      expect(entityId).toBe(DEFAULT_ENTITY_ID);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('SAML_ENTITY_ID overrides both the metadata entityID and the assertion Issuer', async () => {
+    const entityId = 'https://idp.example.org/saml/slack';
+    const app = await buildTestApp(dataRepo.path, privateStore.path, keyPair, {
+      SAML_ENTITY_ID: entityId,
+      CFP_SITE_HOST: 'next.example.org',
+    });
+    try {
+      const meta = await app.inject({ method: 'GET', url: '/api/saml/slack/metadata' });
+      expect(meta.statusCode).toBe(200);
+      expect(ssoLocations(meta.body).entityId).toBe(entityId);
+
+      const { accessToken } = await mintSessionFor(personId, 'user', JWT_KEY);
+      const launch = await app.inject({
+        method: 'GET',
+        url: '/api/saml/slack/launch',
+        cookies: { cfp_session: accessToken },
+      });
+      expect(launch.statusCode).toBe(200);
+      expect(issuers(decodeSamlResponse(launch.body))).toEqual([entityId, entityId]);
+      // Slack-side values still come from SLACK_TEAM_HOST.
+      expect(launch.body).toContain(`action="https://${SLACK_TEAM_HOST}/sso/saml"`);
+    } finally {
+      await app.close();
+    }
   });
 });
 

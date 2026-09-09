@@ -25,7 +25,7 @@ Out of scope for v1: see [deferred.md](deferred.md).
 | File uploads (avatars, buzz images) | **gitsheets attachments** | Binary blobs stored alongside their record via gitsheets' `setAttachment` API; served via streaming `GET /api/attachments/<key>`. |
 | Background jobs | **In-process timers + an in-memory queue** | At single-replica civic scale we don't need Redis/BullMQ for fan-out. Image thumbnailing, scheduled rollups, and async git pushes run in the same process. |
 | Logging | **pino** (Fastify default) | Pretty in dev, JSON in prod. |
-| Email | **Resend** (transactional) | For notifications like "help wanted interest expressed" and newsletter delivery (when that ships). Service account, not per-user OAuth. |
+| Email | **Postmark** (transactional) | For notifications like "help wanted interest expressed" and newsletter delivery (when that ships). Server token, not per-user OAuth. Postmark is what the legacy site already sends through, so the `codeforphilly.org` sender domain is already verified there. |
 
 ### What we deliberately *don't* use
 
@@ -135,9 +135,9 @@ The web and api share Zod schemas for every request/response shape and every rec
 The "no moving pieces" promise: a contributor needs git, Node, and two clones. No Docker compose, no database to install, no migrations to run.
 
 ```bash
-git clone https://github.com/CodeForPhilly/codeforphilly-rewrite.git
+git clone https://github.com/CodeForPhilly/codeforphilly-ng.git
 git clone https://github.com/CodeForPhilly/codeforphilly-data-snapshot.git ../codeforphilly-data
-cd codeforphilly-rewrite
+cd codeforphilly-ng
 npm install
 npm run dev              # api + web concurrently with watch
 ```
@@ -177,10 +177,12 @@ Runtime configuration (sealed-secrets in our cluster):
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth app credentials — see [api/auth.md](api/auth.md) |
 | `CFP_JWT_SIGNING_KEY` | HS256 key for session JWTs |
 | `SAML_PRIVATE_KEY` / `SAML_CERTIFICATE` | Slack SAML IdP cert chain — see [api/saml.md](api/saml.md) |
-| `SLACK_TEAM_HOST` | Slack workspace host (default `codeforphilly.slack.com`). Used by the `/chat` redirect ([api/chat](screens/chat.md)) and the SAML SP entity binding. |
-| `RESEND_API_KEY` | Optional. When set, mutates the notifier from the no-op `LoggingNotifier` to the live `EmailNotifier` (Resend SDK). |
-| `CFP_NOTIFICATION_FROM` | Required when `RESEND_API_KEY` is set; the `From:` address on outbound mail. |
-| `CFP_SITE_HOST` | Public site host (e.g., `codeforphilly.org`) — used by notifiers to build canonical URLs in email bodies. |
+| `SAML_ENTITY_ID` | Optional. Stable SAML IdP entity ID / assertion `Issuer` (default `https://codeforphilly.org/api/saml/slack/metadata`). Deliberately independent of `CFP_SITE_HOST` so cutover doesn't change the identifier Slack has on file — see [api/saml.md#idp-identity-and-hosts](api/saml.md#idp-identity-and-hosts). |
+| `SLACK_TEAM_HOST` | Slack workspace host (default `codeforphilly.slack.com`). Used by the `/chat` redirect ([api/chat](screens/chat.md)) and the SAML SP entity binding (ACS URL, NameQualifier). Never used for our own IdP entity ID or endpoint URLs. |
+| `POSTMARK_SERVER_TOKEN` | Optional. When set, mutates the notifier from the no-op `LoggingNotifier` to the live `EmailNotifier` (Postmark transport). |
+| `POSTMARK_MESSAGE_STREAM` | Optional. Postmark message stream for outbound mail (default `outbound`). |
+| `CFP_NOTIFICATION_FROM` | Required when `POSTMARK_SERVER_TOKEN` is set; the `From:` address on outbound mail. |
+| `CFP_SITE_HOST` | Public site host (e.g., `codeforphilly.org`) — used by notifiers to build canonical URLs in email bodies, by the markdown renderer's external-link transform, and by the SAML IdP metadata's `SingleSignOnService` endpoint URLs ([api/saml.md](api/saml.md#idp-identity-and-hosts)). |
 | `CFP_DATA_RELOAD_SECRET` | Bearer token gating `POST /api/_internal/reload-data` — the hot-reload webhook. Optional in dev; required in prod. |
 
 On pod start the entrypoint:
@@ -212,7 +214,7 @@ The importer pulls only public fields. Private data (emails, password hashes, ne
 Three levels, matching laddr's `Person.AccountLevel`:
 
 | Level | Who | Can |
-|-------|-----|-----|
+| ------- | ----- | ----- |
 | **Anonymous** | Not signed in | Browse public content; view profiles, projects, updates, buzz |
 | **User** | Signed-in member | Update own profile; post project updates on projects they're a member of; post buzz to any project; create new projects (auto-becomes maintainer) |
 | **Staff** | Trusted contributor | Edit any project; manage project members; promote help-wanted to highlighted; moderate content |

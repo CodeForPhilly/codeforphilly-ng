@@ -6,6 +6,12 @@
  */
 import { z } from 'zod';
 
+/**
+ * Default SAML IdP entity ID. Stable across hosts — see the SAML_ENTITY_ID
+ * field below and specs/api/saml.md#idp-identity-and-hosts.
+ */
+export const SAML_ENTITY_ID_DEFAULT = 'https://codeforphilly.org/api/saml/slack/metadata';
+
 export const EnvSchema = z.object({
   /** TCP port the Fastify server listens on. */
   PORT: z.coerce.number().default(3001),
@@ -49,8 +55,17 @@ export const EnvSchema = z.object({
   /** SAML IdP certificate (PEM) for the Slack SAML integration. */
   SAML_CERTIFICATE: z.string().optional(),
   /**
-   * Slack workspace host. Used as the SAML `NameQualifier` per
-   * specs/api/saml.md and shared with the `/chat` redirect handler.
+   * SAML IdP entity ID — the metadata `entityID` and the `<Issuer>` on every
+   * assertion. A stable logical identifier Slack stores at setup time, so it
+   * deliberately does NOT follow CFP_SITE_HOST: the pre-cutover
+   * `next.codeforphilly.org` deploy and the post-cutover `codeforphilly.org`
+   * deploy present the same issuer. Per specs/api/saml.md#idp-identity-and-hosts.
+   */
+  SAML_ENTITY_ID: z.url().default(SAML_ENTITY_ID_DEFAULT),
+  /**
+   * Slack workspace host. Used for the SAML ACS URL and `NameQualifier` per
+   * specs/api/saml.md and shared with the `/chat` redirect handler. Never
+   * used for our own IdP entity ID or endpoint URLs.
    */
   SLACK_TEAM_HOST: z.string().default('codeforphilly.slack.com'),
   /**
@@ -64,19 +79,27 @@ export const EnvSchema = z.object({
    * `next-v2.codeforphilly.org` in sandbox). Used by the server-side
    * markdown renderer to distinguish internal from external links — anchors
    * with a host different from this one get `target="_blank" rel="noopener
-   * nofollow"`. Per specs/behaviors/markdown-rendering.md.
+   * nofollow"`. Per specs/behaviors/markdown-rendering.md. Also the host the
+   * SAML IdP metadata advertises for its SSO endpoint Locations (per
+   * specs/api/saml.md#idp-identity-and-hosts).
    */
   CFP_SITE_HOST: z.string().default('codeforphilly.org'),
   /**
-   * Resend API key for the email notifier. When unset, the services plugin
-   * falls back to LoggingNotifier so dev + test runs don't need a real key.
-   * See plans/notifier-email.md.
+   * Postmark server token for the email notifier. When unset, the services
+   * plugin falls back to LoggingNotifier so dev + test runs don't need a
+   * real token. See plans/postmark-notifier.md.
    */
-  RESEND_API_KEY: z.string().optional(),
+  POSTMARK_SERVER_TOKEN: z.string().optional(),
+  /**
+   * Postmark message stream outbound mail is sent on. `outbound` is the
+   * transactional default stream every Postmark server ships with. Only
+   * relevant when POSTMARK_SERVER_TOKEN is set.
+   */
+  POSTMARK_MESSAGE_STREAM: z.string().default('outbound'),
   /**
    * From-address for outbound notifications. RFC 5322 form
    * (e.g. `"Code for Philly <notifications@codeforphilly.org>"`). Only
-   * relevant when RESEND_API_KEY is set.
+   * relevant when POSTMARK_SERVER_TOKEN is set.
    */
   CFP_NOTIFICATION_FROM: z
     .string()
@@ -115,10 +138,12 @@ export const envJsonSchema = {
     CFP_JWT_SIGNING_KEY: { type: 'string', minLength: 1 },
     SAML_PRIVATE_KEY: { type: 'string' },
     SAML_CERTIFICATE: { type: 'string' },
+    SAML_ENTITY_ID: { type: 'string', default: SAML_ENTITY_ID_DEFAULT },
     SLACK_TEAM_HOST: { type: 'string', default: 'codeforphilly.slack.com' },
     CFP_WEB_DIST_PATH: { type: 'string' },
     CFP_SITE_HOST: { type: 'string', default: 'codeforphilly.org' },
-    RESEND_API_KEY: { type: 'string' },
+    POSTMARK_SERVER_TOKEN: { type: 'string' },
+    POSTMARK_MESSAGE_STREAM: { type: 'string', default: 'outbound' },
     CFP_NOTIFICATION_FROM: {
       type: 'string',
       default: 'Code for Philly <notifications@codeforphilly.org>',

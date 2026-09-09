@@ -12,13 +12,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownView } from '@/components/MarkdownView';
 import { StageBadge } from '@/components/StageBadge';
 import { TagChip } from '@/components/TagChip';
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
-import { formatMonthYear, formatRelativeTime } from '@/lib/time';
+import { formatAbsoluteDate, formatMonthYear, formatRelativeTime } from '@/lib/time';
 
 export function PersonDetail() {
   const params = useParams();
@@ -103,6 +104,9 @@ export function PersonDetail() {
   });
 
   return (
+    <>
+    {/* specs/behaviors/app-shell.md → Breadcrumbs: Members › <fullName> */}
+    <Breadcrumbs items={[{ label: 'Members', href: '/members' }, { label: person.fullName }]} />
     <div className="container mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
       <div className="lg:col-span-2 space-y-8">
         <header className="flex items-start gap-6">
@@ -177,7 +181,10 @@ export function PersonDetail() {
                     )}
                   </div>
                   <span className="text-xs text-muted-foreground shrink-0">
-                    joined {formatRelativeTime(m.joinedAt)}
+                    joined{' '}
+                    <time dateTime={m.joinedAt} title={formatAbsoluteDate(m.joinedAt)}>
+                      {formatRelativeTime(m.joinedAt)}
+                    </time>
                   </span>
                 </li>
               ))}
@@ -198,9 +205,13 @@ export function PersonDetail() {
                     >
                       {u.project.title} · Update #{u.number}
                     </Link>
-                    <span className="text-xs text-muted-foreground">
+                    <time
+                      dateTime={u.createdAt}
+                      title={formatAbsoluteDate(u.createdAt)}
+                      className="text-xs text-muted-foreground"
+                    >
                       {formatRelativeTime(u.createdAt)}
-                    </span>
+                    </time>
                   </div>
                   <div className="line-clamp-3 text-sm">
                     <MarkdownView html={u.bodyHtml} />
@@ -215,9 +226,9 @@ export function PersonDetail() {
       <aside className="space-y-4 text-sm">
         {(person.slackHandle || person.email) && (
           <section>
-            <h3 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+            <h2 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
               Contact
-            </h3>
+            </h2>
             <ul className="space-y-1">
               {person.slackHandle && (
                 <li>
@@ -228,6 +239,7 @@ export function PersonDetail() {
                     className="text-primary underline hover:no-underline"
                   >
                     DM on Slack
+                    <span className="sr-only"> (opens in new tab)</span>
                   </a>
                 </li>
               )}
@@ -245,9 +257,9 @@ export function PersonDetail() {
           </section>
         )}
         <section>
-          <h3 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+          <h2 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
             Member since
-          </h3>
+          </h2>
           <p>{formatMonthYear(person.createdAt)}</p>
         </section>
         {isSelf && (
@@ -338,5 +350,6 @@ export function PersonDetail() {
         )}
       </aside>
     </div>
+    </>
   );
 }

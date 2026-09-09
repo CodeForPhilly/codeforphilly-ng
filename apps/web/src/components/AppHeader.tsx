@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, NavLink } from 'react-router';
+import { Link, NavLink, useLocation } from 'react-router';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -8,10 +8,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import { SearchBox } from '@/components/SearchBox';
+import { GitHubIcon } from '@/components/icons/GitHubIcon';
 import { useAuth } from '@/hooks/useAuth';
+
+const GITHUB_URL = 'https://github.com/CodeForPhilly';
 
 function ChevronDownIcon() {
   return (
@@ -60,7 +70,7 @@ function AuthControls({ mobile = false }: { mobile?: boolean }) {
     return (
       <div
         className={`h-8 ${mobile ? 'w-full' : 'w-20'} bg-muted animate-pulse rounded`}
-        aria-label="Loading auth state"
+        aria-hidden="true"
       />
     );
   }
@@ -143,12 +153,8 @@ function AboutDropdown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="flex items-center gap-1"
-          aria-label="About menu"
-        >
+        {/* No aria-label: the visible "About" text is the accessible name. */}
+        <Button variant="ghost" size="sm" className="flex items-center gap-1">
           About <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
@@ -176,13 +182,41 @@ function AboutDropdown() {
   );
 }
 
+// `block` so each link fills its row: inside the sheet's <li>s an inline
+// anchor would shrink the tap target to the width of its text.
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  `text-sm font-medium transition-colors hover:text-primary ${
+  `block text-sm font-medium transition-colors hover:text-primary ${
     isActive ? 'text-primary' : 'text-muted-foreground'
   }`;
 
+function GitHubLink() {
+  return (
+    // Desktop-only: between md and lg the header has no room for it (the
+    // utility cluster would push "Help Wanted" onto two lines); the mobile
+    // sheet carries its own GitHub row.
+    <Button asChild variant="ghost" size="icon-sm" className="hidden lg:inline-flex">
+      <a
+        href={GITHUB_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Code for Philly on GitHub (opens in new tab)"
+      >
+        <GitHubIcon />
+      </a>
+    </Button>
+  );
+}
+
 export function AppHeader() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
+  // The sheet is open only for the location it was opened at, so any
+  // client-side navigation — a NavLink or Enter in the inline search —
+  // closes it without per-item onClick closers. Derived during render
+  // rather than synced in an effect (react-hooks/set-state-in-effect).
+  const [openedAtKey, setOpenedAtKey] = useState<string | null>(null);
+  const mobileOpen = openedAtKey === location.key;
+  const setMobileOpen = (open: boolean) =>
+    setOpenedAtKey(open ? location.key : null);
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-sm print:hidden">
@@ -201,135 +235,173 @@ export function AppHeader() {
           />
         </Link>
 
-        {/* Desktop nav */}
+        {/* Desktop content cluster. The parent gap is the only source of
+            spacing between children — no per-child margins. */}
+        {/* A nav is a list of destinations — the <ul>/<li> is what tells a
+            screen reader how many there are and where you are in them. The
+            flex/gap spacing moves to the <ul>; the <li>s contribute none. */}
         <nav
           aria-label="Primary navigation"
-          className="hidden md:flex items-center gap-1 ml-4 flex-1"
+          className="hidden md:block ml-4 flex-1"
         >
-          <NavLink to="/projects" className={navLinkClass}>
-            Projects
-          </NavLink>
-          <NavLink
-            to="/help-wanted"
-            className={({ isActive }) => navLinkClass({ isActive }) + ' ml-1'}
-          >
-            Help Wanted
-          </NavLink>
-          <NavLink
-            to="/members"
-            className={({ isActive }) => navLinkClass({ isActive }) + ' ml-1'}
-          >
-            Members
-          </NavLink>
-          <Button asChild size="sm" className="ml-1 bg-green-600 hover:bg-green-700 text-white">
-            <NavLink to="/volunteer">Volunteer</NavLink>
-          </Button>
-          <div className="ml-1">
-            <AboutDropdown />
-          </div>
+          <ul className="flex items-center gap-2">
+            <li>
+              <NavLink to="/projects" className={navLinkClass}>
+                Projects
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/help-wanted" className={navLinkClass}>
+                Help Wanted
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/members" className={navLinkClass}>
+                Members
+              </NavLink>
+            </li>
+            <li>
+              <AboutDropdown />
+            </li>
+          </ul>
         </nav>
 
-        {/* Desktop: search + auth */}
-        <div className="hidden md:flex items-center gap-2 ml-auto">
+        {/* Desktop utility cluster: GitHub, search, auth, then the Volunteer
+            CTA pinned rightmost (specs/behaviors/app-shell.md). */}
+        <nav
+          aria-label="Utility"
+          className="hidden md:flex items-center gap-2 ml-auto"
+        >
+          <GitHubLink />
           <SearchBox />
           <AuthControls />
-        </div>
+          <Button
+            asChild
+            size="sm"
+            className="bg-green-600 hover:bg-green-700 text-white"
+          >
+            <NavLink to="/volunteer">Volunteer</NavLink>
+          </Button>
+        </nav>
 
         {/* Mobile: auth + hamburger */}
         <div className="flex md:hidden items-center gap-2 ml-auto">
           <AuthControls />
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
+              {/* No aria-expanded here — Radix's Dialog.Trigger supplies it. */}
               <Button
                 variant="ghost"
                 size="sm"
                 aria-label="Open navigation menu"
-                aria-expanded={mobileOpen}
               >
                 <MenuIcon />
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-72 flex flex-col gap-4 pt-8">
+            <SheetContent side="right">
+              {/* SheetHeader/SheetTitle carry the panel's own padding and give
+                  the underlying Radix dialog its accessible name; the
+                  visually-hidden description satisfies aria-describedby. */}
+              <SheetHeader className="pb-0">
+                <SheetTitle>Menu</SheetTitle>
+                <SheetDescription className="sr-only">
+                  Site navigation
+                </SheetDescription>
+              </SheetHeader>
+              {/* min-h-0 + overflow-y-auto so the list stays reachable on
+                  short viewports instead of overflowing the panel. */}
+              {/* Three lists with the separators and the group heading
+                  between them, rather than one list interrupted by
+                  non-list children. The nav keeps the flex column so the
+                  gap-2 rhythm between groups is unchanged. */}
               <nav
                 aria-label="Mobile navigation"
-                className="flex flex-col gap-2"
+                className="flex flex-col gap-2 px-4 min-h-0 overflow-y-auto"
               >
-                <NavLink
-                  to="/projects"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Projects
-                </NavLink>
-                <NavLink
-                  to="/help-wanted"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Help Wanted
-                </NavLink>
-                <NavLink
-                  to="/members"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Members
-                </NavLink>
-                <NavLink
-                  to="/volunteer"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Volunteer
-                </NavLink>
+                <ul className="flex flex-col gap-2">
+                  <li>
+                    <NavLink to="/projects" className={navLinkClass}>
+                      Projects
+                    </NavLink>
+                  </li>
+                  <li>
+                    <NavLink to="/help-wanted" className={navLinkClass}>
+                      Help Wanted
+                    </NavLink>
+                  </li>
+                  <li>
+                    <NavLink to="/members" className={navLinkClass}>
+                      Members
+                    </NavLink>
+                  </li>
+                </ul>
                 <Separator />
-                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                {/* SheetTitle ("Menu") renders a Radix DialogTitle, i.e. an
+                    h2 — so this group label is an h3, not a styled <p>. */}
+                <h3 className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                   About
-                </p>
-                <NavLink
-                  to="/pages/mission"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Mission
-                </NavLink>
-                <NavLink
-                  to="/pages/leadership"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Leadership
-                </NavLink>
-                <NavLink
-                  to="/pages/code-of-conduct"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Code of Conduct
-                </NavLink>
-                <NavLink
-                  to="/pages/hackathons"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Hackathons
-                </NavLink>
-                <NavLink
-                  to="/sponsor"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Sponsor
-                </NavLink>
-                <a
-                  href="mailto:hello@codeforphilly.org"
-                  className="text-sm font-medium text-muted-foreground hover:text-primary"
-                >
-                  Contact
-                </a>
+                </h3>
+                <ul className="flex flex-col gap-2">
+                  <li>
+                    <NavLink to="/pages/mission" className={navLinkClass}>
+                      Mission
+                    </NavLink>
+                  </li>
+                  <li>
+                    <NavLink to="/pages/leadership" className={navLinkClass}>
+                      Leadership
+                    </NavLink>
+                  </li>
+                  <li>
+                    <NavLink to="/pages/code-of-conduct" className={navLinkClass}>
+                      Code of Conduct
+                    </NavLink>
+                  </li>
+                  <li>
+                    <NavLink to="/pages/hackathons" className={navLinkClass}>
+                      Hackathons
+                    </NavLink>
+                  </li>
+                  <li>
+                    <NavLink to="/sponsor" className={navLinkClass}>
+                      Sponsor
+                    </NavLink>
+                  </li>
+                  <li>
+                    <a
+                      href="mailto:hello@codeforphilly.org"
+                      className="block text-sm font-medium text-muted-foreground hover:text-primary"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      Contact
+                    </a>
+                  </li>
+                </ul>
+                <Separator />
+                <ul className="flex flex-col gap-2">
+                  <li>
+                    <a
+                      href={GITHUB_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-sm font-medium text-muted-foreground hover:text-primary"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      GitHub
+                      <span className="sr-only"> (opens in new tab)</span>
+                    </a>
+                  </li>
+                  <li>
+                    <NavLink to="/volunteer" className={navLinkClass}>
+                      Volunteer
+                    </NavLink>
+                  </li>
+                </ul>
               </nav>
               <Separator />
-              <SearchBox inline />
+              <div className="px-4 pb-4">
+                <SearchBox inline />
+              </div>
             </SheetContent>
           </Sheet>
         </div>

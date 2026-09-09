@@ -57,7 +57,9 @@ export function BlogDetail() {
           {showEdited && post.editedAt && (
             <>
               <span>·</span>
-              <span title={post.editedAt}>Edited</span>
+              <time dateTime={post.editedAt} title={post.editedAt}>
+                Edited
+              </time>
             </>
           )}
         </div>

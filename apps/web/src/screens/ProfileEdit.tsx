@@ -182,7 +182,9 @@ export function ProfileEdit() {
 
       <form id="profile-form" onSubmit={handleSubmit} className="space-y-5">
         <div>
-          <Label className="block mb-2">Avatar</Label>
+          <Label htmlFor="avatar-upload" className="block mb-2">
+            Avatar
+          </Label>
           <div className="flex items-center gap-3">
             {person.avatarUrl ? (
               <img
@@ -195,18 +197,30 @@ export function ProfileEdit() {
                 {person.fullName.slice(0, 1)}
               </div>
             )}
-            <label className="text-sm">
+            {/* A plain div, not a <label>: the "Avatar" Label above now names
+                this input, and a wrapping label would compete with it (its
+                "Uploading…" text would leak into the accessible name). */}
+            <div className="text-sm">
               <input
+                id="avatar-upload"
+                name="avatar"
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 onChange={handleAvatarUpload}
                 disabled={avatarUploading}
                 className="block"
               />
-              {avatarUploading && (
-                <span className="block mt-1 text-xs text-muted-foreground">Uploading…</span>
-              )}
-            </label>
+              {/* role="status" so the upload's progress is announced rather
+                  than only appearing next to the file input. The span stays
+                  mounted so the live region exists before its text changes;
+                  the margin applies only while it has something to show. */}
+              <span
+                role="status"
+                className={avatarUploading ? 'block mt-1 text-xs text-muted-foreground' : 'block'}
+              >
+                {avatarUploading ? 'Uploading…' : ''}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -219,9 +233,13 @@ export function ProfileEdit() {
             value={form.fullName}
             onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
             required
+            aria-invalid={fieldErrors['fullName'] ? 'true' : 'false'}
+            aria-describedby={fieldErrors['fullName'] ? 'fullName-error' : undefined}
           />
           {fieldErrors['fullName'] && (
-            <p className="text-xs text-destructive">{fieldErrors['fullName']}</p>
+            <p id="fullName-error" className="text-xs text-destructive">
+              {fieldErrors['fullName']}
+            </p>
           )}
         </div>
 
@@ -260,10 +278,14 @@ export function ProfileEdit() {
               value={form.slug}
               onChange={(e) => setForm((f) => ({ ...f, slug: slugify(e.target.value) }))}
               pattern="^[a-z0-9][a-z0-9-_]{1,79}$"
+              aria-invalid={fieldErrors['slug'] ? 'true' : 'false'}
+              aria-describedby={fieldErrors['slug'] ? 'slug-error' : undefined}
             />
             <p className="text-xs text-muted-foreground">URL: /members/{form.slug}</p>
             {fieldErrors['slug'] && (
-              <p className="text-xs text-destructive">{fieldErrors['slug']}</p>
+              <p id="slug-error" className="text-xs text-destructive">
+                {fieldErrors['slug']}
+              </p>
             )}
           </div>
         )}

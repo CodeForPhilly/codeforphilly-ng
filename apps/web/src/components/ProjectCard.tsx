@@ -34,7 +34,9 @@ export function ProjectCard({ project }: ProjectCardProps) {
           {project.members.slice(0, 8).map((m) => {
             const isMaintainer = m.slug === project.maintainer?.slug;
             return (
-              <div key={m.slug} className="ring-2 ring-card rounded-full" title={m.fullName}>
+              // No title here: PersonAvatar already emits the member's name,
+              // so this produced two identical tooltips stacked.
+              <div key={m.slug} className="ring-2 ring-card rounded-full">
                 <PersonAvatar person={m} size={isMaintainer ? 36 : 28} />
               </div>
             );
@@ -61,6 +63,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
           <Button asChild size="sm" variant="outline">
             <a href={project.links.usersUrl} target="_blank" rel="noopener noreferrer">
               Public Site
+              <span className="sr-only"> (opens in new tab)</span>
             </a>
           </Button>
         )}
@@ -68,6 +71,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
           <Button asChild size="sm" variant="outline">
             <a href={project.links.developersUrl} target="_blank" rel="noopener noreferrer">
               Developers
+              <span className="sr-only"> (opens in new tab)</span>
             </a>
           </Button>
         )}

@@ -16,7 +16,6 @@ import { computePersonPermissions, getCallerSession } from '../services/permissi
 import { buildTransactionOptions } from '../store/commit-meta.js';
 import type { UpdatePersonInput } from '../services/person.write.js';
 import { AVATAR_ALLOWED_MIME, processAvatar } from '../lib/avatar.js';
-import { BlobObject } from 'hologit';
 import type { Person } from '@cfp/shared/schemas';
 import { PersonSchema } from '@cfp/shared/schemas';
 import { StateApply } from '../store/state-apply.js';
@@ -404,7 +403,6 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
 
     const newAvatarKey = `people/${person.slug}/avatar.jpg`;
     const stateApply = new StateApply();
-    const hologit = fastify.publicRepo.hologitRepo;
 
     let updatedPerson: Person = person;
     await fastify.store.transact(
@@ -418,17 +416,11 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       }),
       async (tx) => {
         // Write the two attachment blobs into the gitsheets transaction
-        // tree. BlobObject.write hashes the buffer into the git object DB
-        // via `git hash-object -w`; the tx-level setAttachments then wires
-        // the blob refs into the post-commit tree at the conventional path.
-        //
-        // BlobObject.write's TypeScript signature declares `content: string`
-        // but the underlying `git-client` `$putBlob` spawns `git hash-object
-        // --stdin -w` and pipes `content` to stdin, which accepts both
-        // strings and Buffers at runtime. Cast to match the declared shape;
-        // hologit's type would tighten upstream eventually.
-        const originalBlob = await BlobObject.write(hologit, processed.original as unknown as string);
-        const thumbnailBlob = await BlobObject.write(hologit, processed.thumbnail as unknown as string);
+        // tree. repo.writeBlob hashes the buffer into the git object DB;
+        // the tx-level setAttachments then wires the blob refs into the
+        // post-commit tree at the conventional path.
+        const originalBlob = await fastify.publicRepo.writeBlob(processed.original);
+        const thumbnailBlob = await fastify.publicRepo.writeBlob(processed.thumbnail);
         await tx.public.people.setAttachments(person, {
           'avatar.jpg': originalBlob,
           'avatar-128.jpg': thumbnailBlob,

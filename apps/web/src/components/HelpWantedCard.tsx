@@ -6,7 +6,7 @@ import { PersonAvatar } from '@/components/PersonAvatar';
 import { MarkdownView } from '@/components/MarkdownView';
 import { ExpressInterestModal } from '@/components/modals/ExpressInterestModal';
 import { useAuth } from '@/hooks/useAuth';
-import { formatRelativeTime } from '@/lib/time';
+import { formatAbsoluteDate, formatRelativeTime } from '@/lib/time';
 import type { HelpWantedRoleResponse } from '@/lib/api';
 
 interface HelpWantedCardProps {
@@ -64,7 +64,12 @@ export function HelpWantedCard({ role, showProjectLink = true }: HelpWantedCardP
               <span>·</span>
             </>
           )}
-          <span>posted {formatRelativeTime(role.createdAt)}</span>
+          <span>
+            posted{' '}
+            <time dateTime={role.createdAt} title={formatAbsoluteDate(role.createdAt)}>
+              {formatRelativeTime(role.createdAt)}
+            </time>
+          </span>
         </div>
 
         {isSignedIn ? (

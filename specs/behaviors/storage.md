@@ -84,7 +84,7 @@ A scrubbed snapshot of the data repo is published as a public tag (e.g., `snapsh
 An `apps/api/scripts/scrub-data.ts` in the code repo produces the snapshot. The contributor bootstrap is:
 
 ```bash
-git clone https://github.com/CodeForPhilly/codeforphilly-rewrite.git
+git clone https://github.com/CodeForPhilly/codeforphilly-ng.git
 git clone --bare https://github.com/CodeForPhilly/codeforphilly-data-snapshot.git ../codeforphilly-data
 npm install
 npm run dev   # api + web boot, data already there
@@ -332,7 +332,7 @@ A push to the configured `CFP_DATA_BRANCH` from outside the API (typically a mer
 - **Reconcile + rebuild** — otherwise acquire the data-repo lock, call the same reconciliation state machine the boot path uses (`fastify.reconcileDataRepo`), and:
   - If outcome is `'in-sync'`, skip the rebuild and return 200 noChanges with the outcome.
   - Otherwise rebuild the in-memory state and FTS index from the new tree, then return 200 with the outcome, the old and new commit, and `rebuilt: true`.
-- **Atomicity** — the rebuild constructs a fresh `InMemoryState` first; only after that succeeds does it mutate the live Maps in place. The FTS engine exposes a `reload(state)` that drops and re-inserts every FTS5 table. If the rebuild throws partway, the route returns 500 and the operator should restart the pod.
+- **Atomicity** — the rebuild constructs a fresh `InMemoryState` first; only after that succeeds does it mutate the live Maps in place. **Every** collection on the live state is replaced from the fresh one — the primary entity maps and every secondary index, including the legacy-id, buzz-by-slug, and slug-history indices — so no lookup path can serve pre-reload contents after a reload. The FTS engine exposes a `reload(state)` that drops and re-inserts every FTS5 table. If the rebuild throws partway, the route returns 500 and the operator should restart the pod.
 - **Concurrency** — uses the same `dataRepoLock` as boot reconciliation, so a webhook fires can't race a `transact`-driven write.
 
 The GitHub Actions workflow that calls this endpoint lives in the `codeforphilly-data` repo (`.github/workflows/notify-deployments.yml`), not in this app repo. It fires on push to `CFP_DATA_BRANCH` and posts `{ branch, commitHash: <github.sha> }` with the secret as a bearer token.

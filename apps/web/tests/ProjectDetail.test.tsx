@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { Routes, Route } from 'react-router';
 import { renderScreen, mockOk, mockPaginated } from './test-utils.js';
 import { ProjectDetail } from '../src/screens/ProjectDetail.js';
@@ -57,6 +57,31 @@ describe('ProjectDetail', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('renders the "Projects › <title>" breadcrumb trail from app-shell.md', async () => {
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/projects/:slug" element={<ProjectDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/projects/sample-project'] },
+    );
+
+    const trail = await screen.findByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Projects' })).toHaveAttribute(
+      'href',
+      '/projects',
+    );
+    // The last crumb is the current page, so it is text, not a link.
+    expect(within(trail).getByText('Sample Project')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(
+      within(trail).queryByRole('link', { name: 'Sample Project' }),
+    ).not.toBeInTheDocument();
   });
 
   it('renders the title, overview, and Sign-in CTA for anonymous', async () => {

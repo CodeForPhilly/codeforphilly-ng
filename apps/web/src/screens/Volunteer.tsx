@@ -5,10 +5,11 @@ import { HelpWantedCard } from '@/components/HelpWantedCard';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 
-const HACK_NIGHT_URL =
-  'https://codeforphilly.gitbook.io/projects/contributing-to-projects/hack-night-program-details';
+// The codeforphilly.gitbook.io space is gone (404 "Content owner not found"),
+// so both of these point at the surviving live equivalents.
+const MEETUP_URL = 'https://www.meetup.com/Code-for-Philly/';
 const START_PROJECT_URL =
-  'https://codeforphilly.gitbook.io/projects/creating-new-partnerships/first-steps';
+  'https://github.com/CodeForPhilly/partnerships/blob/master/creating-new-partnerships/first-steps.md';
 
 export function Volunteer() {
   const { person } = useAuth();
@@ -69,8 +70,9 @@ export function Volunteer() {
               We meet weekly. Bring your laptop, or just yourself.
             </p>
             <Button asChild variant="outline" size="sm">
-              <a href={HACK_NIGHT_URL} target="_blank" rel="noopener noreferrer">
+              <a href={MEETUP_URL} target="_blank" rel="noopener noreferrer">
                 When we meet →
+                <span className="sr-only"> (opens in new tab)</span>
               </a>
             </Button>
           </div>
@@ -143,6 +145,7 @@ export function Volunteer() {
             <Button asChild>
               <a href={START_PROJECT_URL} target="_blank" rel="noopener noreferrer">
                 Read the guide →
+                <span className="sr-only"> (opens in new tab)</span>
               </a>
             </Button>
             <Button asChild variant="outline">

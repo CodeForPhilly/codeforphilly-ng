@@ -37,7 +37,7 @@ should be explicit in the cutover Slack post.
 ## T-7 days: announce + freeze
 
 1. Post the cutover announcement from [cutover-announcement.md](cutover-announcement.md)
-   to `#announcements` and email all members via Resend.
+   to `#announcements` and email all members via Postmark.
 2. Lower DNS TTL on `codeforphilly.org` to 60s. Verify with `dig`.
 3. **Freeze legacy writes.** Either put a banner on the legacy site asking
    members to hold off on edits, or flip a feature flag making it read-only.
@@ -261,10 +261,10 @@ still unclaimed:
 3. Send:
 
    ```bash
-   RESEND_API_KEY=... npm run -w apps/api script:cutover-mailout -- --send
+   POSTMARK_SERVER_TOKEN=... npm run -w apps/api script:cutover-mailout -- --send
    ```
 
-4. Monitor Resend dashboard for bounces. Hard bounces are expected —
+4. Monitor the Postmark activity stream for bounces. Hard bounces are expected —
    defunct email providers are exactly why these accounts are
    unclaimed.
 

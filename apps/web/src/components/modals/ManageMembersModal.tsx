@@ -113,6 +113,7 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                           setEditingRole((r) => ({ ...r, [rowKey]: e.target.value }))
                         }
                         placeholder="Role"
+                        aria-label="Role"
                         className="h-7 mt-1 text-xs"
                       />
                     ) : (
@@ -157,10 +158,14 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                       </>
                     ) : (
                       <>
+                        {/* Every row's buttons read identically out of
+                            context, so each name carries its member. The
+                            visible text stays a substring (SC 2.5.3). */}
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
+                          aria-label={`Edit role for ${m.person.fullName}`}
                           onClick={() =>
                             setEditingRole((r) => ({ ...r, [rowKey]: m.role ?? '' }))
                           }
@@ -172,6 +177,7 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                             type="button"
                             size="sm"
                             variant="outline"
+                            aria-label={`Make maintainer: ${m.person.fullName}`}
                             onClick={() => personSlug && handleChangeMaintainer(personSlug, rowKey)}
                             disabled={busySlug === rowKey}
                           >
@@ -183,6 +189,7 @@ export function ManageMembersModal({ open, onOpenChange, project }: ManageMember
                             type="button"
                             size="sm"
                             variant="ghost"
+                            aria-label={`Remove ${m.person.fullName}`}
                             onClick={() => personSlug && handleRemove(personSlug, rowKey)}
                             disabled={busySlug === rowKey}
                             className="text-destructive hover:text-destructive"

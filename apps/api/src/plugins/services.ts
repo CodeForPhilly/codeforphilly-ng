@@ -30,7 +30,8 @@ import { GitHubAccountService } from '../services/github-account.js';
 import { AccountClaimService } from '../services/account-claim.js';
 import { LoggingNotifier, type Notifier } from '../notify/index.js';
 import { EmailNotifier } from '../notify/email-notifier.js';
-import { Resend } from 'resend';
+import { PostmarkTransport } from '../notify/postmark-transport.js';
+import { ServerClient } from 'postmark';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -67,13 +68,17 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
   // (relevant in tests where multiple buildApp() runs share the module).
   invalidateFacets();
   const fts = buildFtsEngine(state);
-  // Email notifier when RESEND_API_KEY is configured; otherwise fall back to
-  // the no-op LoggingNotifier so tests + dev runs work without a real key.
+  // Email notifier when POSTMARK_SERVER_TOKEN is configured; otherwise fall
+  // back to the no-op LoggingNotifier so tests + dev runs work without a
+  // real token.
   // Slack DM is deferred (#95) — when it lands it'll compose alongside email
   // here or via a CompoundNotifier wrapper.
-  const notifier: Notifier = fastify.config.RESEND_API_KEY
+  const notifier: Notifier = fastify.config.POSTMARK_SERVER_TOKEN
     ? new EmailNotifier({
-        resend: new Resend(fastify.config.RESEND_API_KEY),
+        transport: new PostmarkTransport({
+          client: new ServerClient(fastify.config.POSTMARK_SERVER_TOKEN),
+          messageStream: fastify.config.POSTMARK_MESSAGE_STREAM,
+        }),
         fromAddress: fastify.config.CFP_NOTIFICATION_FROM,
         siteHost: fastify.config.CFP_SITE_HOST,
         logger: fastify.log,

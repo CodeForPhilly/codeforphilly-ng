@@ -59,10 +59,27 @@ Content-Type: application/samlmetadata+xml; charset=utf-8
 
 The metadata declares:
 
-- `entityID` — our IdP entity ID, e.g., `https://codeforphilly.org/api/saml/slack/metadata`
-- `SingleSignOnService` binding(s) — `urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST` (for SP-initiated) and `urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect`
+- `entityID` — our IdP entity ID: the value of `SAML_ENTITY_ID` (default `https://codeforphilly.org/api/saml/slack/metadata`). See [IdP identity and hosts](#idp-identity-and-hosts) — this is a stable logical identifier, not a reflection of whatever host is serving the request.
+- `SingleSignOnService` binding(s) — `urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST` (for SP-initiated) and `urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect`, both with `Location="https://<CFP_SITE_HOST>/api/saml/slack/sso"`
 - `X509Certificate` — the IdP cert from `SAML_CERTIFICATE`
 - NameID formats supported: `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent`
+
+## IdP identity and hosts
+
+Three distinct hosts/identifiers appear in the IdP's output, and each comes from its own setting. They must never be conflated:
+
+| Value | Source | Where it appears |
+| ----- | ------ | ---------------- |
+| IdP entity ID | `SAML_ENTITY_ID` (default `https://codeforphilly.org/api/saml/slack/metadata`) | Metadata `entityID`; `<saml:Issuer>` on every Response **and** every Assertion |
+| Our SSO endpoint URLs | `https://<CFP_SITE_HOST>/api/saml/slack/...` | Metadata `SingleSignOnService/@Location` (both bindings) |
+| Slack workspace host | `SLACK_TEAM_HOST` (default `codeforphilly.slack.com`) | ACS URL (`https://<SLACK_TEAM_HOST>/sso/saml`) — `Destination`, `Recipient`, and the auto-submit form action; NameID `NameQualifier`; the `/launch` and `/chat` redirect target |
+
+Rules:
+
+- **The entity ID is a stable logical identifier.** Slack stores it at setup time and matches every assertion's `Issuer` against it, so it must not change when the site moves hosts. In particular it does **not** follow `CFP_SITE_HOST`: production runs at `next.codeforphilly.org` before cutover and `codeforphilly.org` after, and the entity ID is `https://codeforphilly.org/api/saml/slack/metadata` throughout. It is a URI by convention only — nothing fetches it. Change `SAML_ENTITY_ID` only when deliberately re-registering the IdP with Slack.
+- **The metadata `entityID` and the assertion `Issuer` are the same value**, read from the same setting. A metadata document that advertises one entity ID while assertions carry another is a bug.
+- **Endpoint URLs follow the host actually serving the API.** `SingleSignOnService/@Location` is built from `CFP_SITE_HOST`, so the metadata always points Slack at a URL that resolves to this deployment. When `CFP_SITE_HOST` flips at cutover the metadata's endpoint URLs change and Slack's IdP config should be refreshed from the metadata URL — but the entity ID (and therefore the trust relationship) is untouched.
+- **Nothing IdP-side is ever built from `SLACK_TEAM_HOST` other than the Slack-side values in the table.** `SLACK_TEAM_HOST` is Slack's host; it never appears in our entity ID or our endpoint URLs.
 
 ## GET /api/saml/slack/launch
 
@@ -132,12 +149,13 @@ There's no v1 plan to vary this — keeping the hook just preserves the legacy e
 
 ## Cert + key rotation
 
-The cert + private key are env-injected:
+The cert + private key are env-injected, alongside the IdP identity:
 
 | Env var | Purpose |
 | ------- | ------- |
 | `SAML_PRIVATE_KEY` | PEM-encoded RSA private key for signing assertions |
 | `SAML_CERTIFICATE` | PEM-encoded X.509 cert (the public half) |
+| `SAML_ENTITY_ID` | Optional. The IdP entity ID / assertion `Issuer` (default `https://codeforphilly.org/api/saml/slack/metadata`). Not a secret. See [IdP identity and hosts](#idp-identity-and-hosts). |
 
 Slack's admin panel holds the matching public cert. Rotation is a coordinated procedure (per the legacy `docs/operations/update-saml2-certificate.md`):
 

@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import {
   Dialog,
   DialogContent,
@@ -154,6 +155,9 @@ export function Account() {
   const sessions = sessionsQ.data?.data ?? [];
 
   return (
+    <>
+    {/* specs/behaviors/app-shell.md → Breadcrumbs: Settings */}
+    <Breadcrumbs items={[{ label: 'Settings' }]} />
     <div className="container mx-auto px-4 py-8 max-w-3xl space-y-6">
       <h1 className="text-2xl font-bold">Account Settings</h1>
 
@@ -183,6 +187,7 @@ export function Account() {
                   rel="noopener noreferrer"
                 >
                   Manage on GitHub →
+                  <span className="sr-only"> (opens in new tab)</span>
                 </a>
               </Button>
             ) : (
@@ -255,10 +260,10 @@ export function Account() {
             <table className="w-full text-sm">
               <thead className="text-xs text-muted-foreground uppercase tracking-wide">
                 <tr>
-                  <th className="text-left font-medium pb-2">Device</th>
-                  <th className="text-left font-medium pb-2">IP</th>
-                  <th className="text-left font-medium pb-2">Issued</th>
-                  <th className="text-right font-medium pb-2">Status</th>
+                  <th scope="col" className="text-left font-medium pb-2">Device</th>
+                  <th scope="col" className="text-left font-medium pb-2">IP</th>
+                  <th scope="col" className="text-left font-medium pb-2">Issued</th>
+                  <th scope="col" className="text-right font-medium pb-2">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -266,8 +271,10 @@ export function Account() {
                   <tr key={s.jti}>
                     <td className="py-2">{parseUA(s.userAgent)}</td>
                     <td className="py-2 font-mono text-xs">{s.ipAddress}</td>
-                    <td className="py-2" title={formatAbsoluteDate(s.issuedAt)}>
-                      {formatRelativeTime(s.issuedAt)}
+                    <td className="py-2">
+                      <time dateTime={s.issuedAt} title={formatAbsoluteDate(s.issuedAt)}>
+                        {formatRelativeTime(s.issuedAt)}
+                      </time>
                     </td>
                     <td className="py-2 text-right">
                       {s.current ? (
@@ -279,6 +286,7 @@ export function Account() {
                           type="button"
                           size="sm"
                           variant="outline"
+                          aria-label={`Revoke session on ${parseUA(s.userAgent)}`}
                           onClick={() => revokeSession(s.jti)}
                         >
                           Revoke
@@ -373,5 +381,6 @@ export function Account() {
         </CardContent>
       </Card>
     </div>
+    </>
   );
 }

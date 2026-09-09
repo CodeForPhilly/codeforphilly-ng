@@ -108,6 +108,11 @@ integration ([specs/api/saml.md](../../specs/api/saml.md)).
 - **Rotation impact:** Slack stops trusting assertions until its IdP config
   is updated with the new cert. **Do not rotate without coordinating with
   the Slack workspace admin.**
+- **Not a secret, but paired:** `SAML_ENTITY_ID` (ConfigMap, optional) is
+  the IdP identity Slack stores alongside this cert. It defaults to
+  `https://codeforphilly.org/api/saml/slack/metadata` and must stay stable
+  across host changes — see [deploy.md](deploy.md#environment-variables-reference)
+  and [specs/api/saml.md](../../specs/api/saml.md#idp-identity-and-hosts).
 - **Rotation procedure:**
   1. Generate new key + cert.
   2. Upload the *new cert* to Slack as a secondary signing cert.
@@ -118,22 +123,28 @@ integration ([specs/api/saml.md](../../specs/api/saml.md)).
 - **Cadence:** every 36 months (cert expiry), plus immediately on
   suspected leak.
 
-### `RESEND_API_KEY`
+### `POSTMARK_SERVER_TOKEN`
 
-API key for the [Resend](https://resend.com) HTTPS email API. Drives the
-help-wanted email notifier. When unset, the API falls back to a no-op
-`LoggingNotifier` — convenient for local dev but means real users get no
-outbound mail in production.
+Server API token for the [Postmark](https://postmarkapp.com) HTTPS email
+API. Drives the email notifier (help-wanted, welcome, password-reset).
+When unset, the API falls back to a no-op `LoggingNotifier` — convenient
+for local dev but means real users get no outbound mail in production.
 
-- **Generate:** Resend dashboard → API Keys → Create API key. Scope to
-  send-only on the `codeforphilly.org` sender domain.
-- **Pre-flight:** the sender domain (`codeforphilly.org`) must be verified
-  in Resend with SPF + DKIM + DMARC records before flipping this on.
-  Unverified domains get hard-bounced or spam-filtered immediately.
+- **Generate:** Postmark → the Code for Philly account (the same one the
+  legacy site sends through) → Servers → pick or create a server for this
+  app → API Tokens → Create token. One server per environment (sandbox
+  vs. prod) keeps activity streams and bounces separate.
+- **Pre-flight:** the sender domain (`codeforphilly.org`) is already
+  verified (SPF + DKIM + Return-Path) in the Postmark account from the
+  legacy site; confirm it still shows verified under Sender Signatures
+  before flipping this on. The optional `POSTMARK_MESSAGE_STREAM`
+  ConfigMap value (default `outbound`) must name a transactional stream
+  that exists on the chosen server.
 - **Rotation impact:** none in-flight (no in-flight email state on our
-  end); next outbound mail uses the new key.
-- **Rotation procedure:** create new key in Resend → update sealed-secret
-  → `kubectl rollout restart` → revoke the old key in Resend.
+  end); next outbound mail uses the new token.
+- **Rotation procedure:** create new token in Postmark → update
+  sealed-secret → `kubectl rollout restart` → delete the old token in
+  Postmark.
 - **Cadence:** every 12 months, plus immediately on suspected leak.
 
 ### Data-repo deploy key

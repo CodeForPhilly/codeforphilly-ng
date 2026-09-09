@@ -11,10 +11,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { openStore } from 'gitsheets';
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
 import { PersonSchema, ProjectSchema } from '@cfp/shared/schemas';
 import { FilesystemPrivateStore } from '../src/store/private/filesystem.js';
 import { Store } from '../src/store/store.js';
+import { openPublicStore } from '../src/store/public.js';
 import { createTestRepo } from './helpers/test-repo.js';
+import { createFullDataRepo } from './helpers/test-full-repo.js';
+
+const exec = promisify(execFile);
 
 const now = '2026-05-16T00:00:00Z';
 const uuid = (n: number) => `01951a3c-0000-7000-8000-${String(n).padStart(12, '0')}`;
@@ -97,6 +104,61 @@ describe('public store (gitsheets)', () => {
       );
     } finally {
       await cleanup();
+    }
+  });
+
+  it('drops null/undefined-valued keys before writing (gitsheets 2.x marshal contract)', async () => {
+    // gitsheets 2.x (Rust core) throws when asked to marshal a null- or
+    // undefined-valued field to TOML; 1.4.1 silently dropped such keys. Our
+    // Zod schemas use `.nullable().optional()` and write services normalize
+    // cleared fields to `?? null`, so openPublicStore's validator wrapper must
+    // strip those keys — keeping the on-disk form byte-identical to 1.4.1
+    // (an absent optional field is simply an absent TOML key). See
+    // apps/api/src/store/public.ts → stripNullish / asValidator.
+    const repo = await createFullDataRepo();
+    try {
+      const { store } = await openPublicStore(repo.path);
+
+      await store.transact(
+        { message: 'test: person with nullish fields', author: { name: 'test', email: 'test@cfp.test' } },
+        async (tx) => {
+          await tx.people.upsert(
+            PersonSchema.parse({
+              id: uuid(70),
+              slug: 'nullish-person',
+              fullName: 'Nullish Person',
+              accountLevel: 'user',
+              legacyId: 31618, // integer w/o underscore (2.x re-baseline)
+              bio: null, // explicit null — must be dropped, not written
+              avatarKey: null,
+              deletedAt: null,
+              createdAt: now,
+              updatedAt: now,
+            }),
+          );
+        },
+      );
+
+      const { stdout: toml } = await exec(
+        'git',
+        ['show', 'HEAD:people/nullish-person.toml'],
+        { cwd: repo.path },
+      );
+
+      // Present fields survive.
+      expect(toml).toContain('slug = "nullish-person"');
+      expect(toml).toContain('fullName = "Nullish Person"');
+      // Integer re-baseline: no underscore separator under the Rust core.
+      expect(toml).toContain('legacyId = 31618');
+      // Null-valued keys are absent from disk (never serialized as `null`).
+      expect(toml).not.toMatch(/^bio\s*=/m);
+      expect(toml).not.toMatch(/^avatarKey\s*=/m);
+      expect(toml).not.toMatch(/^deletedAt\s*=/m);
+      // No field is assigned a bare `null` value. (Substring 'null' on its own
+      // would false-match the fixture's "Nullish Person" / "nullish-person".)
+      expect(toml).not.toMatch(/=\s*null\b/);
+    } finally {
+      await repo.cleanup();
     }
   });
 });

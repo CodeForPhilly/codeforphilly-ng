@@ -22,12 +22,14 @@ export interface GitHubEmail {
 /**
  * A captured outbound email send — inspectable in tests.
  */
+/** Postmark `POST /email` body — PascalCase fields as the API wants them. */
 export interface CapturedEmail {
-  readonly to: string | string[];
-  readonly from: string;
-  readonly subject: string;
-  readonly html?: string;
-  readonly text?: string;
+  readonly To: string;
+  readonly From: string;
+  readonly Subject: string;
+  readonly HtmlBody?: string;
+  readonly TextBody?: string;
+  readonly MessageStream?: string;
 }
 
 /**
@@ -92,23 +94,32 @@ export function createGitHubMock(defaults?: {
 }
 
 /**
- * No-op Resend mock. Intercepts POST /emails via MSW and collects sends
- * into an in-memory array for inspection. Does not call the real Resend API.
+ * No-op Postmark mock. Intercepts POST /email via MSW and collects sends
+ * into an in-memory array for inspection. Does not call the real Postmark API.
  *
  * Usage:
- *   const { server, sentEmails } = createResendMock();
+ *   const { server, sentEmails } = createPostmarkMock();
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
  *   afterEach(() => { server.resetHandlers(); sentEmails.length = 0; });
  *   afterAll(() => server.close());
  */
-export function createResendMock() {
+export function createPostmarkMock() {
   const sentEmails: CapturedEmail[] = [];
 
   const server = setupServer(
-    http.post('https://api.resend.com/emails', async ({ request }) => {
+    http.post('https://api.postmarkapp.com/email', async ({ request }) => {
       const body = (await request.json()) as CapturedEmail;
       sentEmails.push(body);
-      return HttpResponse.json({ id: `mock-${Date.now()}` }, { status: 200 });
+      return HttpResponse.json(
+        {
+          To: body.To,
+          SubmittedAt: new Date().toISOString(),
+          MessageID: `mock-${Date.now()}`,
+          ErrorCode: 0,
+          Message: 'OK',
+        },
+        { status: 200 },
+      );
     }),
   );
 

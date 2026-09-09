@@ -133,13 +133,13 @@ export function ProjectsIndex() {
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-2">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            Civic Projects Directory
-            <span className="inline-flex items-center rounded-full bg-muted text-muted-foreground px-2.5 py-0.5 text-sm">
-              {totalItems}
-            </span>
-          </h1>
+        {/* The count is a sibling of the h1, not part of it: an accessible
+            name that mutates on every filter change is a moving target. */}
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold">Civic Projects Directory</h1>
+          <span className="inline-flex items-center rounded-full bg-muted text-muted-foreground px-2.5 py-0.5 text-sm">
+            {totalItems}
+          </span>
         </div>
         {person && (
           <Button asChild>
@@ -200,16 +200,20 @@ export function ProjectsIndex() {
                       />
                     );
                   })}
-                  {stages.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => handleToggleStage(s)}
-                      className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs hover:bg-accent"
-                    >
-                      Stage: {STAGES[s as Stage]?.label ?? s} ×
-                    </button>
-                  ))}
+                  {stages.map((s) => {
+                    const stageLabel = STAGES[s as Stage]?.label ?? s;
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => handleToggleStage(s)}
+                        aria-label={`Remove filter: Stage: ${stageLabel}`}
+                        className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs hover:bg-accent"
+                      >
+                        Stage: {stageLabel} ×
+                      </button>
+                    );
+                  })}
                   <button
                     type="button"
                     onClick={handleClearAll}
