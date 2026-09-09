@@ -109,17 +109,16 @@ export function HelpWantedIndex() {
       <PostRolePickerModal open={pickerOpen} onOpenChange={setPickerOpen} />
 
       <div className="grid grid-cols-1 md:grid-cols-[16rem_1fr] gap-6">
-        {/* A plain div, not an <aside>: FacetSidebar renders its own labelled
-            <aside>, and wrapping it in another one nests two `complementary`
-            landmarks — the outer one unlabelled. */}
-        <div>
-          <FacetSidebar
-            facets={facets}
-            activeTags={tags}
-            onToggleTag={handleToggleTag}
-            tabs={['tech', 'topic']}
-          />
-
+        {/* The Commitment radios ride inside FacetSidebar's own labelled
+            <aside> rather than a second wrapper: one `complementary`
+            landmark ("Filters") holds every filter control, and nothing is
+            orphaned outside it. */}
+        <FacetSidebar
+          facets={facets}
+          activeTags={tags}
+          onToggleTag={handleToggleTag}
+          tabs={['tech', 'topic']}
+        >
           <div className="mt-6">
             <h2 className="text-xs font-semibold uppercase tracking-wide mb-2 text-muted-foreground">
               Commitment
@@ -151,7 +150,7 @@ export function HelpWantedIndex() {
               ))}
             </fieldset>
           </div>
-        </div>
+        </FacetSidebar>
 
         <div>
           {/* HelpWantedCard renders an h3 (it also sits under section h2s on

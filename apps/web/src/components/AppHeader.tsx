@@ -182,8 +182,10 @@ function AboutDropdown() {
   );
 }
 
+// `block` so each link fills its row: inside the sheet's <li>s an inline
+// anchor would shrink the tap target to the width of its text.
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  `text-sm font-medium transition-colors hover:text-primary ${
+  `block text-sm font-medium transition-colors hover:text-primary ${
     isActive ? 'text-primary' : 'text-muted-foreground'
   }`;
 
@@ -368,7 +370,7 @@ export function AppHeader() {
                   <li>
                     <a
                       href="mailto:hello@codeforphilly.org"
-                      className="text-sm font-medium text-muted-foreground hover:text-primary"
+                      className="block text-sm font-medium text-muted-foreground hover:text-primary"
                       onClick={() => setMobileOpen(false)}
                     >
                       Contact
@@ -382,7 +384,7 @@ export function AppHeader() {
                       href={GITHUB_URL}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm font-medium text-muted-foreground hover:text-primary"
+                      className="block text-sm font-medium text-muted-foreground hover:text-primary"
                       onClick={() => setMobileOpen(false)}
                     >
                       GitHub
