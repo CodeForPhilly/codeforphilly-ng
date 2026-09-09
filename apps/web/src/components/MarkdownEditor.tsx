@@ -149,13 +149,18 @@ export function MarkdownEditor({
   };
 
   const handleToolbarKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Start from the button the key landed on, not from `activeButton`:
+    // that state is what the render reads for tabIndex, but it lags a
+    // focus change by a render cycle, so the event target is the truth.
+    const current = toolbarRefs.current.indexOf(e.target as HTMLButtonElement);
+    if (current === -1) return;
     const last = TOOLBAR.length - 1;
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      focusToolbarButton(activeButton === last ? 0 : activeButton + 1);
+      focusToolbarButton(current === last ? 0 : current + 1);
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      focusToolbarButton(activeButton === 0 ? last : activeButton - 1);
+      focusToolbarButton(current === 0 ? last : current - 1);
     } else if (e.key === 'Home') {
       e.preventDefault();
       focusToolbarButton(0);

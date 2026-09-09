@@ -38,7 +38,7 @@ describe('MarkdownEditor formatting toolbar', () => {
     ] as const) {
       const btn = within(toolbar).getByRole('button', { name });
       expect(btn.textContent).toBe(visible);
-      expect(name.toLowerCase()).toContain(visible.toLowerCase());
+      expect(btn.getAttribute('aria-label')?.toLowerCase()).toContain(visible.toLowerCase());
     }
   });
 
