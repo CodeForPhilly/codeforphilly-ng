@@ -176,11 +176,11 @@ export function AccountClaim() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <div
-                className="text-xs text-muted-foreground"
-                title={formatAbsoluteDate(c.lastActiveAt)}
-              >
-                Last updated {formatRelativeTime(c.lastActiveAt)}
+              <div className="text-xs text-muted-foreground">
+                Last updated{' '}
+                <time dateTime={c.lastActiveAt} title={formatAbsoluteDate(c.lastActiveAt)}>
+                  {formatRelativeTime(c.lastActiveAt)}
+                </time>
               </div>
               {c.matchedEmail ? (
                 <div className="rounded-md bg-green-100 dark:bg-green-900/30 text-green-900 dark:text-green-100 px-3 py-2 text-xs">

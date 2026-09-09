@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { Routes, Route } from 'react-router';
 import { renderScreen, mockOk } from './test-utils.js';
 import { PersonDetail } from '../src/screens/PersonDetail.js';
@@ -41,6 +41,31 @@ function makeFetchMock(person: typeof BASE_PERSON) {
     return Promise.resolve(new Response(null, { status: 404 }));
   }) as typeof fetch;
 }
+
+describe('PersonDetail breadcrumbs', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders the "Members › <fullName>" trail from app-shell.md', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(makeFetchMock(BASE_PERSON));
+    renderScreen(
+      <AuthProvider>
+        <Routes>
+          <Route path="/members/:slug" element={<PersonDetail />} />
+        </Routes>
+      </AuthProvider>,
+      { initialEntries: ['/members/jane-doe'] },
+    );
+
+    const trail = await screen.findByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Members' })).toHaveAttribute(
+      'href',
+      '/members',
+    );
+    expect(within(trail).getByText('Jane Doe')).toHaveAttribute('aria-current', 'page');
+  });
+});
 
 describe('PersonDetail Contact sidebar', () => {
   afterEach(() => {

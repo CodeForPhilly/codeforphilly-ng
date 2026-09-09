@@ -30,6 +30,7 @@ export function ConnectGitHubBanner() {
   if (dismissed) return null;
 
   return (
+    <>
     <div
       role="region"
       aria-label="Connect GitHub"
@@ -58,5 +59,14 @@ export function ConnectGitHubBanner() {
         </Button>
       </div>
     </div>
+    {/* The banner mounts only once auth resolves, and a landmark arriving
+        after first paint is never announced on its own — so mirror the
+        headline in a live region (the Sponsor / ProfileEdit idiom). It stays
+        a region rather than becoming one: a late-mounted status container
+        is not read reliably either, and it would swallow the two buttons. */}
+    <span role="status" className="sr-only">
+      Connect your GitHub account
+    </span>
+    </>
   );
 }

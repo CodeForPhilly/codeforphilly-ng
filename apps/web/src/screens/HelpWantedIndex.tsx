@@ -90,12 +90,14 @@ export function HelpWantedIndex() {
     <div className="container mx-auto px-4 py-8">
       <header className="mb-6 flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            Help Wanted
+          {/* The count is a sibling of the h1, not part of it: an accessible
+              name that mutates on every filter change is a moving target. */}
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold">Help Wanted</h1>
             <span className="inline-flex items-center rounded-full bg-muted text-muted-foreground px-2.5 py-0.5 text-sm">
               {totalItems}
             </span>
-          </h1>
+          </div>
           <p className="text-muted-foreground mt-2 max-w-3xl">
             Concrete, time-boxed ways to contribute to Code for Philly projects.
           </p>
@@ -107,18 +109,20 @@ export function HelpWantedIndex() {
       <PostRolePickerModal open={pickerOpen} onOpenChange={setPickerOpen} />
 
       <div className="grid grid-cols-1 md:grid-cols-[16rem_1fr] gap-6">
-        <aside>
-          <FacetSidebar
-            facets={facets}
-            activeTags={tags}
-            onToggleTag={handleToggleTag}
-            tabs={['tech', 'topic']}
-          />
-
+        {/* The Commitment radios ride inside FacetSidebar's own labelled
+            <aside> rather than a second wrapper: one `complementary`
+            landmark ("Filters") holds every filter control, and nothing is
+            orphaned outside it. */}
+        <FacetSidebar
+          facets={facets}
+          activeTags={tags}
+          onToggleTag={handleToggleTag}
+          tabs={['tech', 'topic']}
+        >
           <div className="mt-6">
-            <h3 className="text-xs font-semibold uppercase tracking-wide mb-2 text-muted-foreground">
+            <h2 className="text-xs font-semibold uppercase tracking-wide mb-2 text-muted-foreground">
               Commitment
-            </h3>
+            </h2>
             <fieldset className="flex flex-col gap-1">
               <legend className="sr-only">Maximum commitment hours per week</legend>
               {COMMITMENT_OPTIONS.map((o) => (
@@ -146,9 +150,13 @@ export function HelpWantedIndex() {
               ))}
             </fieldset>
           </div>
-        </aside>
+        </FacetSidebar>
 
         <div>
+          {/* HelpWantedCard renders an h3 (it also sits under section h2s on
+              Home, TagDetail and Volunteer), so the results list needs its own
+              h2 or the page skips h1 → h3. Visually redundant, hence sr-only. */}
+          <h2 className="sr-only">Results</h2>
           <div className="flex items-center gap-2 flex-wrap text-sm mb-4">
             {hasActiveFilters && (
               <>

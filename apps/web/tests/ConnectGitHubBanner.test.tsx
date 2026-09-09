@@ -77,6 +77,9 @@ describe('ConnectGitHubBanner', () => {
     const region = screen.getByRole('region', { name: /connect github/i });
     expect(region.querySelector('form[action="/api/auth/link-github"]')).not.toBeNull();
     expect(screen.getByRole('button', { name: /dismiss/i })).toBeInTheDocument();
+    // The landmark mounts after first paint, so its arrival is announced
+    // through a sibling live region carrying the headline.
+    expect(screen.getByRole('status')).toHaveTextContent('Connect your GitHub account');
   });
 
   it('renders for a user whose session was minted via password reset', async () => {

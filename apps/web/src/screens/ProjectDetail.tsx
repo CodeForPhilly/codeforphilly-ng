@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -17,6 +18,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownView } from '@/components/MarkdownView';
 import { StageProgressBar, StageBadge } from '@/components/StageBadge';
 import { StageInfoDialog } from '@/components/StageInfoDialog';
@@ -32,6 +34,24 @@ import { FillRoleModal } from '@/components/modals/FillRoleModal';
 import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError, type HelpWantedRoleResponse } from '@/lib/api';
 import { formatRelativeTime, formatAbsoluteDate } from '@/lib/time';
+
+/**
+ * Clipboard write with a toast either way. `navigator.clipboard` is
+ * undefined outside secure contexts (plain-http dev hosts, some webviews),
+ * and reading `.writeText` off it throws synchronously — before any
+ * `.catch()` could see it — so the guard sits outside the promise chain.
+ */
+function copyWithToast(text: string, ok: string, fail: string) {
+  const clipboard: Clipboard | undefined = navigator.clipboard;
+  if (!clipboard) {
+    toast.error(fail);
+    return;
+  }
+  void clipboard
+    .writeText(text)
+    .then(() => toast.success(ok))
+    .catch(() => toast.error(fail));
+}
 
 interface ProjectDetailProps {
   anchor?: 'update' | 'buzz';
@@ -187,6 +207,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
   const allTags = [...project.tags.tech, ...project.tags.topic, ...project.tags.event];
 
   return (
+    <>
+    {/* specs/behaviors/app-shell.md → Breadcrumbs: Projects › <title> */}
+    <Breadcrumbs items={[{ label: 'Projects', href: '/projects' }, { label: project.title }]} />
     <div className="container mx-auto px-4 py-8">
       {/* Soft-delete banner — staff only (project-detail.md) */}
       {showDeletedBanner && (
@@ -223,7 +246,11 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
               perms.canDelete) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline">More ▾</Button>
+                  {/* "More ▾" says nothing about what it opens; the label
+                      keeps the visible word so speech input still works. */}
+                  <Button variant="outline" aria-label="More actions">
+                    More ▾
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {perms.canManageMembers && (
@@ -310,10 +337,13 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                         {role.tags.topic.map((t) => <TagChip key={`topic.${t.slug}`} tag={t} />)}
                       </div>
                       <div className="flex items-center justify-end gap-2">
+                        {/* One row per open role, so these names repeat
+                            verbatim unless they carry the role title. */}
                         {role.permissions.canFill && (
                           <Button
                             size="sm"
                             variant="outline"
+                            aria-label={`Mark filled: ${role.title}`}
                             onClick={() => setFillRole(role)}
                           >
                             Mark filled
@@ -323,6 +353,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                           <Button
                             size="sm"
                             variant="ghost"
+                            aria-label={`Close ${role.title}`}
                             onClick={() => {
                               if (!window.confirm(`Close "${role.title}" without filling?`)) return;
                               api.helpWantedRole
@@ -432,14 +463,15 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
 
           {/* Project info */}
           <section>
-            <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+            <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
               Project Info
-            </h3>
+            </h2>
             <div className="flex flex-col gap-2">
               {project.links.usersUrl && (
                 <Button asChild>
                   <a href={project.links.usersUrl} target="_blank" rel="noopener noreferrer">
                     Users' Site
+                    <span className="sr-only"> (opens in new tab)</span>
                   </a>
                 </Button>
               )}
@@ -447,6 +479,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                 <Button asChild variant="outline">
                   <a href={project.links.developersUrl} target="_blank" rel="noopener noreferrer">
                     Developers' Site
+                    <span className="sr-only"> (opens in new tab)</span>
                   </a>
                 </Button>
               )}
@@ -464,9 +497,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           {project.memberships.length > 0 && (
             <section>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                   Members ({project.counts.members})
-                </h3>
+                </h2>
                 {perms.canManageMembers && (
                   <Button
                     size="sm"
@@ -495,9 +528,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           {/* Tags */}
           {allTags.length > 0 && (
             <section>
-              <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+              <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
                 Tags
-              </h3>
+              </h2>
               <div className="space-y-2">
                 {project.tags.tech.length > 0 && (
                   <div>
@@ -535,15 +568,23 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
 
           {/* Share */}
           <section>
-            <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+            <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
               Share
-            </h3>
+            </h2>
             <div className="flex flex-col gap-2">
+              {/* Both buttons used to copy silently — nothing changed on
+                  screen, so nobody (sighted or not) could tell it worked.
+                  sonner is what this screen's own modals already use for
+                  action confirmations. */}
               <Button
                 variant="outline"
-                onClick={() => {
-                  void navigator.clipboard.writeText(`https://codeforphilly.org/projects/${slug}`);
-                }}
+                onClick={() =>
+                  copyWithToast(
+                    `https://codeforphilly.org/projects/${slug}`,
+                    'Link copied',
+                    "Couldn't copy the link",
+                  )
+                }
               >
                 Copy link
               </Button>
@@ -553,8 +594,10 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                   // Copy a pre-formatted Slack message. Spec calls this
                   // out as either system-share or copy; copy works in every
                   // browser context without a Web Share API gate.
-                  void navigator.clipboard.writeText(
+                  copyWithToast(
                     `Check out ${project.title} on Code for Philly: https://codeforphilly.org/projects/${slug}`,
+                    'Slack message copied',
+                    "Couldn't copy the message",
                   );
                 }}
               >
@@ -567,15 +610,15 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
           <section className="text-sm text-muted-foreground space-y-1">
             <p>
               <span className="font-medium text-foreground">Created:</span>{' '}
-              <span title={formatAbsoluteDate(project.createdAt)}>
+              <time dateTime={project.createdAt} title={formatAbsoluteDate(project.createdAt)}>
                 {formatRelativeTime(project.createdAt)}
-              </span>
+              </time>
             </p>
             <p>
               <span className="font-medium text-foreground">Last updated:</span>{' '}
-              <span title={formatAbsoluteDate(project.updatedAt)}>
+              <time dateTime={project.updatedAt} title={formatAbsoluteDate(project.updatedAt)}>
                 {formatRelativeTime(project.updatedAt)}
-              </span>
+              </time>
             </p>
             <p className="flex items-center gap-2">
               <span className="font-medium text-foreground">Stage:</span>
@@ -584,6 +627,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
             <p>
               <button
                 type="button"
+                aria-haspopup="dialog"
                 onClick={() => setStageInfoOpen(true)}
                 className="text-primary underline hover:no-underline"
               >
@@ -602,6 +646,7 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                 className="hover:text-foreground"
               >
                 Edit on GitHub →
+                <span className="sr-only"> (opens in new tab)</span>
               </a>
             </section>
           )}
@@ -678,5 +723,6 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 }

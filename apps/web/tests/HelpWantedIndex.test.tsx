@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { renderScreen, mockPaginated } from './test-utils.js';
 import { HelpWantedIndex } from '../src/screens/HelpWantedIndex.js';
 import { AuthProvider } from '../src/hooks/useAuth.js';
@@ -77,5 +77,23 @@ describe('HelpWantedIndex', () => {
     expect(screen.getByLabelText('≤ 2 hrs/week')).toBeInTheDocument();
     expect(screen.getByLabelText('≤ 5 hrs/week')).toBeInTheDocument();
     expect(screen.getByLabelText('≤ 10 hrs/week')).toBeInTheDocument();
+  });
+
+  it('keeps every filter control inside the one Filters landmark', async () => {
+    renderScreen(
+      <AuthProvider>
+        <HelpWantedIndex />
+      </AuthProvider>,
+      { initialEntries: ['/help-wanted'] },
+    );
+
+    const sidebars = await screen.findAllByRole('complementary');
+    expect(sidebars).toHaveLength(1);
+    const sidebar = sidebars[0]!;
+    expect(sidebar).toHaveAccessibleName('Filters');
+    // Commitment rides inside the same landmark as the tag facets rather
+    // than sitting orphaned beside it.
+    expect(within(sidebar).getByRole('heading', { name: 'Commitment', level: 2 })).toBeInTheDocument();
+    expect(within(sidebar).getByLabelText('≤ 2 hrs/week')).toBeInTheDocument();
   });
 });

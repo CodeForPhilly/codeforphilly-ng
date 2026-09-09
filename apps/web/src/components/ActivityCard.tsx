@@ -33,9 +33,13 @@ function UpdateCard({ update }: { update: ProjectUpdateResponse }) {
             Update #{update.number}
           </Link>
         </div>
-        <span title={formatAbsoluteDate(update.createdAt)} className="text-xs text-muted-foreground">
+        <time
+          dateTime={update.createdAt}
+          title={formatAbsoluteDate(update.createdAt)}
+          className="text-xs text-muted-foreground"
+        >
           {formatRelativeTime(update.createdAt)}
-        </span>
+        </time>
       </div>
 
       {update.author && (
@@ -69,9 +73,9 @@ function BuzzCard({ buzz }: { buzz: ProjectBuzzResponse }) {
             {buzz.project.title}
           </Link>
           <span> · Buzz · </span>
-          <span title={formatAbsoluteDate(buzz.publishedAt)}>
+          <time dateTime={buzz.publishedAt} title={formatAbsoluteDate(buzz.publishedAt)}>
             {formatAbsoluteDate(buzz.publishedAt, { month: 'short', day: 'numeric', year: 'numeric' })}
-          </span>
+          </time>
         </span>
       </div>
 
@@ -89,6 +93,7 @@ function BuzzCard({ buzz }: { buzz: ProjectBuzzResponse }) {
           <h3 className="text-base font-semibold mb-0.5">
             <a href={buzz.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
               {buzz.headline}
+              <span className="sr-only"> (opens in new tab)</span>
             </a>
           </h3>
           <p className="text-xs text-muted-foreground mb-2">{hostname}</p>

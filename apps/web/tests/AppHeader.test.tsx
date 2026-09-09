@@ -53,7 +53,9 @@ describe('AppHeader', () => {
 
   it('renders the GitHub link in the utility cluster', async () => {
     renderWithRouter(<Wrapped />);
-    const gh = screen.getByRole('link', { name: 'Code for Philly on GitHub' });
+    const gh = screen.getByRole('link', {
+      name: 'Code for Philly on GitHub (opens in new tab)',
+    });
     expect(gh).toHaveAttribute('href', 'https://github.com/CodeForPhilly');
     expect(gh).toHaveAttribute('target', '_blank');
     expect(gh).toHaveAttribute('rel', 'noopener noreferrer');
@@ -121,6 +123,24 @@ describe('AppHeader', () => {
     expect(dialog).toBeInTheDocument();
   });
 
+  it('marks up both navs as lists', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<Wrapped />);
+
+    const desktop = screen.getByRole('navigation', { name: /primary navigation/i });
+    expect(within(desktop).getByRole('list')).toBeInTheDocument();
+    // Projects, Help Wanted, Members, About
+    expect(within(desktop).getAllByRole('listitem')).toHaveLength(4);
+
+    await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
+    const mobile = await screen.findByRole('navigation', { name: /mobile navigation/i });
+    // Three groups: primary, About, and the GitHub/Volunteer tail.
+    expect(within(mobile).getAllByRole('list')).toHaveLength(3);
+    expect(
+      within(mobile).getByRole('heading', { name: 'About', level: 3 }),
+    ).toBeInTheDocument();
+  });
+
   it('lists GitHub and Volunteer in the mobile sheet', async () => {
     const user = userEvent.setup();
     renderWithRouter(<Wrapped />);
@@ -128,10 +148,11 @@ describe('AppHeader', () => {
     await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
 
     const nav = await screen.findByRole('navigation', { name: /mobile navigation/i });
-    expect(within(nav).getByRole('link', { name: 'GitHub' })).toHaveAttribute(
-      'href',
-      'https://github.com/CodeForPhilly',
-    );
+    // Regex, not an exact string: the sr-only cue is a separate text node and
+    // accname implementations differ on whether they insert a separator.
+    expect(
+      within(nav).getByRole('link', { name: /^GitHub\s*\(opens in new tab\)$/ }),
+    ).toHaveAttribute('href', 'https://github.com/CodeForPhilly');
     expect(within(nav).getByRole('link', { name: 'Volunteer' })).toHaveAttribute(
       'href',
       '/volunteer',

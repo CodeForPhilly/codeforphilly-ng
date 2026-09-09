@@ -210,9 +210,16 @@ export function ProfileEdit() {
                 disabled={avatarUploading}
                 className="block"
               />
-              {avatarUploading && (
-                <span className="block mt-1 text-xs text-muted-foreground">Uploading…</span>
-              )}
+              {/* role="status" so the upload's progress is announced rather
+                  than only appearing next to the file input. The span stays
+                  mounted so the live region exists before its text changes;
+                  the margin applies only while it has something to show. */}
+              <span
+                role="status"
+                className={avatarUploading ? 'block mt-1 text-xs text-muted-foreground' : 'block'}
+              >
+                {avatarUploading ? 'Uploading…' : ''}
+              </span>
             </div>
           </div>
         </div>

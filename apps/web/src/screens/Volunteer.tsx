@@ -72,6 +72,7 @@ export function Volunteer() {
             <Button asChild variant="outline" size="sm">
               <a href={MEETUP_URL} target="_blank" rel="noopener noreferrer">
                 When we meet →
+                <span className="sr-only"> (opens in new tab)</span>
               </a>
             </Button>
           </div>
@@ -144,6 +145,7 @@ export function Volunteer() {
             <Button asChild>
               <a href={START_PROJECT_URL} target="_blank" rel="noopener noreferrer">
                 Read the guide →
+                <span className="sr-only"> (opens in new tab)</span>
               </a>
             </Button>
             <Button asChild variant="outline">

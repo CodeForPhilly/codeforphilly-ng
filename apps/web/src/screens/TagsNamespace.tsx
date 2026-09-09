@@ -6,7 +6,7 @@ import { TagChip } from '@/components/TagChip';
 import { Pagination } from '@/components/Pagination';
 import { api } from '@/lib/api';
 
-const NS_LABELS: Record<string, string> = {
+export const NS_LABELS: Record<string, string> = {
   topic: 'Topics',
   tech: 'Tech',
   event: 'Events',

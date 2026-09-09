@@ -182,7 +182,7 @@ export function AppFooter() {
                 <a
                   key={href}
                   href={href}
-                  aria-label={label}
+                  aria-label={`${label} (opens in new tab)`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-muted-foreground hover:text-foreground transition-colors"
@@ -206,6 +206,7 @@ export function AppFooter() {
             className="hover:text-foreground transition-colors"
           >
             Open source &mdash; view this site on GitHub
+            <span className="sr-only"> (opens in new tab)</span>
           </a>
         </div>
       </div>

@@ -103,12 +103,14 @@ export function PeopleIndex() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center justify-between gap-4 mb-4">
-        <h1 className="text-3xl font-bold flex items-center gap-3">
-          Members
+        {/* The count is a sibling of the h1, not part of it: an accessible
+            name that mutates on every filter change is a moving target. */}
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold">Members</h1>
           <span className="inline-flex items-center rounded-full bg-muted text-muted-foreground px-2.5 py-0.5 text-sm">
             {totalItems}
           </span>
-        </h1>
+        </div>
       </div>
 
       <Input
@@ -129,6 +131,10 @@ export function PeopleIndex() {
         />
 
         <div>
+          {/* PersonCard renders an h3 (it also sits under section h2s on
+              TagDetail), so the results grid needs its own h2 or the page
+              skips h1 → h3. Visually redundant, hence sr-only. */}
+          <h2 className="sr-only">Results</h2>
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <div className="flex items-center gap-2 flex-wrap text-sm">
               {hasActiveFilters && (

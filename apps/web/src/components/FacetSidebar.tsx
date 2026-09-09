@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TagChip } from '@/components/TagChip';
 import { Link } from 'react-router';
@@ -12,6 +12,8 @@ interface FacetSidebarProps {
   tabs?: Array<'topic' | 'tech' | 'event'>;
   limit?: number;
   className?: string;
+  /** Extra filter controls rendered inside the same `Filters` landmark. */
+  children?: ReactNode;
 }
 
 const NS_LABELS = {
@@ -40,6 +42,7 @@ export function FacetSidebar({
   tabs = ['topic', 'tech', 'event'],
   limit = 10,
   className,
+  children,
 }: FacetSidebarProps) {
   const [tab, setTab] = useState<string>(tabs[0] ?? 'topic');
   const activeTagSet = new Set(activeTags);
@@ -103,6 +106,7 @@ export function FacetSidebar({
           );
         })}
       </Tabs>
+      {children}
     </aside>
   );
 }

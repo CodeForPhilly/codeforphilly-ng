@@ -106,6 +106,11 @@ export function Sponsor() {
             <Button variant="outline" size="sm" onClick={handleCopy}>
               {copied ? 'Copied ✓' : 'Copy email'}
             </Button>
+            {/* The label swap is the only success signal, and a control's own
+                name changing is not announced. Mirror it in a live region. */}
+            <span role="status" className="sr-only">
+              {copied ? `${email} copied to clipboard` : ''}
+            </span>
           </div>
         </div>
       </section>
