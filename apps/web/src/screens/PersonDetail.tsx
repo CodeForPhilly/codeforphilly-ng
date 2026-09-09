@@ -19,7 +19,7 @@ import { TagChip } from '@/components/TagChip';
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
-import { formatMonthYear, formatRelativeTime } from '@/lib/time';
+import { formatAbsoluteDate, formatMonthYear, formatRelativeTime } from '@/lib/time';
 
 export function PersonDetail() {
   const params = useParams();
@@ -181,7 +181,10 @@ export function PersonDetail() {
                     )}
                   </div>
                   <span className="text-xs text-muted-foreground shrink-0">
-                    joined {formatRelativeTime(m.joinedAt)}
+                    joined{' '}
+                    <time dateTime={m.joinedAt} title={formatAbsoluteDate(m.joinedAt)}>
+                      {formatRelativeTime(m.joinedAt)}
+                    </time>
                   </span>
                 </li>
               ))}
@@ -202,9 +205,13 @@ export function PersonDetail() {
                     >
                       {u.project.title} · Update #{u.number}
                     </Link>
-                    <span className="text-xs text-muted-foreground">
+                    <time
+                      dateTime={u.createdAt}
+                      title={formatAbsoluteDate(u.createdAt)}
+                      className="text-xs text-muted-foreground"
+                    >
                       {formatRelativeTime(u.createdAt)}
-                    </span>
+                    </time>
                   </div>
                   <div className="line-clamp-3 text-sm">
                     <MarkdownView html={u.bodyHtml} />

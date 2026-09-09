@@ -35,6 +35,24 @@ import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError, type HelpWantedRoleResponse } from '@/lib/api';
 import { formatRelativeTime, formatAbsoluteDate } from '@/lib/time';
 
+/**
+ * Clipboard write with a toast either way. `navigator.clipboard` is
+ * undefined outside secure contexts (plain-http dev hosts, some webviews),
+ * and reading `.writeText` off it throws synchronously — before any
+ * `.catch()` could see it — so the guard sits outside the promise chain.
+ */
+function copyWithToast(text: string, ok: string, fail: string) {
+  const clipboard: Clipboard | undefined = navigator.clipboard;
+  if (!clipboard) {
+    toast.error(fail);
+    return;
+  }
+  void clipboard
+    .writeText(text)
+    .then(() => toast.success(ok))
+    .catch(() => toast.error(fail));
+}
+
 interface ProjectDetailProps {
   anchor?: 'update' | 'buzz';
 }
@@ -560,12 +578,13 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                   action confirmations. */}
               <Button
                 variant="outline"
-                onClick={() => {
-                  void navigator.clipboard
-                    .writeText(`https://codeforphilly.org/projects/${slug}`)
-                    .then(() => toast.success('Link copied'))
-                    .catch(() => toast.error("Couldn't copy the link"));
-                }}
+                onClick={() =>
+                  copyWithToast(
+                    `https://codeforphilly.org/projects/${slug}`,
+                    'Link copied',
+                    "Couldn't copy the link",
+                  )
+                }
               >
                 Copy link
               </Button>
@@ -575,12 +594,11 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
                   // Copy a pre-formatted Slack message. Spec calls this
                   // out as either system-share or copy; copy works in every
                   // browser context without a Web Share API gate.
-                  void navigator.clipboard
-                    .writeText(
-                      `Check out ${project.title} on Code for Philly: https://codeforphilly.org/projects/${slug}`,
-                    )
-                    .then(() => toast.success('Slack message copied'))
-                    .catch(() => toast.error("Couldn't copy the message"));
+                  copyWithToast(
+                    `Check out ${project.title} on Code for Philly: https://codeforphilly.org/projects/${slug}`,
+                    'Slack message copied',
+                    "Couldn't copy the message",
+                  );
                 }}
               >
                 Share to Slack
