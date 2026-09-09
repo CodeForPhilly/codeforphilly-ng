@@ -36,13 +36,21 @@ export interface SamlIdpSettings {
   readonly privateKey: string;
   /** PEM-encoded X.509 certificate (the public half). */
   readonly certificate: string;
-  /** The IdP entity ID — also the metadata URL. */
+  /**
+   * The IdP entity ID — becomes the metadata `entityID` AND the `<Issuer>`
+   * on every Response/Assertion (via `SlackSamlEntities.entityId` →
+   * `issuerEntityId`). A stable logical identifier (`SAML_ENTITY_ID`), not
+   * necessarily a URL that resolves on the serving host.
+   */
   readonly entityId: string;
-  /** The IdP SSO POST binding location (the /launch endpoint). */
+  /** The IdP SSO POST binding location — `https://<CFP_SITE_HOST>/api/saml/slack/sso`. */
   readonly ssoLoginPostUrl: string;
-  /** The IdP SSO Redirect binding location. */
+  /** The IdP SSO Redirect binding location — same URL as the POST binding. */
   readonly ssoLoginRedirectUrl: string;
-  /** Slack team host (e.g. `codeforphilly.slack.com`). */
+  /**
+   * Slack team host (e.g. `codeforphilly.slack.com`). Slack-side only: the
+   * ACS URL and the NameID `NameQualifier`. Never part of our own identity.
+   */
   readonly slackTeamHost: string;
 }
 
