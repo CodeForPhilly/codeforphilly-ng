@@ -189,7 +189,10 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
 
 function GitHubLink() {
   return (
-    <Button asChild variant="ghost" size="icon-sm">
+    // Desktop-only: between md and lg the header has no room for it (the
+    // utility cluster would push "Help Wanted" onto two lines); the mobile
+    // sheet carries its own GitHub row.
+    <Button asChild variant="ghost" size="icon-sm" className="hidden lg:inline-flex">
       <a
         href={GITHUB_URL}
         target="_blank"
