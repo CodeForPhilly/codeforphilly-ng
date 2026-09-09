@@ -53,6 +53,7 @@ export function MarkdownEditor({
   required,
 }: MarkdownEditorProps) {
   const id = useId();
+  const errorId = `${id}-error`;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [previewHtml, setPreviewHtml] = useState<string>('');
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -170,11 +171,14 @@ export function MarkdownEditor({
             className="rounded-none border-0 focus-visible:ring-0 font-mono text-sm resize-y"
             style={{ minHeight }}
             aria-invalid={error ? 'true' : 'false'}
+            aria-describedby={error ? errorId : undefined}
           />
+          {/* Deliberately not a live region: the preview is the whole document
+              re-rendered on every debounce, so announcing it would read the
+              entire text back on each pause in typing. */}
           <div
             className="p-3 bg-background text-sm overflow-auto"
             style={{ minHeight }}
-            aria-live="polite"
           >
             {previewError ? (
               <p className="text-xs text-destructive">{previewError}</p>
@@ -192,7 +196,9 @@ export function MarkdownEditor({
       </div>
       <div className="flex items-center justify-between text-xs">
         {error ? (
-          <span className="text-destructive">{error}</span>
+          <span id={errorId} className="text-destructive">
+            {error}
+          </span>
         ) : (
           <span className="text-muted-foreground">Markdown · supports GFM</span>
         )}

@@ -102,9 +102,13 @@ export function PostHelpWantedModal({
                 maxLength={120}
                 required
                 placeholder="e.g. React developer for admin dashboard"
+                aria-invalid={fieldErrors['title'] ? 'true' : 'false'}
+                aria-describedby={fieldErrors['title'] ? 'hw-title-error' : undefined}
               />
               {fieldErrors['title'] && (
-                <p className="text-xs text-destructive">{fieldErrors['title']}</p>
+                <p id="hw-title-error" className="text-xs text-destructive">
+                  {fieldErrors['title']}
+                </p>
               )}
             </div>
             <MarkdownEditor

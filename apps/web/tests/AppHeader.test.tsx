@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithRouter } from './test-utils.js';
+import { renderWithRouter, mockPaginated } from './test-utils.js';
 import { AppHeader } from '../src/components/AppHeader.js';
 import { AuthProvider } from '../src/hooks/useAuth.js';
 import { NetworkErrorProvider } from '../src/components/NetworkErrorBanner.js';
@@ -162,9 +162,48 @@ describe('AppHeader', () => {
     // Scope to the sheet: jsdom applies no breakpoints, so the desktop
     // search box is in the DOM too.
     await user.type(
-      within(dialog).getByRole('searchbox', { name: /search the site/i }),
+      within(dialog).getByRole('combobox', { name: /search the site/i }),
       'civic{Enter}',
     );
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('closes the mobile sheet when a search result is clicked', async () => {
+    const json = (body: unknown) =>
+      Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(((input: string) => {
+      if (input.startsWith('/api/projects')) {
+        return json(mockPaginated([{ slug: 'civic-app', title: 'Civic App' }]));
+      }
+      if (input.startsWith('/api/people') || input.startsWith('/api/tags')) {
+        return json(mockPaginated([]));
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    }) as typeof fetch);
+    const user = userEvent.setup();
+    renderWithRouter(<Wrapped />);
+
+    await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Menu' });
+
+    await user.type(
+      within(dialog).getByRole('combobox', { name: /search the site/i }),
+      'civic',
+    );
+    const option = await within(dialog).findByRole(
+      'option',
+      { name: 'Civic App' },
+      { timeout: 3000 },
+    );
+    await user.click(option);
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();

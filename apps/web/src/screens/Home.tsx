@@ -156,6 +156,7 @@ export function Home() {
                   key={f}
                   type="button"
                   onClick={() => setActivityFilter(f)}
+                  aria-pressed={activityFilter === f}
                   className={cn(
                     'text-xs font-medium px-3 py-1 rounded-full border transition-colors capitalize',
                     activityFilter === f

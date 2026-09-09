@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import {
   Card,
@@ -49,6 +49,7 @@ const ERROR_MESSAGES: Record<ErrorCode, React.ReactNode> = {
 
 function WhyGitHub() {
   const [open, setOpen] = useState(false);
+  const panelId = useId();
 
   return (
     <div className="mt-3">
@@ -57,11 +58,15 @@ function WhyGitHub() {
         onClick={() => setOpen((v) => !v)}
         className="text-sm text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
         aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
       >
         Why GitHub?
       </button>
       {open && (
-        <div className="mt-2 text-sm text-muted-foreground bg-muted rounded-md p-3">
+        <div
+          id={panelId}
+          className="mt-2 text-sm text-muted-foreground bg-muted rounded-md p-3"
+        >
           We chose GitHub as the sole identity provider for three reasons: (1)
           the civic-tech community already lives there, (2) it filters spam and
           scam accounts more effectively than email-only sign-ups, and (3) most
@@ -100,8 +105,12 @@ export function LoginPlaceholder() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-20" aria-live="polite" aria-label="Checking sign-in status">
-        <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div role="status" className="flex justify-center py-20">
+        <div
+          className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin"
+          aria-hidden="true"
+        />
+        <span className="sr-only">Checking sign-in status…</span>
       </div>
     );
   }

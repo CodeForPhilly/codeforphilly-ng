@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
@@ -92,6 +93,8 @@ export function StageBadge({ stage, className }: StageBadgeProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
+        {/* The tooltip is pointer-only; the description travels with the
+            badge text for AT instead of adding a roleless tab stop per card. */}
         <span
           className={cn(
             'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
@@ -100,6 +103,7 @@ export function StageBadge({ stage, className }: StageBadgeProps) {
           )}
         >
           {meta.label}
+          <span className="sr-only">: {meta.description}</span>
         </span>
       </TooltipTrigger>
       <TooltipContent>{meta.description}</TooltipContent>
@@ -114,16 +118,26 @@ interface StageProgressProps {
 
 export function StageProgressBar({ stage, showLabel = true }: StageProgressProps) {
   const meta = STAGES[asStage(stage)];
+  const descriptionId = useId();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="w-full flex items-center gap-3" aria-label={`Stage: ${meta.label}`}>
+        <div className="w-full flex items-center gap-3">
           <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
             <div
+              role="progressbar"
+              aria-label={`Stage: ${meta.label}`}
+              aria-describedby={descriptionId}
+              aria-valuenow={meta.progress}
+              aria-valuemin={0}
+              aria-valuemax={100}
               className={cn('h-full transition-all', meta.barClassName)}
               style={{ width: `${meta.progress}%` }}
             />
           </div>
+          <span id={descriptionId} className="sr-only">
+            {meta.description}
+          </span>
           {showLabel && <StageBadge stage={stage} />}
         </div>
       </TooltipTrigger>

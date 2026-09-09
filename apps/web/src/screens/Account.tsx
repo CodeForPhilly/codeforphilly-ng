@@ -255,10 +255,10 @@ export function Account() {
             <table className="w-full text-sm">
               <thead className="text-xs text-muted-foreground uppercase tracking-wide">
                 <tr>
-                  <th className="text-left font-medium pb-2">Device</th>
-                  <th className="text-left font-medium pb-2">IP</th>
-                  <th className="text-left font-medium pb-2">Issued</th>
-                  <th className="text-right font-medium pb-2">Status</th>
+                  <th scope="col" className="text-left font-medium pb-2">Device</th>
+                  <th scope="col" className="text-left font-medium pb-2">IP</th>
+                  <th scope="col" className="text-left font-medium pb-2">Issued</th>
+                  <th scope="col" className="text-right font-medium pb-2">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">

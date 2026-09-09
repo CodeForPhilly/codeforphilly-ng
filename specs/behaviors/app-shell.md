@@ -110,7 +110,9 @@ Single search input in the header. Behavior:
   - "Members" — `GET /api/people?q=...&perPage=4`
   - "Tags" — `GET /api/tags?q=...&perPage=4`
 - "See all results for `<q>`" link at the bottom → `/search?q=<q>`
-- `Enter` key submits to `/search?q=<q>`
+- The dropdown is an ARIA combobox: `ArrowDown` / `ArrowUp` move a highlight through the results (including the "See all results" link, wrapping at either end); focus stays in the input
+- `Enter` with a highlighted result navigates to that result; with no highlight it submits to `/search?q=<q>`
+- `Escape` closes the dropdown and clears the query
 
 The `/search` results page is **deferred**; for v1 we ship only the typeahead and the `/search` page renders a redirect-to-projects with the q prefilled. Tracked in [deferred.md](../deferred.md) as a follow-up.
 
@@ -180,7 +182,7 @@ It does not block initial paint waiting on `me`. Auth controls render skeletons 
 ## Loading + errors
 
 - Top-of-page progress bar (1–2px) animates during full-page navigations
-- Top-of-page red banner when an API call returns 5xx ("Something went wrong. We're looking at it. [Retry]")
+- Top-of-page red banner when an API call returns 5xx ("Something went wrong. We're looking at it. [Retry]"). `Retry` re-fetches every active query and dismisses the banner. When the failed call has nothing to re-issue (the header typeahead, which re-runs on the next keystroke), the button reads `Dismiss` instead — the visible label always says what the button does
 - A red banner when offline ("You're offline. Some features may not work.") — driven by `navigator.onLine`
 
 ## Accessibility

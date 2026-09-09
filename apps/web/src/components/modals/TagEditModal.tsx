@@ -83,9 +83,13 @@ export function TagEditModal({ open, onOpenChange, tag, mode }: TagEditModalProp
                   onChange={(e) => setTitle(e.target.value)}
                   maxLength={80}
                   required
+                  aria-invalid={fieldErrors['title'] ? 'true' : 'false'}
+                  aria-describedby={fieldErrors['title'] ? 'title-error' : undefined}
                 />
                 {fieldErrors['title'] && (
-                  <p className="text-xs text-destructive">{fieldErrors['title']}</p>
+                  <p id="title-error" className="text-xs text-destructive">
+                    {fieldErrors['title']}
+                  </p>
                 )}
               </div>
             ) : (
@@ -97,9 +101,15 @@ export function TagEditModal({ open, onOpenChange, tag, mode }: TagEditModalProp
                   onChange={(e) => setMergeInto(e.target.value)}
                   placeholder="e.g. tech.flutter"
                   required
+                  aria-invalid={fieldErrors['mergeInto'] ? 'true' : 'false'}
+                  aria-describedby={
+                    fieldErrors['mergeInto'] ? 'mergeInto-error' : undefined
+                  }
                 />
                 {fieldErrors['mergeInto'] && (
-                  <p className="text-xs text-destructive">{fieldErrors['mergeInto']}</p>
+                  <p id="mergeInto-error" className="text-xs text-destructive">
+                    {fieldErrors['mergeInto']}
+                  </p>
                 )}
               </div>
             )}

@@ -173,6 +173,7 @@ export function HelpWantedIndex() {
                         p.delete('commitmentMax');
                       })
                     }
+                    aria-label={`Remove filter: ≤ ${commitmentMax} hrs/week`}
                     className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs hover:bg-accent"
                   >
                     ≤ {commitmentMax} hrs/week ×

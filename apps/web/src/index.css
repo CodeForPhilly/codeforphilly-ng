@@ -135,7 +135,7 @@
   nav[aria-label="Breadcrumb"],
   [data-testid="offline-banner"],
   [data-testid="network-error-banner"],
-  [id="search-results-dropdown"] {
+  [data-search-dropdown] {
     display: none !important;
   }
 }

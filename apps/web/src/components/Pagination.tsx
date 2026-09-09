@@ -62,6 +62,7 @@ export function Pagination({ page, totalPages, onPageChange, siblingCount = 1, c
             variant={p === page ? 'default' : 'outline'}
             size="sm"
             onClick={() => onPageChange(p)}
+            aria-label={`Page ${p}`}
             aria-current={p === page ? 'page' : undefined}
           >
             {p}

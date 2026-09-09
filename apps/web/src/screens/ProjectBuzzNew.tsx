@@ -117,9 +117,12 @@ export function ProjectBuzzNew() {
             required
             placeholder="The Inquirer praises Project X"
             aria-invalid={fieldErrors['headline'] ? 'true' : 'false'}
+            aria-describedby={fieldErrors['headline'] ? 'headline-error' : undefined}
           />
           {fieldErrors['headline'] && (
-            <p className="text-xs text-destructive">{fieldErrors['headline']}</p>
+            <p id="headline-error" className="text-xs text-destructive">
+              {fieldErrors['headline']}
+            </p>
           )}
         </div>
 
@@ -135,9 +138,12 @@ export function ProjectBuzzNew() {
             required
             placeholder="https://www.inquirer.com/…"
             aria-invalid={fieldErrors['url'] ? 'true' : 'false'}
+            aria-describedby={fieldErrors['url'] ? 'url-error' : undefined}
           />
           {fieldErrors['url'] && (
-            <p className="text-xs text-destructive">{fieldErrors['url']}</p>
+            <p id="url-error" className="text-xs text-destructive">
+              {fieldErrors['url']}
+            </p>
           )}
           <p className="text-xs text-muted-foreground">
             Must be HTTPS. Each URL can only be logged once per project.
@@ -156,9 +162,14 @@ export function ProjectBuzzNew() {
             required
             max={todayIso()}
             aria-invalid={fieldErrors['publishedAt'] ? 'true' : 'false'}
+            aria-describedby={
+              fieldErrors['publishedAt'] ? 'publishedAt-error' : undefined
+            }
           />
           {fieldErrors['publishedAt'] && (
-            <p className="text-xs text-destructive">{fieldErrors['publishedAt']}</p>
+            <p id="publishedAt-error" className="text-xs text-destructive">
+              {fieldErrors['publishedAt']}
+            </p>
           )}
         </div>
 
@@ -171,12 +182,16 @@ export function ProjectBuzzNew() {
             maxLength={2000}
             rows={4}
             placeholder="Optional excerpt or quote. Markdown supported."
+            aria-invalid={fieldErrors['summary'] ? 'true' : 'false'}
+            aria-describedby={fieldErrors['summary'] ? 'summary-error' : undefined}
           />
           <p className="text-xs text-muted-foreground text-right">
             {form.summary.length} / 2000
           </p>
           {fieldErrors['summary'] && (
-            <p className="text-xs text-destructive">{fieldErrors['summary']}</p>
+            <p id="summary-error" className="text-xs text-destructive">
+              {fieldErrors['summary']}
+            </p>
           )}
         </div>
 
