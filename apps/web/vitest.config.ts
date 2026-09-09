@@ -14,5 +14,8 @@ export default defineConfig({
     globals: true,
     include: ['tests/**/*.test.tsx', 'tests/**/*.test.ts'],
     setupFiles: ['tests/setup.ts'],
+    // Screen tests (ProjectEdit, ExpressInterestModal, …) pass alone but
+    // exceed the 5 s default under full-suite load in CI-like runs.
+    testTimeout: 15_000,
   },
 });
