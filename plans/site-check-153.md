@@ -119,17 +119,9 @@ One-line repo URL swap to `codeforphilly-ng`.
 - [x] Footer "view this site on GitHub" points at `codeforphilly-ng`.
 - [x] Both replacement URLs return 200 and carry the expected content.
 - [x] `npm run -w packages/shared build`, `npm run type-check`, and `npm run lint` clean.
-- [x] `npm test` clean for the workspaces this plan touches: web 96/96, shared 75/75.
-- [ ] `npm test` clean for **all** workspaces — `apps/api` cannot pass on the Windows dev box used here (see Notes); needs a Linux run or CI to close.
-- [x] Browser test (headed Chrome, Vite dev server): desktop header order,
-      spacing, GitHub icon, and Volunteer-rightmost verified at 1400px; the
-      sheet verified open — "Menu" title, padded nav/search, no title/close
-      collision — and Escape closes it. Caveat: the harness could not shrink
-      the (maximized) window below md, so the sheet was opened via its
-      CSS-hidden trigger at desktop width. The sheet is a fixed `w-72`
-      portal, so its rendering is identical at < md; the < md *header bar*
-      (logo + auth + hamburger row) still rides on the jsdom tests, same
-      limitation `web-shell.md:109` recorded.
+- [x] `npm test` clean for the workspaces this plan touches: web 98/98, shared 75/75.
+- [x] `npm test` clean for **all** workspaces — api 434/434 on Linux at review (the Windows dev box could not run it, see Notes). Two web files (`ProjectEdit`, `ExpressInterestModal`, neither touched here) hit 5s timeouts under full-suite load and pass when run alone.
+- [ ] Browser test: desktop header order + mobile sheet padding at < md, both breakpoints.
 
 ## Risks
 
@@ -143,8 +135,56 @@ One-line repo URL swap to `codeforphilly-ng`.
 
 ## Notes
 
-(To be populated at closeout. Recorded during implementation:)
-
+- **Browser criterion left unchecked.** What was exercised: desktop header
+  order, spacing, GitHub icon, and Volunteer-rightmost in headed Chrome at
+  1400px; the sheet opened via its CSS-hidden trigger at desktop width ("Menu"
+  title, padded nav/search, no title/close collision, Escape closes it); and,
+  at review, headless Chrome at 768/1023/1024px for the tablet band (below).
+  What was not: the sheet and the < md header bar at an actual < md viewport.
+  The sheet is not a fixed-width portal — `ui/sheet.tsx` sizes it
+  `w-3/4` of the viewport capped at `sm:max-w-sm` — so its desktop-width
+  rendering is not evidence for < md. Same gap `web-shell.md:109` recorded;
+  covered by issue [#16](https://github.com/CodeForPhilly/codeforphilly-ng/issues/16).
+- **Sheet closes on navigation, not per item.** Review found the eleven
+  hand-wired `onClick={() => setMobileOpen(false)}` closers missed the inline
+  SearchBox's Enter path. Replaced with one rule: `mobileOpen` is derived as
+  "opened at the current `location.key`", so any client-side navigation
+  (NavLink, search Enter, same-path re-click) closes it. Derived during render
+  rather than a `useLocation` effect because `react-hooks/set-state-in-effect`
+  (in the plugin's v7 recommended set) flags the effect form — same
+  state-sync pattern `ProjectEdit.tsx` uses. Explicit closers remain only on
+  the two anchors that don't change location (Contact `mailto:`, GitHub
+  new-tab). Two tests cover a NavLink click and the search Enter path.
+- **Tablet band (768–1023px) overflowed.** Tailwind's `container` is 768px
+  wide across that whole range (736px content box). Measured at 768: logo 128
+  - nav 297 + gaps/margins 48 + utility cluster 387 = 860, so the document
+  scrolled to 845px and "Help Wanted" wrapped. Fix: GitHub icon link is
+  `hidden lg:inline-flex` (the sheet keeps its own row) and the desktop
+  SearchBox is `w-24 lg:w-48 lg:focus-within:w-72`. Its results dropdown is
+  now anchored `right-0 min-w-72` instead of `left-0 right-0`, so it stays
+  288px wide over the narrow input — the same width it had at `lg` before.
+  After: 728px used at 768 (no scroll, one-line nav); 1024 fits with the icon
+  and 192px search restored. Signed-in accounts still overflow this band
+  (pre-existing, see Follow-ups).
+- **Mobile sheet dialog.** Radix warned on every open about a missing
+  description; a visually-hidden `SheetDescription` ("Site navigation") now
+  satisfies `aria-describedby`. The `className="w-72"` on `SheetContent` was
+  dead (the primitive's `data-[side=right]:w-3/4` / `sm:max-w-sm` win) and is
+  gone; the plan's earlier "fixed `w-72`" claim was wrong.
+- **Utility landmark.** The desktop utility cluster is `<nav aria-label="Utility">`
+  so Volunteer and GitHub stay inside a navigation landmark after leaving
+  "Primary navigation"; app-shell.md's Accessibility section names both.
+- **`GitHubIcon` lifted** to `apps/web/src/components/icons/GitHubIcon.tsx`;
+  the byte-identical copies in `AppHeader.tsx` and `LoginPlaceholder.tsx` now
+  import it. (Approach §2 above describes the copy as originally planned.)
+- **`HomeStub.tsx` removed** here after all — zero importers (grep-verified),
+  dead since scaffold. The same stale `codeforphilly-rewrite` GitHub URL was
+  also repointed in `specs/architecture.md`, `specs/behaviors/storage.md`, and
+  `docs/operations/cutover-announcement.md` (a hard 404, unlike the k8s
+  namespace / package name uses of the old slug, which are left alone).
+- **`Volunteer.test.tsx` act warnings.** Three synchronous tests returned
+  before `AuthProvider`'s `/api/auth/me` fetch resolved; each now awaits the
+  settled DOM like the fourth test.
 - **`apps/api` tests do not pass on Windows, independent of this plan.**
   `apps/api` finishes 3 failed | 30 passed (33 files), 10 failed | 413 passed
   (423 tests) — the ten spread across `scrub-data.test.ts` (4),
@@ -163,8 +203,6 @@ One-line repo URL swap to `codeforphilly-ng`.
 
 ## Follow-ups
 
-(To be populated at closeout. Known now:)
-
 - **Tracked as: blocked — hero "mailing list invite" CTA.** Issue #153
   recommends replacing the Home hero's Volunteer CTA with a mailing-list
   invite. There is no anonymous mailing-list mechanism anywhere in the repo:
@@ -178,15 +216,13 @@ One-line repo URL swap to `codeforphilly-ng`.
   spec would invent unspecified behavior. `Home.tsx` is deliberately untouched
   here; the CTA swap should follow the newsletter spec work, not precede it.
 
-- **Tracked as: dead file, not fixed here — `apps/web/src/pages/HomeStub.tsx`.**
-  It carries the same stale `codeforphilly-rewrite` URL the footer had, but
-  nothing imports or routes it (`App.tsx` imports only `LoginPlaceholder` from
-  `src/pages/`; every live screen lives in `src/screens/`). Left alone because
-  the right fix is deleting the file, not patching a URL nobody renders — and
-  that deletion wants its own scope. Flagging so a future grep for the old repo
-  name doesn't read as an unfixed live link.
+- Issue [#162](https://github.com/CodeForPhilly/codeforphilly-ng/issues/162) — make
+  the `apps/api` test fixtures cross-platform. The `/dev/null` failure-injection
+  idiom (and whatever the other seven failures share) makes the API suite
+  unrunnable on a Windows dev box, so the documented validation gate can only be
+  completed on Linux or in CI. See Notes for the mechanism.
 
-- **Issue — make the `apps/api` test fixtures cross-platform.** The `/dev/null`
-  failure-injection idiom (and whatever the other seven failures share) makes
-  the API suite unrunnable on a Windows dev box, so the documented validation
-  gate can only be completed on Linux or in CI. See Notes for the mechanism.
+- Issue [#163](https://github.com/CodeForPhilly/codeforphilly-ng/issues/163) — the
+  signed-in header (avatar + full name + caret) still overflows the 768–1023px
+  band; predates this plan and needs a breakpoint the shared `AuthControls`
+  can apply to the desktop cluster only.
