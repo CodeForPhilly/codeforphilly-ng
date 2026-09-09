@@ -116,7 +116,7 @@ What you can do now:
 - Use the Slack workspace as normal; SSO is now backed by our own IdP
 
 Bugs / weirdness: file an issue on
-https://github.com/CodeForPhilly/codeforphilly-rewrite/issues or just reply
+https://github.com/CodeForPhilly/codeforphilly-ng/issues or just reply
 here.
 ```
 
