@@ -75,6 +75,9 @@ export function SearchBox({ inline = false }: SearchBoxProps) {
       void navigate(url);
       clear();
       close();
+      // Selection is done: hand focus back to the page rather than leaving it
+      // parked in a now-empty combobox.
+      inputRef.current?.blur();
     },
     [navigate, clear, close],
   );
@@ -108,26 +111,13 @@ export function SearchBox({ inline = false }: SearchBoxProps) {
         if (len > 0) setActiveIndex(activeIdx <= 0 ? len - 1 : activeIdx - 1);
         return;
       }
-      if (e.key === 'Home' && showDropdown && len > 0) {
-        e.preventDefault();
-        setActiveIndex(0);
-        return;
-      }
-      if (e.key === 'End' && showDropdown && len > 0) {
-        e.preventDefault();
-        setActiveIndex(len - 1);
-        return;
-      }
       if (e.key === 'Enter') {
         const target = showDropdown && activeIdx >= 0 ? optionUrls[activeIdx] : undefined;
         if (target) {
           e.preventDefault();
           activate(target);
-        } else if (trimmed) {
-          void navigate(`/projects?q=${encodeURIComponent(trimmed)}`);
-          clear();
-          close();
-          inputRef.current?.blur();
+        } else if (seeAllUrl) {
+          activate(seeAllUrl);
         }
         return;
       }
@@ -137,7 +127,7 @@ export function SearchBox({ inline = false }: SearchBoxProps) {
         inputRef.current?.blur();
       }
     },
-    [optionUrls, activeIdx, showDropdown, trimmed, activate, navigate, clear, close],
+    [optionUrls, activeIdx, showDropdown, seeAllUrl, activate, clear, close],
   );
 
   /** Let the browser handle modified clicks (new tab / new window) natively. */
@@ -185,7 +175,15 @@ export function SearchBox({ inline = false }: SearchBoxProps) {
           // Swallowing mousedown keeps focus on the input, so onBlur can close
           // the popup immediately without racing the option's click.
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute top-full right-0 min-w-72 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 py-1 max-h-[28rem] overflow-y-auto"
+          // Inline (mobile sheet): stay in the document flow so the popup
+          // cannot hang below a short viewport; the sheet's flex column and
+          // the popup's own scroll keep it reachable. Otherwise float right.
+          className={cn(
+            'bg-popover border border-border rounded-md shadow-lg py-1 overflow-y-auto',
+            inline
+              ? 'mt-1 max-h-64'
+              : 'absolute top-full right-0 min-w-72 mt-1 z-50 max-h-[28rem]',
+          )}
         >
           {/* Status lives outside the listbox — a listbox may only own
               options, groups and presentational content. */}
@@ -229,7 +227,9 @@ export function SearchBox({ inline = false }: SearchBoxProps) {
                         aria-selected={i === activeIdx}
                         tabIndex={-1}
                         className={optionClass(i)}
-                        onMouseEnter={() => setActiveIndex(i)}
+                        onMouseMove={() => {
+                          if (i !== activeIdx) setActiveIndex(i);
+                        }}
                         onClick={(e) => handleOptionClick(e, r.url)}
                       >
                         {r.title}
@@ -251,7 +251,9 @@ export function SearchBox({ inline = false }: SearchBoxProps) {
                   'block px-3 py-2 text-sm border-t border-border hover:bg-accent hover:text-accent-foreground text-primary',
                   flat.length === activeIdx && 'bg-accent text-accent-foreground',
                 )}
-                onMouseEnter={() => setActiveIndex(flat.length)}
+                onMouseMove={() => {
+                  if (flat.length !== activeIdx) setActiveIndex(flat.length);
+                }}
                 onClick={(e) => handleOptionClick(e, seeAllUrl)}
               >
                 See all results for &ldquo;{query}&rdquo;
