@@ -43,7 +43,7 @@ describe('Volunteer', () => {
     );
   }
 
-  it('renders the hero headline', () => {
+  it('renders the hero headline', async () => {
     renderVolunteer();
     expect(
       screen.getByRole('heading', {
@@ -51,22 +51,26 @@ describe('Volunteer', () => {
         level: 1,
       }),
     ).toBeInTheDocument();
+    // Let AuthProvider's /api/auth/me fetch settle before the test returns.
+    await screen.findByText(/browse 268 active projects/i);
   });
 
-  it('points "When we meet →" at the live Meetup group, not the dead GitBook page', () => {
+  it('points "When we meet →" at the live Meetup group, not the dead GitBook page', async () => {
     renderVolunteer();
     const link = screen.getByRole('link', { name: /when we meet/i });
     expect(link).toHaveAttribute('href', MEETUP_URL);
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    await screen.findByText(/browse 268 active projects/i);
   });
 
-  it('points "Read the guide →" at the partnerships repo, not the dead GitBook page', () => {
+  it('points "Read the guide →" at the partnerships repo, not the dead GitBook page', async () => {
     renderVolunteer();
     const link = screen.getByRole('link', { name: /read the guide/i });
     expect(link).toHaveAttribute('href', START_PROJECT_URL);
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    await screen.findByText(/browse 268 active projects/i);
   });
 
   it('has no codeforphilly.gitbook.io links anywhere on the screen', async () => {
