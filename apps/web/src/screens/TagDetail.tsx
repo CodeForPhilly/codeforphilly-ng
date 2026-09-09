@@ -8,6 +8,7 @@ import { ProjectCard } from '@/components/ProjectCard';
 import { PersonCard } from '@/components/PersonCard';
 import { HelpWantedCard } from '@/components/HelpWantedCard';
 import { TagEditModal } from '@/components/modals/TagEditModal';
+import { NS_LABELS } from '@/screens/TagsNamespace';
 import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
 
@@ -104,11 +105,13 @@ export function TagDetail() {
 
   return (
     <>
-    {/* specs/behaviors/app-shell.md → Breadcrumbs: Tags › <namespace> › <title> */}
+    {/* specs/behaviors/app-shell.md → Breadcrumbs: Tags › <namespace> › <title>.
+        The namespace crumb carries the same display label as the page it
+        links to (TagsNamespace's h1), not the raw slug. */}
     <Breadcrumbs
       items={[
         { label: 'Tags', href: '/tags' },
-        { label: tag.namespace, href: `/tags/${tag.namespace}` },
+        { label: NS_LABELS[tag.namespace] ?? tag.namespace, href: `/tags/${tag.namespace}` },
         { label: tag.title },
       ]}
     />

@@ -159,6 +159,13 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
 
   const project = projectQ.data?.data;
 
+  // Settled with no record (the query can resolve empty before an error
+  // surfaces): hold the loading state rather than rendering a form and a
+  // blank crumb pointing at /projects/.
+  if (mode === 'edit' && !project) {
+    return <div className="container mx-auto px-4 py-12 text-muted-foreground">Loading project…</div>;
+  }
+
   if (mode === 'edit' && project && !project.permissions.canEdit) {
     return (
       <div className="container mx-auto px-4 py-16 text-center">
@@ -271,16 +278,18 @@ export function ProjectEdit({ mode }: ProjectEditProps) {
   return (
     <>
     {/* specs/behaviors/app-shell.md → Breadcrumbs:
-        create → Projects › New project; edit → Projects › <title> › Edit */}
+        create → Projects › New project; edit → Projects › <title> › Edit.
+        `project` is only ever loaded in edit mode (the query is gated on
+        it), and the guard above has already returned when it is missing. */}
     <Breadcrumbs
       items={
-        mode === 'create'
-          ? [{ label: 'Projects', href: '/projects' }, { label: 'New project' }]
-          : [
+        project
+          ? [
               { label: 'Projects', href: '/projects' },
-              { label: project?.title ?? '', href: `/projects/${project?.slug ?? ''}` },
+              { label: project.title, href: `/projects/${project.slug}` },
               { label: 'Edit' },
             ]
+          : [{ label: 'Projects', href: '/projects' }, { label: 'New project' }]
       }
     />
     <div className="container mx-auto px-4 py-8 max-w-3xl">
