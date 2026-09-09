@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, NavLink } from 'react-router';
+import { Link, NavLink, useLocation } from 'react-router';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -202,7 +202,15 @@ function GitHubLink() {
 }
 
 export function AppHeader() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
+  // The sheet is open only for the location it was opened at, so any
+  // client-side navigation — a NavLink or Enter in the inline search —
+  // closes it without per-item onClick closers. Derived during render
+  // rather than synced in an effect (react-hooks/set-state-in-effect).
+  const [openedAtKey, setOpenedAtKey] = useState<string | null>(null);
+  const mobileOpen = openedAtKey === location.key;
+  const setMobileOpen = (open: boolean) =>
+    setOpenedAtKey(open ? location.key : null);
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-sm print:hidden">
@@ -280,64 +288,32 @@ export function AppHeader() {
                 aria-label="Mobile navigation"
                 className="flex flex-col gap-2 px-4 min-h-0 overflow-y-auto"
               >
-                <NavLink
-                  to="/projects"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <NavLink to="/projects" className={navLinkClass}>
                   Projects
                 </NavLink>
-                <NavLink
-                  to="/help-wanted"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <NavLink to="/help-wanted" className={navLinkClass}>
                   Help Wanted
                 </NavLink>
-                <NavLink
-                  to="/members"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <NavLink to="/members" className={navLinkClass}>
                   Members
                 </NavLink>
                 <Separator />
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                   About
                 </p>
-                <NavLink
-                  to="/pages/mission"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <NavLink to="/pages/mission" className={navLinkClass}>
                   Mission
                 </NavLink>
-                <NavLink
-                  to="/pages/leadership"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <NavLink to="/pages/leadership" className={navLinkClass}>
                   Leadership
                 </NavLink>
-                <NavLink
-                  to="/pages/code-of-conduct"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <NavLink to="/pages/code-of-conduct" className={navLinkClass}>
                   Code of Conduct
                 </NavLink>
-                <NavLink
-                  to="/pages/hackathons"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <NavLink to="/pages/hackathons" className={navLinkClass}>
                   Hackathons
                 </NavLink>
-                <NavLink
-                  to="/sponsor"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <NavLink to="/sponsor" className={navLinkClass}>
                   Sponsor
                 </NavLink>
                 <a
@@ -357,11 +333,7 @@ export function AppHeader() {
                 >
                   GitHub
                 </a>
-                <NavLink
-                  to="/volunteer"
-                  className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <NavLink to="/volunteer" className={navLinkClass}>
                   Volunteer
                 </NavLink>
               </nav>

@@ -137,4 +137,37 @@ describe('AppHeader', () => {
       '/volunteer',
     );
   });
+
+  it('closes the mobile sheet when a sheet link navigates', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<Wrapped />);
+
+    await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
+    const nav = await screen.findByRole('navigation', { name: /mobile navigation/i });
+
+    await user.click(within(nav).getByRole('link', { name: 'Members' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('closes the mobile sheet when the inline search navigates', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<Wrapped />);
+
+    await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Menu' });
+
+    // Scope to the sheet: jsdom applies no breakpoints, so the desktop
+    // search box is in the DOM too.
+    await user.type(
+      within(dialog).getByRole('searchbox', { name: /search the site/i }),
+      'civic{Enter}',
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+    });
+  });
 });
