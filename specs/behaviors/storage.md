@@ -84,7 +84,7 @@ A scrubbed snapshot of the data repo is published as a public tag (e.g., `snapsh
 An `apps/api/scripts/scrub-data.ts` in the code repo produces the snapshot. The contributor bootstrap is:
 
 ```bash
-git clone https://github.com/CodeForPhilly/codeforphilly-rewrite.git
+git clone https://github.com/CodeForPhilly/codeforphilly-ng.git
 git clone --bare https://github.com/CodeForPhilly/codeforphilly-data-snapshot.git ../codeforphilly-data
 npm install
 npm run dev   # api + web boot, data already there

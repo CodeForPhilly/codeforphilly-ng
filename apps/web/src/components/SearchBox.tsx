@@ -66,7 +66,7 @@ export function SearchBox({ inline = false }: SearchBoxProps) {
 
   return (
     <div
-      className={`relative ${inline ? 'w-full' : 'w-48 focus-within:w-72 transition-all duration-200'}`}
+      className={`relative ${inline ? 'w-full' : 'w-24 lg:w-48 lg:focus-within:w-72 transition-all duration-200'}`}
     >
       <Input
         ref={inputRef}
@@ -88,7 +88,7 @@ export function SearchBox({ inline = false }: SearchBoxProps) {
           id="search-results-dropdown"
           role="listbox"
           aria-label="Search results"
-          className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 py-1 max-h-[28rem] overflow-y-auto"
+          className="absolute top-full right-0 min-w-72 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 py-1 max-h-[28rem] overflow-y-auto"
         >
           {loading && results.length === 0 && (
             <p className="px-3 py-2 text-sm text-muted-foreground">Searching…</p>

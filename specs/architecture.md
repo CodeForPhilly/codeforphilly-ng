@@ -135,9 +135,9 @@ The web and api share Zod schemas for every request/response shape and every rec
 The "no moving pieces" promise: a contributor needs git, Node, and two clones. No Docker compose, no database to install, no migrations to run.
 
 ```bash
-git clone https://github.com/CodeForPhilly/codeforphilly-rewrite.git
+git clone https://github.com/CodeForPhilly/codeforphilly-ng.git
 git clone https://github.com/CodeForPhilly/codeforphilly-data-snapshot.git ../codeforphilly-data
-cd codeforphilly-rewrite
+cd codeforphilly-ng
 npm install
 npm run dev              # api + web concurrently with watch
 ```
