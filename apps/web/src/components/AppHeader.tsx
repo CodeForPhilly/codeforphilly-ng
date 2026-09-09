@@ -11,6 +11,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -276,11 +277,15 @@ export function AppHeader() {
                 <MenuIcon />
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-72">
+            <SheetContent side="right">
               {/* SheetHeader/SheetTitle carry the panel's own padding and give
-                  the underlying Radix dialog its accessible name. */}
+                  the underlying Radix dialog its accessible name; the
+                  visually-hidden description satisfies aria-describedby. */}
               <SheetHeader className="pb-0">
                 <SheetTitle>Menu</SheetTitle>
+                <SheetDescription className="sr-only">
+                  Site navigation
+                </SheetDescription>
               </SheetHeader>
               {/* min-h-0 + overflow-y-auto so the list stays reachable on
                   short viewports instead of overflowing the panel. */}
