@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends:
   - cutover-prep
   - release-flow
@@ -11,6 +11,7 @@ specs:
   - specs/behaviors/storage.md
   - specs/api/saml.md
 issues: []
+pr: 172
 ---
 
 # Plan: Cutover runbook reality check
@@ -88,12 +89,12 @@ on 2026-09-09/10:
 
 ## Validation
 
-- [ ] `grep -rn 'cfp-prod-cluster\|staging.k8s\|cutover-window-policy\|T+180' docs/ .claude/CLAUDE.md` returns nothing.
-- [ ] No doc names `main` as a data-repo branch; runtime branch is `published` everywhere.
-- [ ] No doc gives S3/GCS as the production private-storage path; the filesystem PVC is.
-- [ ] `cutover.md` T-0 and rollback sections describe the gateway-listener commit and its revert; no DNS/TTL steps remain.
-- [ ] `legacy-credentials-import.md` export command targets `emergence-site`.`people` via the Habitat client.
-- [ ] `npm run lint` clean.
+- [x] `grep -rn 'cfp-prod-cluster\|staging.k8s\|cutover-window-policy\|T+180' docs/ .claude/CLAUDE.md` returns nothing.
+- [x] No doc names `main` as a data-repo branch; runtime branch is `published` everywhere.
+- [x] No doc gives S3/GCS as the production private-storage path; the filesystem PVC is.
+- [x] `cutover.md` T-0 and rollback sections describe the gateway-listener commit and its revert; no DNS/TTL steps remain.
+- [x] `legacy-credentials-import.md` export command targets `emergence-site`.`people` via the Habitat client.
+- [x] `npm run lint` clean.
 
 ## Risks / unknowns
 
@@ -107,8 +108,46 @@ on 2026-09-09/10:
 
 ## Notes
 
-(Populated at closeout.)
+- **Verified from sibling clones, not from memory.** The cluster pins,
+  gateway listener names (`https-apex`, `https-www`, `https-subdomain` on
+  `code-for-philly`; `https-next` on `codeforphilly-ng`), the three
+  SealedSecret names and their keys, the `CFP_SITE_HOST` patch, the
+  `Build k8s-manifests` workflow, `notify-deployments.yml`, and the
+  `tf/dns` records were all read from local clones of `cfp-live-cluster`,
+  `cfp-sandbox-cluster`, `codeforphilly-data-published` and `CodeForPhilly/ops`.
+  Anything about Slack admin UI, GitHub OAuth app naming, the MySQL schema,
+  or import counts is as reported by the operator who ran it.
+- **The runtime image can't run operator scripts.** `Dockerfile` prunes dev
+  deps and copies only `dist/`, so `script:reconcile` has no in-pod path and
+  the private store can't be copied out to run it locally. `cutover.md`
+  names this as an open gap under T+7 instead of prescribing a workaround.
+- **`deploy/kustomize/overlays/sandbox/` is now legacy.** The sandbox cluster
+  repo carries its own namespace, secrets and hostname patches; the overlay
+  in this repo only backs the manual escape hatch. Left in place; removing it
+  is a separate decision.
+- **The announcement templates were also wrong on passwords.** They told
+  members password sign-in "is going away"; fixed alongside the T+90/T+180
+  deletions since a member reading them would be misled the same way.
+- **`HOST` was dropped from the env table** — it isn't in
+  `deploy/kustomize/base/configmap.yaml`; Fastify's default binding is what
+  runs.
 
 ## Follow-ups
 
-(Populated at closeout.)
+- Spec drift in `specs/architecture.md` (`STORAGE_BACKEND` "`s3` in
+  production", entrypoint "`git reset --hard origin/main`",
+  `overlays/staging/` + `overlays/production/`) and
+  `specs/behaviors/private-storage.md` ("`s3` backend (production)", bucket
+  versioning as a production requirement). Both deployed environments run
+  `filesystem` on a PVC with no versioning. Needs its own spec PR; not
+  touched here because this plan is docs-only.
+- `apps/api/scripts/cutover-mailout.ts` template says "Accounts unclaimed
+  for one year may be retired" — no spec backs that. Either the sunset spec
+  gets written first or the line goes.
+- Ship `script:reconcile` (or an equivalent) somewhere it can reach the
+  production private store — in the image, or as an in-cluster Job — so the
+  T+7 reconciliation check in `cutover.md` is runnable.
+- Monitoring: none of `docs/operations/monitoring.md` is wired. First
+  post-cutover ops task; the checklist there is the spec for it.
+- Consider deleting `deploy/kustomize/overlays/sandbox/` once nobody needs
+  the manual escape hatch.
