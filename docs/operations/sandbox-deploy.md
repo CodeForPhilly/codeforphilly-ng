@@ -1,101 +1,156 @@
-# Manual sandbox deploy
+# Sandbox deploy
 
-This is the manual procedure for iterating on a deploy to the **CfP sandbox cluster** (Linode LKE, k8s.phl.io). GitOps wiring is a follow-up; this doc is the source of truth until that lands.
+The **CfP sandbox cluster** (Linode LKE, `k8s.phl.io`) hosts the rewrite's
+sandbox at <https://next-v2.codeforphilly.org>. It plays the "staging" role:
+every release is bumped here first and soaks before production.
+
+**Deploys are GitOps.** The
+[`cfp-sandbox-cluster`](https://github.com/CodeForPhilly/cfp-sandbox-cluster)
+repo pins a release of this repo and applies it; the manual
+`docker build … :sandbox && kubectl apply -k` procedure this doc used to
+describe is now an emergency escape hatch only (bottom of this page). See
+[deploy.md](deploy.md) for the cross-environment picture and
+[releases.md](releases.md) for how an image gets published.
 
 ## Cluster
 
 - **Kubeconfig:** `~/.kube/cfp-sandbox-cluster-kubeconfig.yaml`
-- **Gateway:** Envoy Gateway (`gatewayClassName: eg`), wildcard DNS for `*.sandbox.k8s.phl.io` → `139.144.241.4`. The sandbox app is reachable at `next-v2.codeforphilly.org` via a CNAME to `sandbox.k8s.phl.io`.
+- **Namespace:** `codeforphilly-rewrite-sandbox`
+- **Gateway:** Envoy Gateway (`gatewayClassName: eg`). `*.sandbox.k8s.phl.io`
+  points at the sandbox LB; `next-v2.codeforphilly.org` is a CNAME onto it,
+  managed in `CodeForPhilly/ops` (`tf/dns`).
 - **Storage class:** `linode-block-storage-retain` (default)
 - **Sealed-secrets:** controller in `sealed-secrets` namespace
-- **cert-manager:** `letsencrypt-staging` + `letsencrypt-prod` ClusterIssuers. Sandbox uses prod; per-overlay can override to staging for high-churn iteration (prod rate-limits to 50 certs/week per registered domain).
+- **cert-manager:** `letsencrypt-staging` + `letsencrypt-prod` ClusterIssuers.
+  Sandbox uses prod; switch the Gateway annotation to staging for high-churn
+  iteration (prod rate-limits to 50 certs/week per registered domain).
 
 ## Data repo
 
-The app reads its gitsheets data from a private GitHub repo cloned at boot:
+The app reads its gitsheets data from `git@github.com:CodeForPhilly/codeforphilly-data.git`
+(private), bare-cloned at boot. Branches — each is an independent data scenario:
 
-- **Repo:** `git@github.com:CodeForPhilly/codeforphilly-data.git` (private during cutover prep)
-- **Branches** — each is an independent data scenario:
-  - `fixture` (default) — hand-/import-curated test data, used by sandbox
-  - `empty` — sheet configs only, no records
-  - `snapshot` — anonymized snapshot of prod (auto-produced post-cutover)
-- A read-only **SSH deploy key** mounted into the pod authenticates the entrypoint's clone.
+- `published` (default) — runtime-served in sandbox **and** prod; the merge
+  target of `legacy-import`, pruned of confident spam, plus whatever the
+  running APIs write. A push here hot-reloads both pods.
+- `legacy-import` — raw importer snapshots, spam included.
+- `fixture` — small hand-curated test data.
+- `empty` — sheet configs only, no records.
 
-## One-shot deploy steps (manual, while iterating)
+A **write** SSH deploy key mounted into the pod authenticates the entrypoint's
+clone and the push daemon.
 
-```bash
-export KUBECONFIG=~/.kube/cfp-sandbox-cluster-kubeconfig.yaml
+## Deploying a release (the normal path)
 
-# 1. Build + push the image
-# --platform=linux/amd64 is required when building on Apple Silicon — the
-# Linode LKE nodes are amd64 and won't pull an arm64-only manifest.
-docker build --platform=linux/amd64 -t ghcr.io/codeforphilly/codeforphilly-ng:sandbox .
-# NOTE: requires `write:packages` scope on your GitHub token.
-# If `docker push` says "token does not match expected scopes":
-#   gh auth refresh -s write:packages
-docker push ghcr.io/codeforphilly/codeforphilly-ng:sandbox
+In `cfp-sandbox-cluster`, on a branch:
 
-# 2. Apply manifests (creates namespace, sealed-secrets, PVCs, deployment, service, ingress)
-kubectl apply -k deploy/kustomize/overlays/sandbox
+1. Set `ref = "refs/tags/vX.Y.Z"` in `.holo/sources/codeforphilly-ng.toml`.
+2. Set `images[].newTag: vX.Y.Z` in `codeforphilly-ng/app/kustomization.yaml`.
+3. Commit both together (`chore(codeforphilly-ng): bump to vX.Y.Z`), PR into
+   `main`, merge.
+4. "Build k8s-manifests" projects the holobranch to `releases/k8s-manifests`;
+   a bot opens a PR into `deploys/k8s-manifests`. Merge it — that applies.
+5. Watch it land:
 
-# 3. Watch the rollout
-kubectl -n codeforphilly-rewrite-sandbox rollout status deploy/codeforphilly
-kubectl -n codeforphilly-rewrite-sandbox logs -f deploy/codeforphilly
-```
+   ```bash
+   export KUBECONFIG=~/.kube/cfp-sandbox-cluster-kubeconfig.yaml
+   kubectl -n codeforphilly-rewrite-sandbox rollout status deploy/codeforphilly
+   kubectl -n codeforphilly-rewrite-sandbox logs -f deploy/codeforphilly
+   curl -sS https://next-v2.codeforphilly.org/api/health/ready
+   ```
 
-After the first successful rollout, the app is live at:
-
-- <https://next-v2.codeforphilly.org>
+Environment-specific bits (Gateway + HTTPRoute for `next-v2.codeforphilly.org`,
+the `CFP_SITE_HOST` patch, SealedSecrets) live in the cluster repo under
+`_gateways/codeforphilly-ng.yaml`, `codeforphilly-ng/app/kustomization.yaml`
+and `codeforphilly-ng.secrets/`. Change them there, not in this repo's
+`deploy/kustomize/overlays/sandbox/`.
 
 ## Image visibility
 
-The Docker image is built from this repo and pushed to `ghcr.io/codeforphilly/codeforphilly-ng`. For the cluster to pull without an `imagePullSecret`, the package must be **public** on GHCR. After the first push:
-
-1. Visit <https://github.com/orgs/CodeForPhilly/packages/container/codeforphilly-ng/settings>
-2. Under "Danger Zone" → "Change package visibility" → Public
-
-Until that's done, the deployment will sit in `ImagePullBackOff` with `403 Forbidden`.
+The image is built by `container-publish.yml` on every release tag and pushed
+to `ghcr.io/codeforphilly/codeforphilly-ng`. For the cluster to pull without
+an `imagePullSecret`, the package must be **public** on GHCR:
+<https://github.com/orgs/CodeForPhilly/packages/container/codeforphilly-ng/settings>
+→ "Change package visibility" → Public. If it ever flips back, the deployment
+sits in `ImagePullBackOff` with `403 Forbidden`.
 
 ## Rotating the deploy key
 
-The SSH deploy key currently in the cluster was generated locally and added to the data repo via `gh repo deploy-key add`. To rotate:
+The public half is registered on the data repo's deploy-keys page; the
+private half is sealed in `cfp-sandbox-cluster/codeforphilly-ng.secrets/codeforphilly-data-deploy-key.yaml`.
 
 ```bash
+export KUBECONFIG=~/.kube/cfp-sandbox-cluster-kubeconfig.yaml
 ssh-keygen -t ed25519 -f /tmp/cfp-deploy-keys/codeforphilly-data-sandbox-rotated -N "" -C "cfp-sandbox-rotated"
-gh repo deploy-key add /tmp/cfp-deploy-keys/codeforphilly-data-sandbox-rotated.pub \
-  --repo CodeForPhilly/codeforphilly-data \
+gh-axi repo deploy-key add /tmp/cfp-deploy-keys/codeforphilly-data-sandbox-rotated.pub \
+  --repo CodeForPhilly/codeforphilly-data --allow-write \
   --title "cfp-sandbox cluster (rotated $(date +%Y-%m-%d))"
-# Then re-seal the secret and re-apply
 kubectl create secret generic codeforphilly-data-deploy-key \
   --namespace codeforphilly-rewrite-sandbox \
   --from-file=id_ed25519=/tmp/cfp-deploy-keys/codeforphilly-data-sandbox-rotated \
   --dry-run=client -o yaml \
   | kubeseal --controller-name=sealed-secrets --controller-namespace=sealed-secrets -o yaml \
-  > deploy/kustomize/overlays/sandbox/sealed-secret-deploy-key.yaml
-kubectl apply -k deploy/kustomize/overlays/sandbox
+  > ~/Repositories/cfp-sandbox-cluster/codeforphilly-ng.secrets/codeforphilly-data-deploy-key.yaml
+# Commit in the cluster repo, PR, merge the deploy PR, then:
+kubectl -n codeforphilly-rewrite-sandbox rollout restart deploy/codeforphilly
 # Delete the old deploy key from GitHub after the rotation lands cleanly.
 ```
 
-## Rotating the JWT signing key
+## Rotating the JWT signing key (or any one key in `codeforphilly-secrets`)
+
+Use `kubeseal --merge-into` so the other keys stay untouched — full recipe in
+[secrets.md](secrets.md#adding-or-changing-one-key-in-an-existing-sealedsecret).
 
 ```bash
-JWT_KEY=$(openssl rand -base64 48)
+export KUBECONFIG=~/.kube/cfp-sandbox-cluster-kubeconfig.yaml
 kubectl create secret generic codeforphilly-secrets \
   --namespace codeforphilly-rewrite-sandbox \
-  --from-literal=CFP_JWT_SIGNING_KEY="$JWT_KEY" \
-  --from-literal=CFP_DATA_REMOTE="git@github.com:CodeForPhilly/codeforphilly-data.git" \
+  --from-literal=CFP_JWT_SIGNING_KEY="$(openssl rand -base64 48)" \
   --dry-run=client -o yaml \
-  | kubeseal --controller-name=sealed-secrets --controller-namespace=sealed-secrets -o yaml \
-  > deploy/kustomize/overlays/sandbox/sealed-secret-env.yaml
-kubectl apply -k deploy/kustomize/overlays/sandbox
+  | kubeseal --controller-name=sealed-secrets --controller-namespace=sealed-secrets --format yaml \
+      --merge-into ~/Repositories/cfp-sandbox-cluster/codeforphilly-ng.secrets/codeforphilly-secrets.yaml
+# Commit, PR, merge the deploy PR, rollout restart.
 # Rotating the JWT signing key invalidates every issued session — users will
 # need to re-auth. Acceptable in sandbox; coordinate before doing this in prod.
 ```
 
 ## Switching data branches
 
-The active branch is set in `deploy/kustomize/base/configmap.yaml` via `CFP_DATA_BRANCH`. To swap:
+`CFP_DATA_BRANCH` defaults to `published` in `deploy/kustomize/base/configmap.yaml`.
+To point the sandbox at another branch, add a ConfigMap patch in
+`cfp-sandbox-cluster/codeforphilly-ng/app/kustomization.yaml` (same shape as
+the `CFP_SITE_HOST` patch), merge through the deploy PR, then
+`kubectl -n codeforphilly-rewrite-sandbox rollout restart deploy/codeforphilly`
+— the entrypoint re-clones against the new branch on the fresh `emptyDir`.
 
-1. Edit the ConfigMap (or add an overlay patch)
-2. `kubectl apply -k deploy/kustomize/overlays/sandbox`
-3. `kubectl -n codeforphilly-rewrite-sandbox rollout restart deploy/codeforphilly` — entrypoint re-clones the working tree against the new branch
+## Emergency escape hatch: manual image + apply
+
+Only when the release pipeline or the GitOps repo is itself broken and you
+need to get a fix onto the sandbox *now*. Fix the repos afterwards so the
+next GitOps apply doesn't revert you.
+
+```bash
+export KUBECONFIG=~/.kube/cfp-sandbox-cluster-kubeconfig.yaml
+
+# 1. Build + push a throwaway tag. --platform=linux/amd64 is required on
+#    Apple Silicon — the LKE nodes are amd64. Needs `write:packages` on your
+#    GitHub token (`gh auth refresh -s write:packages` if push is refused).
+docker build --platform=linux/amd64 -t ghcr.io/codeforphilly/codeforphilly-ng:sandbox .
+docker push ghcr.io/codeforphilly/codeforphilly-ng:sandbox
+
+# 2a. Point the running Deployment at it without touching manifests...
+kubectl -n codeforphilly-rewrite-sandbox set image \
+  deploy/codeforphilly codeforphilly=ghcr.io/codeforphilly/codeforphilly-ng:sandbox
+
+# 2b. ...or apply this repo's manual overlay wholesale (namespace, sealed
+#     secrets, PVC, deployment, service, gateway). Its sealed secrets are
+#     the sandbox ones — they only decrypt on that cluster.
+kubectl apply -k deploy/kustomize/overlays/sandbox
+
+# 3. Watch
+kubectl -n codeforphilly-rewrite-sandbox rollout status deploy/codeforphilly
+```
+
+The `:sandbox` tag is mutable and `imagePullPolicy: Always` in the base
+Deployment, so a pod restart picks up a re-push. Never do this against
+production.

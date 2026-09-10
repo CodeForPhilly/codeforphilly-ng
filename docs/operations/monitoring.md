@@ -1,6 +1,15 @@
 # Post-cutover monitoring
 
-The minimum-viable monitoring wired up before cutover. The bar isn't
+> **Status (2026-09-10): none of the external monitoring below exists yet.**
+> There are no uptime checks, no log→Slack webhook, no `#alerts` integration.
+> The only things that are real today are the Kubernetes liveness/readiness
+> probes in `deploy/kustomize/base/deployment.yaml` and `kubectl logs`. The
+> cutover runbook's T+1h window is watched by hand for that reason
+> ([cutover.md → T+1h](cutover.md#t1h-monitoring-window)). Treat the rest of
+> this document as the target to build toward, not a description of what's
+> running.
+
+The minimum-viable monitoring we want in place. The bar isn't
 "observable in detail" — it's "we know within 60 seconds if the site is
 down, and within 5 minutes if an error rate is climbing."
 
@@ -39,7 +48,7 @@ Configure two monitors:
 
 | Monitor | URL | Interval | Alert when |
 |---------|-----|----------|-----------|
-| codeforphilly.org liveness | `https://codeforphilly.org/api/health` | 1 min | 2 consecutive failures (≈ 2 min) |
+| codeforphilly.org liveness | `https://codeforphilly.org/api/health` (`https://next.codeforphilly.org/...` until cutover) | 1 min | 2 consecutive failures (≈ 2 min) |
 | codeforphilly.org readiness | `https://codeforphilly.org/api/health/ready` | 5 min | 1 failure (≈ 5 min) |
 
 Both alarm via the UptimeRobot → Slack integration to the `#alerts` channel.
@@ -60,14 +69,15 @@ The two layers are complementary:
 - External monitors: "is the site reachable from the public internet?"
 
 A pod can pass k8s probes but the public hostname can still be unreachable
-(ingress misconfigured, cert-manager wedged, DNS broken). The external
+(gateway misconfigured, cert-manager wedged, DNS broken). The external
 monitor catches those.
 
 ## 3. Log aggregation
 
 Pino logs go to stdout from the API process. The cluster's log aggregator
 (whatever is configured — at minimum `kubectl logs` works; ideally a
-shipper to a hosted log store like BetterStack or Grafana Loki) collects
+shipper to a hosted log store like BetterStack or Grafana Loki — the live
+cluster does run Grafana, so Loki is the natural first look) collects
 them.
 
 Required log levels in production:
@@ -104,12 +114,12 @@ The fix is two-layer:
 
 1. In the API's push job, emit `info` on success and `error` on failure.
    The Pino error gets webhooked to Slack like any other.
-2. A daily check: "is the data repo's `origin/main` HEAD within 24h of the
-   API pod's local HEAD?" Tooling TBD; could be a small `kubectl exec`
+2. A daily check: "is the data repo's `origin/published` HEAD within 24h of
+   the API pod's local HEAD?" Tooling TBD; could be a small `kubectl exec`
    cron or a server-side check exposed at `/api/health/push-daemon`.
 
-For cutover-prep we ship the level-1 layer (push errors are already
-loggable). The daily check is deferred to a post-cutover follow-up.
+Layer 1 exists (push errors are logged). The daily check is deferred to a
+post-cutover follow-up.
 
 ## What we are deliberately NOT monitoring at v1
 
@@ -126,20 +136,22 @@ loggable). The daily check is deferred to a post-cutover follow-up.
 
 These are deferred to when we have a specific need, not pre-emptively.
 
-## Pre-cutover monitoring checklist
+## Monitoring checklist
 
-The cutover lead confirms before T-0:
+None of these are done as of 2026-09-10. Cutover proceeds without them,
+watched by hand; ticking them off is the first post-cutover ops task.
 
 - [ ] UptimeRobot account exists; two monitors above are configured
 - [ ] UptimeRobot → `#alerts` Slack integration is fired by a test alarm
-- [ ] k8s liveness + readiness probes are present in `deploy/kustomize/base/deployment.yaml`
+- [x] k8s liveness + readiness probes are present in `deploy/kustomize/base/deployment.yaml`
 - [ ] Log webhook → `#alerts` integration fires on a test `WARN` line
-- [ ] On-call rotation is set in PagerDuty / Slack handoff doc
+- [ ] On-call rotation is set in a Slack handoff doc
 - [ ] At least one team member can reach `#alerts` outside business hours
 
 The "test alarm" step is non-negotiable: untested alerts have a
 well-documented tendency to silently not fire when they're needed most.
-Trigger each one once in staging and confirm a Slack message arrived.
+Trigger each one once against the sandbox and confirm a Slack message
+arrived.
 
 ## Post-cutover: when to add more
 

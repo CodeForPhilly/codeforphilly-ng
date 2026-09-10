@@ -13,7 +13,7 @@ All work — scripts, sheet configs, and evaluation records — currently sits o
 Four sheets back the system, all defined under `.gitsheets/` in `codeforphilly-data`:
 
 | Sheet | Path template | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `person-evaluations` | `${{ personSlug }}/${{ evaluator }}` | One verdict per (person, evaluator). Multiple evaluators coexist per person. |
 | `slack-presence` | `${{ personSlug }}` | Per-person Slack snapshot: channel membership, message count, recent messages, spam-message aggregates. |
 | `slack-channels` | `${{ id }}` | Workspace channel catalog (id, name, member count, is-default, etc.). |
@@ -159,7 +159,7 @@ npm run evaluate-heuristic
 npm run evaluate-llm
 
 # 6. Apply the verdicts — prune confident-spam from `published` (see below).
-#    Run from the codeforphilly-rewrite repo against a bare clone, then push.
+#    Run from the codeforphilly-ng repo against a bare clone, then push.
 #    THIS STEP IS MANDATORY after any import/merge — see "Applying spam decisions".
 ```
 
@@ -173,10 +173,10 @@ When source records get updated (e.g., a previously-empty profile gets a new bio
 
 Verdicts are advisory until the **prune** step applies them. Prune is not a read-path filter (the runtime loader stays spam-unaware); it **removes confident-spam people from `published`** so the deployed app never loads them into memory or shows them. This is what keeps the in-memory footprint within the node budget — see [specs/behaviors/spam-exclusion.md](../../specs/behaviors/spam-exclusion.md) for the full contract.
 
-The tool is `apps/api/scripts/prune-spam.ts` in the **`codeforphilly-rewrite`** repo (not the data repo). Run it against a bare clone of the data repo that carries both `published` and `spam-detection`, dry-run first, then push:
+The tool is `apps/api/scripts/prune-spam.ts` in the **`codeforphilly-ng`** repo (not the data repo). Run it against a bare clone of the data repo that carries both `published` and `spam-detection`, dry-run first, then push:
 
 ```bash
-# From the codeforphilly-rewrite repo
+# From the codeforphilly-ng repo
 npm run -w apps/api script:prune-spam -- \
   --data-repo=/path/to/codeforphilly-data.git \
   --evaluations-ref=spam-detection \
@@ -230,7 +230,7 @@ npm run profile -- forager
 For the initial run on the full historical corpus (~31,470 people, ~119k Slack messages):
 
 | Step | Cost |
-|---|---|
+| --- | --- |
 | `fetch-slack-presence` | $0 (Slack API is free) |
 | `evaluate-slack-messages` (Pass B) | ~$13 |
 | `evaluate-heuristic` | $0 |
