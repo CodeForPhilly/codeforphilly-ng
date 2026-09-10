@@ -10,7 +10,8 @@ GitHub OAuth is how a member proves identity to the new site. SAML is how the si
 | ------ | ---- | ---- | ------- |
 | `GET` | `/api/saml/slack/metadata` | public | IdP metadata XML for Slack to consume |
 | `GET` | `/api/saml/slack/launch` | user | IdP-initiated SSO — site → Slack |
-| `POST` | `/api/saml/slack/sso` | user | SP-initiated SSO callback — handles AuthnRequest from Slack |
+| `GET` | `/api/saml/slack/sso` | user | SP-initiated SSO callback — AuthnRequest from Slack via the HTTP-Redirect binding |
+| `POST` | `/api/saml/slack/sso` | user | SP-initiated SSO callback — AuthnRequest from Slack via the HTTP-POST binding |
 
 For the existing `/chat` redirect that Slack-launches members into channels, see [screens/chat.md](../screens/chat.md). The SAML endpoints live under `/api/saml/slack/*` because the v1 design leaves room for additional SAML SP integrations later.
 
@@ -42,6 +43,25 @@ The attribute values come from:
 - `User.Username` → `Person.slug`
 - `first_name` → `Person.firstName`
 - `last_name` → `Person.lastName`
+
+### Authentication statement
+
+Every assertion carries exactly one `<saml:AuthnStatement>` — the Web Browser SSO profile (saml-profiles §4.1.4.2) requires at least one, and an assertion without it is a valid rejection reason for any SP. It sits between `<saml:Conditions>` and `<saml:AttributeStatement>` (schema order: Subject, Conditions, then statements). The legacy connector emitted one via simplesamlphp's `Assertion` (`setSessionIndex(generateId())` + `setAuthnContext(SAML2_Constants::AC_PASSWORD)`); v1 preserves that shape:
+
+```text
+AuthnStatement:
+  AuthnInstant          <assertion IssueInstant>                                 the moment this assertion was issued
+  SessionIndex          <fresh opaque id>                                        one per assertion; not the assertion ID
+  AuthnContext/
+    AuthnContextClassRef  urn:oasis:names:tc:SAML:2.0:ac:classes:Password        fixed — see below
+```
+
+Rules:
+
+- **`AuthnInstant` is the assertion's issue time**, not the time the member's underlying session was established. We don't track the original sign-in instant in the JWT, and re-asserting "now" is what the legacy connector did.
+- **`SessionIndex` is a fresh opaque identifier per assertion.** Slack never sends us a LogoutRequest, so nothing correlates on it; it exists to satisfy the profile. Use a fresh id rather than reusing the assertion ID so the two values stay independently meaningful.
+- **The `AuthnContextClassRef` is the fixed value above.** It is *not* echoed back from the AuthnRequest's `RequestedAuthnContext` — a member proves identity to us via GitHub OAuth or the legacy password path, and we describe that once, the same way for every SP-initiated and IdP-initiated response. Slack's default `RequestedAuthnContext` is `PasswordProtectedTransport`; the legacy connector asserted `Password` against that same workspace for years without rejection, and matching the value existing Slack accounts were established under is worth more than the marginally more precise class.
+- **`SessionNotOnOrAfter` is omitted.** The assertion's `Conditions/@NotOnOrAfter` already bounds the assertion; we make no claim about IdP-session lifetime.
 
 ## GET /api/saml/slack/metadata
 
@@ -111,30 +131,42 @@ The destination URL inside the Response includes the `redir` so Slack's POST end
 - `400 validation_failed` — bad `channel` format
 - `500 internal_error` with `error.code = "saml_signing_failed"` — IdP cert/key misconfiguration
 
-## POST /api/saml/slack/sso
+## GET | POST /api/saml/slack/sso
 
 **SP-initiated sign-in** — Slack received a request from a member who wants to sign in, sent us a SAML AuthnRequest. We complete authentication and return a SAML Response.
 
-### Request body
+The metadata advertises this one Location under both `SingleSignOnService` bindings, so the endpoint accepts the AuthnRequest either way. Slack uses **HTTP-Redirect** (`GET`) when a member starts sign-in from Slack and when an admin runs "Test configuration"; `POST` is accepted for the HTTP-POST binding. The two differ only in how `SAMLRequest` is transported; everything after decoding is one flow.
+
+### Request — HTTP-Redirect binding (`GET`)
+
+Query string (saml-bindings §3.4.4.1, `DEFLATE` encoding):
+
+| Param | Required | Notes |
+| ----- | -------- | ----- |
+| `SAMLRequest` | yes | raw-DEFLATEd, then base64-encoded, then URL-encoded SAML AuthnRequest XML |
+| `RelayState` | no | opaque value Slack wants us to echo back |
+| `SigAlg`, `Signature` | no | detached signature — ignored unless request signing is enabled (it isn't for Slack) |
+
+### Request — HTTP-POST binding (`POST`)
 
 `application/x-www-form-urlencoded`:
 
 | Field | Required | Notes |
 | ----- | -------- | ----- |
-| `SAMLRequest` | yes | base64-encoded SAML AuthnRequest XML |
+| `SAMLRequest` | yes | base64-encoded SAML AuthnRequest XML (no DEFLATE) |
 | `RelayState` | no | opaque value Slack wants us to echo back |
 
 ### Behavior
 
-1. Decode + parse the AuthnRequest. Validate signature if Slack signs requests (configurable; usually no for Slack).
+1. Decode + parse the AuthnRequest (inflate first for the Redirect binding). Validate signature if Slack signs requests (configurable; usually no for Slack).
 2. Require a signed-in session. If not → store the AuthnRequest in a short-lived signed cookie, redirect to `/login?return=/api/saml/slack/sso?resume=1`. After login the user comes back here and the AuthnRequest replays from the cookie.
 3. Resolve the AuthnRequest's `AssertionConsumerServiceURL` against Slack's documented ACS endpoint(s) — only Slack's ACS is accepted.
 4. Build + sign a SAML Response as in `/launch`.
-5. POST back to Slack's ACS via the auto-submitting form, including `RelayState`.
+5. POST back to Slack's ACS via the auto-submitting form, including `RelayState`. The Response always goes back over HTTP-POST regardless of which binding carried the request — Slack's ACS only accepts POST.
 
 ### Errors
 
-- `400 validation_failed` with code `saml_request_invalid` — malformed AuthnRequest or unrecognized ACS URL
+- `400 validation_failed` with code `saml_request_invalid` — malformed AuthnRequest (including a Redirect-binding payload that fails to inflate) or unrecognized ACS URL
 - `401 unauthenticated` — no session (with resume-cookie flow as above)
 - `403 forbidden` with `error.code = "saml_not_permitted"`
 
