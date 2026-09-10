@@ -8,7 +8,12 @@
  *    SAMLResponse carrying the expected NameID + attribute set
  *  - GET /api/saml/slack/launch?channel=phlask → relayState carries channel
  *  - GET /api/saml/slack/launch?channel=<bad> → 422
+ *  - Assertion carries an AuthnStatement (fixed ClassRef, AuthnInstant <=
+ *    IssueInstant, fresh SessionIndex) — specs/api/saml.md#authentication-statement
  *  - POST /api/saml/slack/sso (anonymous) → resume cookie + 302 to /login
+ *  - GET /api/saml/slack/sso (HTTP-Redirect binding, DEFLATEd SAMLRequest)
+ *    behaves exactly as POST for signed-in / signed-out / bad payload, and
+ *    the anonymous path resumes through /sso/resume
  *  - GET /api/saml/slack/sso/resume (signed-in, valid cookie) → POST form
  *  - Metadata endpoint without SAML_PRIVATE_KEY → 500 saml_signing_failed
  */
@@ -16,7 +21,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { deflateRawSync } from 'node:zlib';
 import { DOMParser } from '@xmldom/xmldom';
+import * as samlify from 'samlify';
 
 import { buildApp } from '../src/app.js';
 import { mintSessionFor } from '../src/auth/issue.js';
@@ -55,6 +62,34 @@ function decodeSamlResponse(html: string): string {
   const match = /name="SAMLResponse" value="([^"]+)"/.exec(html);
   expect(match).not.toBeNull();
   return Buffer.from(match![1]!, 'base64').toString('utf8');
+}
+
+/** Fixed AuthnContextClassRef per specs/api/saml.md#authentication-statement. */
+const AUTHN_CONTEXT_CLASS_REF = 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password';
+
+/** A minimal Slack-shaped AuthnRequest targeting the configured ACS. */
+function slackAuthnRequestXml(id: string, acsHost: string = SLACK_TEAM_HOST): string {
+  return `<?xml version="1.0"?>
+<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="${id}" Version="2.0" IssueInstant="2026-05-01T00:00:00Z" AssertionConsumerServiceURL="https://${acsHost}/sso/saml" ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"><saml:Issuer>https://slack.com</saml:Issuer></samlp:AuthnRequest>`;
+}
+
+/**
+ * HTTP-Redirect binding encoding (saml-bindings §3.4.4.1): raw DEFLATE →
+ * base64 → URL-encode. Returns the ready-to-append query string.
+ */
+function redirectBindingQuery(xml: string, relayState?: string): string {
+  const deflated = deflateRawSync(Buffer.from(xml, 'utf8')).toString('base64');
+  const params = new URLSearchParams({ SAMLRequest: deflated });
+  if (relayState !== undefined) params.set('RelayState', relayState);
+  return params.toString();
+}
+
+function resumeCookieValue(res: { headers: Record<string, unknown> }): string {
+  const cookies = res.headers['set-cookie'];
+  const list = Array.isArray(cookies) ? cookies : [String(cookies ?? '')];
+  const hit = list.find((c) => c.startsWith('cfp_saml_resume='));
+  expect(hit).toBeDefined();
+  return hit!.split(';')[0]!.slice('cfp_saml_resume='.length);
 }
 
 async function seedPerson(
@@ -270,6 +305,172 @@ describe('SAML IdP — Slack', () => {
       'Signature',
     );
     expect((sigs?.length ?? 0)).toBeGreaterThan(0);
+  });
+
+  it('assertion carries an AuthnStatement with the fixed ClassRef and a sane AuthnInstant', async () => {
+    const { accessToken } = await mintSessionFor(personId, 'user', JWT_KEY);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/saml/slack/launch',
+      cookies: { cfp_session: accessToken },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const xml = decodeSamlResponse(res.body);
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const root = doc.documentElement!;
+    const assertion = root.getElementsByTagNameNS(ASSERTION_NS, 'Assertion')[0]!;
+
+    // Exactly one AuthnStatement, placed after Conditions and before
+    // AttributeStatement (schema order, saml-core §2.3.3).
+    const authnStatements = assertion.getElementsByTagNameNS(ASSERTION_NS, 'AuthnStatement');
+    expect(authnStatements.length).toBe(1);
+    const authn = authnStatements[0]!;
+    const childNames = Array.from(assertion.childNodes)
+      .filter((n) => n.nodeType === 1)
+      .map((n) => (n as Element).localName);
+    expect(childNames.indexOf('AuthnStatement')).toBeGreaterThan(childNames.indexOf('Conditions'));
+    expect(childNames.indexOf('AuthnStatement')).toBeLessThan(
+      childNames.indexOf('AttributeStatement'),
+    );
+
+    // Fixed ClassRef — not echoed from any RequestedAuthnContext.
+    const classRef = authn.getElementsByTagNameNS(ASSERTION_NS, 'AuthnContextClassRef')[0];
+    expect(classRef?.textContent).toBe(AUTHN_CONTEXT_CLASS_REF);
+
+    // AuthnInstant parses as an ISO date and is <= the assertion's IssueInstant.
+    const authnInstant = authn.getAttribute('AuthnInstant');
+    const issueInstant = assertion.getAttribute('IssueInstant');
+    expect(authnInstant).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
+    expect(Number.isNaN(Date.parse(authnInstant!))).toBe(false);
+    expect(Date.parse(authnInstant!)).toBeLessThanOrEqual(Date.parse(issueInstant!));
+
+    // SessionIndex is present, opaque, and not the assertion ID.
+    const sessionIndex = authn.getAttribute('SessionIndex');
+    expect(sessionIndex).toMatch(/^_[0-9a-f]+$/);
+    expect(sessionIndex).not.toBe(assertion.getAttribute('ID'));
+
+    // SessionNotOnOrAfter is omitted by design.
+    expect(authn.hasAttribute('SessionNotOnOrAfter')).toBe(false);
+
+    // The statement sits inside the signed subtree: the enveloped Signature
+    // is a child of the Assertion and its Reference points at the Assertion ID.
+    const sig = assertion.getElementsByTagNameNS('http://www.w3.org/2000/09/xmldsig#', 'Signature')[0];
+    expect(sig?.parentNode).toBe(assertion);
+    const ref = sig?.getElementsByTagNameNS('http://www.w3.org/2000/09/xmldsig#', 'Reference')[0];
+    expect(ref?.getAttribute('URI')).toBe(`#${assertion.getAttribute('ID')}`);
+  });
+
+  it('assertion signature verifies against the metadata cert and covers the AuthnStatement', async () => {
+    const meta = await app.inject({ method: 'GET', url: '/api/saml/slack/metadata' });
+    expect(meta.statusCode).toBe(200);
+    const idpMetadata = samlify.IdPMetadata(meta.body);
+
+    const { accessToken } = await mintSessionFor(personId, 'user', JWT_KEY);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/saml/slack/launch',
+      cookies: { cfp_session: accessToken },
+    });
+    expect(res.statusCode).toBe(200);
+    const xml = decodeSamlResponse(res.body);
+
+    // Signing happens after templating, so the substituted AuthnStatement is
+    // inside the signed subtree: the untouched Response verifies...
+    const [verified, signedAssertion] = samlify.SamlLib.verifySignature(xml, {
+      metadata: idpMetadata,
+    });
+    expect(verified).toBe(true);
+    expect(signedAssertion).toContain('<saml:AuthnStatement');
+    expect(signedAssertion).toContain(AUTHN_CONTEXT_CLASS_REF);
+
+    // ...and flipping the ClassRef after the fact breaks the signature.
+    const tampered = xml.replace(
+      AUTHN_CONTEXT_CLASS_REF,
+      'urn:oasis:names:tc:SAML:2.0:ac:classes:unspecified',
+    );
+    expect(tampered).not.toBe(xml);
+    const [tamperedVerified] = samlify.SamlLib.verifySignature(tampered, { metadata: idpMetadata });
+    expect(tamperedVerified).toBe(false);
+  });
+
+  it('GET /api/saml/slack/sso (redirect binding, anonymous) sets resume cookie and redirects to /login', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/saml/slack/sso?${redirectBindingQuery(slackAuthnRequestXml('id-redirect-1'), 'opaque-redirect-state')}`,
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toMatch(/^\/login\?return=/);
+    expect(resumeCookieValue(res)).not.toBe('');
+  });
+
+  it('GET /api/saml/slack/sso (redirect binding, anonymous) → /sso/resume completes with InResponseTo + RelayState', async () => {
+    const start = await app.inject({
+      method: 'GET',
+      url: `/api/saml/slack/sso?${redirectBindingQuery(slackAuthnRequestXml('id-redirect-2'), 'opaque-redirect-state')}`,
+    });
+    expect(start.statusCode).toBe(302);
+    const resumeCookie = resumeCookieValue(start);
+
+    const { accessToken } = await mintSessionFor(personId, 'user', JWT_KEY);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/saml/slack/sso/resume',
+      cookies: { cfp_session: accessToken, cfp_saml_resume: resumeCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain(`action="https://${SLACK_TEAM_HOST}/sso/saml"`);
+    expect(res.body).toContain('name="RelayState" value="opaque-redirect-state"');
+
+    const xml = decodeSamlResponse(res.body);
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    expect(doc.documentElement?.getAttribute('InResponseTo')).toBe('id-redirect-2');
+    expect(
+      doc.documentElement?.getElementsByTagNameNS(ASSERTION_NS, 'AuthnStatement').length,
+    ).toBe(1);
+  });
+
+  it('GET /api/saml/slack/sso (redirect binding, signed-in) returns auto-submit form back to Slack ACS', async () => {
+    const { accessToken } = await mintSessionFor(personId, 'user', JWT_KEY);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/saml/slack/sso?${redirectBindingQuery(slackAuthnRequestXml('id-redirect-3'), 'opaque-redirect-state')}`,
+      cookies: { cfp_session: accessToken },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.body).toContain(`action="https://${SLACK_TEAM_HOST}/sso/saml"`);
+    expect(res.body).toContain('name="RelayState" value="opaque-redirect-state"');
+
+    const xml = decodeSamlResponse(res.body);
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const root = doc.documentElement!;
+    expect(root.localName).toBe('Response');
+    expect(root.getAttribute('InResponseTo')).toBe('id-redirect-3');
+    expect(root.getElementsByTagNameNS(ASSERTION_NS, 'NameID')[0]?.textContent).toBe(slug);
+  });
+
+  it('GET /api/saml/slack/sso (redirect binding) with bad ACS URL → 422', async () => {
+    const { accessToken } = await mintSessionFor(personId, 'user', JWT_KEY);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/saml/slack/sso?${redirectBindingQuery(slackAuthnRequestXml('id-redirect-4', 'evil.example.com'))}`,
+      cookies: { cfp_session: accessToken },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe('validation_failed');
+  });
+
+  it('GET /api/saml/slack/sso with a non-DEFLATEd (POST-style) SAMLRequest → 422', async () => {
+    // Plain base64 (no DEFLATE) is the POST binding's wire form; on the
+    // Redirect binding it must fail to inflate rather than be accepted.
+    const plainB64 = Buffer.from(slackAuthnRequestXml('id-redirect-5'), 'utf8').toString('base64');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/saml/slack/sso?${new URLSearchParams({ SAMLRequest: plainB64 }).toString()}`,
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe('validation_failed');
   });
 
   it('GET /api/saml/slack/launch?channel=phlask carries channel as RelayState', async () => {

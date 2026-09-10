@@ -4,15 +4,17 @@
  * Implements specs/api/saml.md:
  *   GET  /api/saml/slack/metadata
  *   GET  /api/saml/slack/launch
- *   POST /api/saml/slack/sso
+ *   GET  /api/saml/slack/sso         (SP-initiated, HTTP-Redirect binding)
+ *   POST /api/saml/slack/sso         (SP-initiated, HTTP-POST binding)
  *   GET  /api/saml/slack/sso/resume  (sign-in continuation)
  *
  * Cert + key load lazily — endpoints return 500 saml_signing_failed if the
  * environment is missing them. Routes are mounted regardless so the
  * metadata URL is always discoverable.
  */
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { randomBytes } from 'node:crypto';
+import { inflateRawSync } from 'node:zlib';
 import { ForbiddenError, UnauthenticatedError, ApiValidationError } from '../lib/errors.js';
 import { errorResponse } from '../lib/response.js';
 import {
@@ -186,6 +188,11 @@ function buildAssertionUser(opts: {
  *  - fill in NameQualifier / SPNameQualifier (samlify's default skips both)
  *  - substitute the per-attribute placeholder tags built by samlify's
  *    `attributeStatementBuilder` (e.g. `{attrEmail}`, `{attrUsername}`).
+ *  - fill the AuthnStatement (AuthnInstant / SessionIndex / ClassRef) our
+ *    template carries — samlify's default path blanks its own slot.
+ *
+ * samlify signs the assertion *after* this callback returns, so everything
+ * substituted here is covered by the signature.
  */
 function buildCustomTagReplacement(opts: {
   readonly user: SlackAssertionUser;
@@ -197,11 +204,15 @@ function buildCustomTagReplacement(opts: {
   return (template) => {
     const id = opts.generateID();
     const assertionId = opts.generateID();
+    // Fresh per assertion and distinct from the assertion ID — mirrors the
+    // legacy connector's `setSessionIndex(generateId())`.
+    const sessionIndex = opts.generateID();
     const subs = buildResponseSubstitutions({
       user: opts.user,
       slackTeamHost: opts.slackTeamHost,
       issuerEntityId: opts.issuerEntityId,
       inResponseTo: opts.inResponseTo,
+      sessionIndex,
     });
     const fullSubs: Record<string, string> = {
       ID: id,
@@ -247,6 +258,149 @@ async function loadPersonAndProfile(
     );
   }
   return { person, profile };
+}
+
+/**
+ * Lift an HTTP-Redirect-binding `SAMLRequest` (saml-bindings §3.4.4.1: XML →
+ * raw DEFLATE → base64 → URL-encode) back to the plain-base64 form the
+ * HTTP-POST binding carries, so both bindings share one parse + resume path
+ * and the resume cookie's `samlRequest` claim keeps a single shape.
+ *
+ * samlify's own redirect flow is exactly this inflate followed by the same
+ * parser; doing the inflate here rather than calling the 'redirect' parser
+ * is what lets the cookie stay binding-agnostic.
+ *
+ * Fastify has already URL-decoded the query. A sender that leaves base64 `+`
+ * unescaped would have it decoded to a space, so fold spaces back — base64
+ * never legitimately contains one.
+ */
+function inflateRedirectBindingRequest(deflatedB64: string): string {
+  const normalised = deflatedB64.replace(/ /g, '+');
+  if (!normalised) {
+    throw new ApiValidationError('SAMLRequest is required', { SAMLRequest: 'required' });
+  }
+  let xml: string;
+  try {
+    xml = inflateRawSync(Buffer.from(normalised, 'base64')).toString('utf8');
+  } catch {
+    throw new ApiValidationError('Malformed SAMLRequest', {
+      SAMLRequest: 'inflate failed',
+    });
+  }
+  return Buffer.from(xml, 'utf8').toString('base64');
+}
+
+/**
+ * SP-initiated SSO, binding-agnostic. Takes the AuthnRequest as plain base64
+ * XML (the HTTP-POST wire form — the Redirect handler inflates into it first)
+ * and either issues the signed Response (signed-in) or parks the request in
+ * the resume cookie and bounces through /login (anonymous).
+ */
+async function handleSpInitiatedSso(
+  fastify: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  input: { readonly samlRequestB64: string; readonly relayState: string },
+): Promise<unknown> {
+  const cfg = fastify.config;
+  if (!cfg.SAML_PRIVATE_KEY || !cfg.SAML_CERTIFICATE) {
+    return reply.code(500).send(
+      errorResponse(
+        'saml_signing_failed',
+        'SAML IdP is not configured',
+        (request as FastifyRequest & { traceId?: string }).traceId,
+      ),
+    );
+  }
+
+  const { samlRequestB64, relayState } = input;
+  if (!samlRequestB64) {
+    throw new ApiValidationError('SAMLRequest is required', {
+      SAMLRequest: 'required',
+    });
+  }
+
+  const { entities } = getSamlContext(fastify);
+
+  // Parse the AuthnRequest to extract its ID + AssertionConsumerServiceURL.
+  let parsed: Awaited<ReturnType<typeof entities.idp.parseLoginRequest>>;
+  try {
+    parsed = await entities.idp.parseLoginRequest(entities.sp, 'post', {
+      body: { SAMLRequest: samlRequestB64 },
+    });
+  } catch (err) {
+    fastify.log.warn({ err }, 'SAML AuthnRequest parse failed');
+    throw new ApiValidationError('Malformed SAMLRequest', {
+      SAMLRequest: 'parse failed',
+    });
+  }
+
+  const extract = parsed.extract as {
+    request?: { id?: string; assertionConsumerServiceUrl?: string };
+  };
+  const acsUrl = extract.request?.assertionConsumerServiceUrl ?? entities.acsUrl;
+  const requestId = extract.request?.id ?? '';
+
+  assertAcsAllowed(acsUrl, cfg.SLACK_TEAM_HOST);
+
+  // Anonymous → stash the AuthnRequest in the resume cookie, redirect to /login.
+  if (!request.session.personId) {
+    const resumeToken = await signSamlResume(
+      {
+        samlRequest: samlRequestB64,
+        relayState,
+        acsUrl,
+        requestId,
+      },
+      cfg.CFP_JWT_SIGNING_KEY,
+    );
+    reply.setCookie(RESUME_COOKIE, resumeToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: isSecure(cfg.NODE_ENV),
+      path: '/api/saml',
+      maxAge: RESUME_COOKIE_TTL_SECONDS,
+    });
+    const resumeReturn = `${originBase(request)}/api/saml/slack/sso/resume`;
+    return reply.redirect(`/login?return=${encodeURIComponent(resumeReturn)}`);
+  }
+
+  // Signed in — build the assertion immediately.
+  const { person, profile } = await loadPersonAndProfile(fastify, request.session.personId);
+  const user = buildAssertionUser({ person, profile });
+
+  const customTagReplacement = buildCustomTagReplacement({
+    user,
+    slackTeamHost: cfg.SLACK_TEAM_HOST,
+    issuerEntityId: entities.entityId,
+    inResponseTo: requestId,
+    generateID: () => `_${cryptoRandomId()}`,
+  });
+
+  // The Response always returns over HTTP-POST regardless of which binding
+  // carried the request — Slack's ACS only accepts POST.
+  const bindingCtx = await entities.idp.createLoginResponse(
+    entities.sp,
+    { extract: parsed.extract },
+    'post',
+    {},
+    { relayState, customTagReplacement },
+  );
+
+  const samlResponse = bindingCtx.context;
+  const actionUrl =
+    'entityEndpoint' in bindingCtx && typeof bindingCtx.entityEndpoint === 'string'
+      ? bindingCtx.entityEndpoint
+      : acsUrl;
+  const replyRelayState = 'relayState' in bindingCtx ? bindingCtx.relayState : relayState;
+
+  return reply.header('Content-Type', 'text/html; charset=utf-8').send(
+    renderPostForm({
+      actionUrl,
+      samlResponse,
+      relayState: replyRelayState ?? undefined,
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -368,15 +522,48 @@ export async function samlRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   // -------------------------------------------------------------------------
-  // POST /api/saml/slack/sso  — SP-initiated SSO
+  // GET | POST /api/saml/slack/sso  — SP-initiated SSO
+  //
+  // One Location, two bindings (the metadata advertises both). The handlers
+  // below only differ in how they lift `SAMLRequest` off the wire; everything
+  // from parsing onward is `handleSpInitiatedSso`. Slack itself uses the
+  // Redirect binding (GET) — both for member-started sign-in and the admin
+  // "Test configuration" button.
   // -------------------------------------------------------------------------
+
+  fastify.get(
+    '/api/saml/slack/sso',
+    {
+      schema: {
+        tags: ['saml'],
+        summary: 'SP-initiated Slack sign-in (AuthnRequest, HTTP-Redirect binding)',
+        querystring: {
+          type: 'object',
+          properties: {
+            SAMLRequest: { type: 'string' },
+            RelayState: { type: 'string' },
+            SigAlg: { type: 'string' },
+            Signature: { type: 'string' },
+          },
+          required: ['SAMLRequest'],
+        },
+      },
+    },
+    async (request, reply) => {
+      const query = request.query as { SAMLRequest?: string; RelayState?: string };
+      return handleSpInitiatedSso(fastify, request, reply, {
+        samlRequestB64: inflateRedirectBindingRequest(query.SAMLRequest ?? ''),
+        relayState: query.RelayState ?? '',
+      });
+    },
+  );
 
   fastify.post(
     '/api/saml/slack/sso',
     {
       schema: {
         tags: ['saml'],
-        summary: 'SP-initiated Slack sign-in (AuthnRequest)',
+        summary: 'SP-initiated Slack sign-in (AuthnRequest, HTTP-POST binding)',
         body: {
           type: 'object',
           properties: {
@@ -388,109 +575,11 @@ export async function samlRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const cfg = fastify.config;
-      if (!cfg.SAML_PRIVATE_KEY || !cfg.SAML_CERTIFICATE) {
-        return reply.code(500).send(
-          errorResponse(
-            'saml_signing_failed',
-            'SAML IdP is not configured',
-            (request as FastifyRequest & { traceId?: string }).traceId,
-          ),
-        );
-      }
-
       const body = request.body as { SAMLRequest?: string; RelayState?: string };
-      const samlRequestB64 = body.SAMLRequest ?? '';
-      const relayState = body.RelayState ?? '';
-      if (!samlRequestB64) {
-        throw new ApiValidationError('SAMLRequest is required', {
-          SAMLRequest: 'required',
-        });
-      }
-
-      const { entities } = getSamlContext(fastify);
-
-      // Parse the AuthnRequest to extract its ID + AssertionConsumerServiceURL.
-      let parsed: Awaited<ReturnType<typeof entities.idp.parseLoginRequest>>;
-      try {
-        parsed = await entities.idp.parseLoginRequest(entities.sp, 'post', {
-          body: { SAMLRequest: samlRequestB64 },
-        });
-      } catch (err) {
-        fastify.log.warn({ err }, 'SAML AuthnRequest parse failed');
-        throw new ApiValidationError('Malformed SAMLRequest', {
-          SAMLRequest: 'parse failed',
-        });
-      }
-
-      const extract = parsed.extract as {
-        request?: { id?: string; assertionConsumerServiceUrl?: string };
-      };
-      const acsUrl =
-        extract.request?.assertionConsumerServiceUrl ?? entities.acsUrl;
-      const requestId = extract.request?.id ?? '';
-
-      assertAcsAllowed(acsUrl, cfg.SLACK_TEAM_HOST);
-
-      // Anonymous → stash the AuthnRequest in the resume cookie, redirect to /login.
-      if (!request.session.personId) {
-        const resumeToken = await signSamlResume(
-          {
-            samlRequest: samlRequestB64,
-            relayState,
-            acsUrl,
-            requestId,
-          },
-          cfg.CFP_JWT_SIGNING_KEY,
-        );
-        reply.setCookie(RESUME_COOKIE, resumeToken, {
-          httpOnly: true,
-          sameSite: 'lax',
-          secure: isSecure(cfg.NODE_ENV),
-          path: '/api/saml',
-          maxAge: RESUME_COOKIE_TTL_SECONDS,
-        });
-        const resumeReturn = `${originBase(request)}/api/saml/slack/sso/resume`;
-        return reply.redirect(`/login?return=${encodeURIComponent(resumeReturn)}`);
-      }
-
-      // Signed in — build the assertion immediately.
-      const { person, profile } = await loadPersonAndProfile(fastify, request.session.personId);
-      const user = buildAssertionUser({ person, profile });
-
-      const customTagReplacement = buildCustomTagReplacement({
-        user,
-        slackTeamHost: cfg.SLACK_TEAM_HOST,
-        issuerEntityId: entities.entityId,
-        inResponseTo: requestId,
-        generateID: () => `_${cryptoRandomId()}`,
+      return handleSpInitiatedSso(fastify, request, reply, {
+        samlRequestB64: body.SAMLRequest ?? '',
+        relayState: body.RelayState ?? '',
       });
-
-      const bindingCtx = await entities.idp.createLoginResponse(
-        entities.sp,
-        { extract: parsed.extract },
-        'post',
-        {},
-        { relayState, customTagReplacement },
-      );
-
-      const samlResponse = bindingCtx.context;
-      const actionUrl =
-        'entityEndpoint' in bindingCtx && typeof bindingCtx.entityEndpoint === 'string'
-          ? bindingCtx.entityEndpoint
-          : acsUrl;
-      const replyRelayState =
-        'relayState' in bindingCtx ? bindingCtx.relayState : relayState;
-
-      return reply
-        .header('Content-Type', 'text/html; charset=utf-8')
-        .send(
-          renderPostForm({
-            actionUrl,
-            samlResponse,
-            relayState: replyRelayState ?? undefined,
-          }),
-        );
     },
   );
 
