@@ -30,9 +30,12 @@ feature branch ──▶ develop ──(push)──▶ "Release: vX.Y.Z" PR into
 4. **Merge the Release PR.** `release-publish.yml` creates the `vX.Y.Z` tag and
    GitHub release. The tag push triggers `container-publish.yml`, which builds
    and pushes `ghcr.io/codeforphilly/codeforphilly-ng:vX.Y.Z` and `:latest`.
-5. **Deploy.** The cluster picks up the image per
-   [deploy.md](./deploy.md) (the published `:vX.Y.Z` / `:latest` tags replace
-   the previously-manual `:sandbox` build for versioned releases).
+5. **Deploy.** In each cluster repo (`cfp-sandbox-cluster` first, then
+   `cfp-live-cluster`), bump `.holo/sources/codeforphilly-ng.toml`'s `ref` to
+   `refs/tags/vX.Y.Z` **and** `images[].newTag` in
+   `codeforphilly-ng/app/kustomization.yaml` in one commit, merge to `main`,
+   then merge the bot's PR into `deploys/k8s-manifests`. Details in
+   [deploy.md](./deploy.md#image--cluster-gitops).
 
 ## Prerequisites (one-time)
 
@@ -55,7 +58,8 @@ you want a different baseline, edit the Release PR title before merging.
 ## Notes
 
 - The manual `docker build --platform=linux/amd64 … :sandbox` path
-  ([sandbox-deploy.md](./sandbox-deploy.md)) still works for ad-hoc iteration;
-  versioned releases now go through `container-publish` instead.
+  ([sandbox-deploy.md](./sandbox-deploy.md#emergency-escape-hatch-manual-image--apply))
+  is an emergency escape hatch only; every deployed version goes through
+  `container-publish` and a cluster-repo pin bump.
 - CI runners and cluster nodes are both amd64, so `container-publish` needs no
   `--platform` flag (that's only for local Apple-silicon builds).

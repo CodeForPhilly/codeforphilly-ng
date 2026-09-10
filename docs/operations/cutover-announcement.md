@@ -20,16 +20,17 @@ same accounts. The active cutover is about an hour. Expect ~5 minutes of
 What changes for you:
 - :white_check_mark: All your URLs keep working (legacy redirects in place)
 - :white_check_mark: Your Slack identity is preserved automatically
-- :arrows_counterclockwise: First sign-in after cutover routes you through
-  GitHub OAuth + a one-click "claim your account" flow
-- :no_entry_sign: Username/password sign-in is going away — GitHub is the
-  primary login from cutover forward
+- :white_check_mark: Your existing username + password keep working
+- :arrows_counterclockwise: You can also "Sign in with GitHub" — if your
+  GitHub email matches your CFP email your account links automatically;
+  otherwise a one-click claim flow does it. We'd love you to link GitHub,
+  but there's no deadline
 
 What we need from you BEFORE cutover:
 - Hold off on edits to your profile / projects starting {{ freeze_date }}
   (we're freezing writes to make the migration clean)
-- Make sure you remember which GitHub account is associated with your CFP
-  email — your first sign-in needs to come from that GitHub account
+- If you plan to sign in with GitHub, check which GitHub account uses your
+  CFP email — matching emails link automatically
 
 If you have questions: drop them in this thread or DM @{{ cutover_lead_slack }}.
 ```
@@ -46,15 +47,16 @@ On {{ cutover_date_long }} we're moving codeforphilly.org to a new platform.
 What's changing
 - The site is being rebuilt on a modern stack — same look, same URLs,
   same projects.
-- Sign-in is moving to GitHub OAuth. Your password is no longer needed.
+- Your existing username and password keep working. You can also sign in
+  with GitHub and link the two.
 - Your Slack identity is preserved automatically.
 
 What you need to do
 - Nothing right now — but please don't edit your profile or projects
   between {{ freeze_date }} and {{ cutover_date_short }}.
-- After cutover, sign in via the new "Sign in with GitHub" button. If
-  your CFP email matches your GitHub email, your account is claimed
-  automatically. If not, follow the on-screen claim flow.
+- After cutover, sign in as usual, or try the new "Sign in with GitHub"
+  button. If your CFP email matches your GitHub email, your account is
+  linked automatically. If not, follow the on-screen claim flow.
 
 When it happens
 - {{ cutover_date_long }} starting at {{ cutover_time }}.
@@ -65,10 +67,14 @@ Questions? Reply to this email or ping us in Slack.
 — Code for Philly
 ```
 
-## T-0: maintenance page
+## T-0: maintenance page (optional)
 
-The static page served from the legacy site while DNS propagates. Plain HTML;
-no JavaScript needed.
+A static page for the legacy site during the hostname move. Cutover is a
+gateway-listener change with no DNS propagation
+([cutover.md → T-0](cutover.md#t-0-cutover)), so the switch is effectively
+instant per hostname and this page is optional — use it if you want a
+visible "hold on" while the final data delta runs. Plain HTML; no
+JavaScript needed.
 
 ```html
 <!doctype html>
@@ -120,10 +126,18 @@ https://github.com/CodeForPhilly/codeforphilly-ng/issues or just reply
 here.
 ```
 
-## T+90 days: unclaimed-account reminder
+## Unclaimed-account reminder (not scheduled)
 
-Sent automatically by `apps/api/scripts/cutover-mailout.ts`. The template is
-in code — see `buildEmailBody()` in that file. Reproduced here for review:
+`apps/api/scripts/cutover-mailout.ts` can email members whose laddr account
+has not yet been linked to GitHub. **It is not on the cutover timeline.**
+Per [account-migration.md](../../specs/behaviors/account-migration.md#sunset-deferred)
+legacy password sign-in has no deadline, so there is nothing to remind
+people *of*; the only nudge is the "Connect GitHub" banner on `/account`.
+If a future spec change sets a sunset date, this template is the starting
+point — until then, don't send it. The template is in code — see
+`buildEmailBody()` in that file. Reproduced here for review (note the last
+paragraph about retiring accounts has no backing in the spec and would need
+one before any send):
 
 Subject: `Action needed: claim your Code for Philly account`
 
@@ -142,29 +156,6 @@ If you don't recognize this account, you can ignore the email. Accounts
 unclaimed for one year may be retired.
 
 — Code for Philly
-```
-
-## T+180 days: password-credential drain notice
-
-A short Slack post in `#announcements` and an info-only email to remaining
-unclaimed Persons. Honest about the irreversible step.
-
-### Slack
-
-```
-:warning: Six months post-cutover
-
-It's been six months since we moved to the new platform. We're cleaning up
-the remaining legacy password records — about {{ count }} accounts.
-
-If you signed in via GitHub at any point: you're already migrated, this
-doesn't affect you.
-
-If you have a laddr account you haven't logged into yet: please log in
-in the next 14 days. After that, you'll need to contact a staff member
-to verify your identity before reclaiming the account.
-
-Questions: ping @{{ cutover_lead_slack }}.
 ```
 
 ## Localization

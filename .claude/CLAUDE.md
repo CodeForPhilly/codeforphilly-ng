@@ -7,7 +7,7 @@ A modernization of [laddr](https://github.com/CodeForPhilly/laddr) (the platform
 These auto-trigger by topic — you don't load them manually. Mentioned here so you know what's already covered and don't duplicate.
 
 | Skill | Triggers on | What it covers |
-|---|---|---|
+| --- | --- | --- |
 | [`specops`](./skills/specops/SKILL.md) | `specs/`, `plans/`, "spec", "closeout commit", new features | Spec-driven workflow (specs are source of truth), plans-as-micro-DAG protocol, closeout commit ritual, follow-ups taxonomy, spec-drift auditor |
 | [`backend-fastify`](./skills/backend-fastify/SKILL.md) | New routes, services, plugins, env vars | Fastify 5 patterns, plugin ordering, `@fastify/env` validation, error handling |
 | [`frontend-shadcn`](./skills/frontend-shadcn/SKILL.md) | New screens, components, routing, styling | Vite + React 19 + shadcn/ui + Tailwind v4 + React Router v7 patterns |
@@ -64,19 +64,23 @@ codeforphilly-data            ─── Public data store. Branches:
                               │                 merge target). Hot-reload webhook
                               │                 fires on push.
                               │
-cfp-sandbox-cluster           ─── GitOps repo (hologit-projected) that pulls
-                              │     this repo's `deploy/kustomize/` upstream
-                              │     and applies it via Kustomize. See
+cfp-sandbox-cluster           ─── GitOps repos (hologit-projected) that pin a
+cfp-live-cluster              │     release tag of this repo, project its
+                              │     `deploy/kustomize/base/` and apply it via
+                              │     Kustomize. Sandbox = next-v2.codeforphilly.org
+                              │     (ns codeforphilly-rewrite-sandbox); prod =
+                              │     next.codeforphilly.org → codeforphilly.org at
+                              │     cutover (ns codeforphilly-ng). See
                               │     `docs/operations/deploy.md`.
 ```
 
-Operator docs in [`docs/operations/`](../docs/operations/): `deploy.md` for the cluster topology, `sandbox-deploy.md` for the manual procedure, `runbook.md` for incident response (including the hot-reload webhook).
+Operator docs in [`docs/operations/`](../docs/operations/): `deploy.md` for the cluster topology + GitOps flow, `releases.md` for cutting a release, `sandbox-deploy.md` for the sandbox specifics, `runbook.md` for incident response (including the hot-reload webhook), `cutover.md` for the production hostname move.
 
 ## Stack
 
 - **Backend** — Fastify 5.x + TypeScript. Single replica, in-process write mutex.
 - **Public storage** — [gitsheets](https://github.com/JarvusInnovations/gitsheets) (TOML records in a git repo). Public-by-design — civic transparency. No persistent OLTP. See [specs/behaviors/storage.md](../specs/behaviors/storage.md).
-- **Private storage** — S3-compatible bucket holding `.jsonl` files (private profiles + legacy password hashes). Boot-load + in-memory; PUT on mutation. See [specs/behaviors/private-storage.md](../specs/behaviors/private-storage.md). Real production private data never lands on a dev machine.
+- **Private storage** — `.jsonl` files (private profiles + legacy password hashes) on a filesystem PVC in every deployed environment (`STORAGE_BACKEND=filesystem`); an S3-compatible backend exists but is unused. Boot-load + in-memory; rewrite on mutation. See [specs/behaviors/private-storage.md](../specs/behaviors/private-storage.md). Real production private data never lands on a dev machine.
 - **Schemas** — Zod in `packages/shared`, consumed by both web and api, validating records in both stores.
 - **Full-text search** — in-memory SQLite FTS5 (or MiniSearch fallback), rebuilt at boot from gitsheets state.
 - **Auth** — GitHub OAuth as the sole primary identity provider; stateless JWT sessions. We're also the SAML IdP for codeforphilly.slack.com. See [specs/api/auth.md](../specs/api/auth.md), [specs/api/saml.md](../specs/api/saml.md).
@@ -135,13 +139,13 @@ npm run -w apps/web dev     # web only
 
 ## Deploying
 
-GitOps. This repo publishes a Docker image to GHCR; the [`cfp-sandbox-cluster`](https://github.com/CodeForPhilly/cfp-sandbox-cluster) repo pulls our [`deploy/kustomize/`](../deploy/kustomize/) upstream via hologit and applies it with Kustomize. Production will follow the same pattern under a `cfp-prod-cluster` repo.
+GitOps. Releases publish a Docker image to GHCR; two cluster repos — [`cfp-sandbox-cluster`](https://github.com/CodeForPhilly/cfp-sandbox-cluster) (sandbox) and [`cfp-live-cluster`](https://github.com/CodeForPhilly/cfp-live-cluster) (production, alongside legacy laddr) — each pin a release tag, project our [`deploy/kustomize/base/`](../deploy/kustomize/base/) via hologit and apply it with Kustomize.
 
 Typical change flow:
 
-1. **Merge to `main`** — CI builds + tests; nothing deploys yet.
-2. **Publish image** (currently manual) — `docker build --platform=linux/amd64 -t ghcr.io/codeforphilly/codeforphilly-ng:sandbox . && docker push …`. Apple-silicon dev machines must set the platform flag — cluster nodes are amd64.
-3. **GitOps pickup** — `cfp-sandbox-cluster` projects from our `deploy/kustomize/`; on its own merge, applies via `kubectl apply -k`.
+1. **Merge to `develop`** — CI builds + tests; pushing `develop` opens/updates a `Release: vX.Y.Z` PR into `main` (see `docs/operations/releases.md` and the `release-flow` skill).
+2. **Publish image** — merging the Release PR tags `vX.Y.Z`; `container-publish.yml` builds and pushes `ghcr.io/codeforphilly/codeforphilly-ng:vX.Y.Z` (+ `:latest`). No manual `docker push`.
+3. **GitOps pickup** — in the cluster repo, bump `.holo/sources/codeforphilly-ng.toml` (`ref = "refs/tags/vX.Y.Z"`) and `images[].newTag` in `codeforphilly-ng/app/kustomization.yaml` together; merge to `main`; "Build k8s-manifests" projects to `releases/k8s-manifests`; a bot PR into `deploys/k8s-manifests` applies on merge. Sandbox first, then live.
 4. **Pod boot** — single replica, `Recreate` strategy. Container entrypoint bare-clones the data repo on every pod start (the data volume is `emptyDir`, so first boot = every fresh pod). Node boots: env → store load → **reconcile** (ff/replay/escape-hatch against `origin/<CFP_DATA_BRANCH>`) → **push daemon** → routes → SPA. `/api/health/ready` returns 200 once stores are loaded *and* reconciled.
 5. **Live data updates** — independent of app deploy. Pushes to `published` trigger the [hot-reload webhook](../docs/operations/runbook.md#hot-reload-webhook); the pod rebuilds in-memory state in place, no restart.
 
@@ -149,9 +153,10 @@ Constraints worth knowing before touching anything deploy-shaped:
 
 - **Single replica is non-negotiable** — writes flow through an in-process mutex; horizontal scale would lose write serialization.
 - **One image for API + SPA** — Fastify serves the built `apps/web/dist` as fallthrough. No separate web container.
-- **Sealed secrets are cluster-bound** — sandbox-sealed secrets can't decrypt in prod. Plain values live in `.env` locally; cluster values live in the sandbox-cluster repo's `codeforphilly-ng.secrets/`.
+- **Sealed secrets are cluster-bound** — sandbox-sealed secrets can't decrypt in prod. Plain values live in `.env` locally; cluster values live in each cluster repo's `codeforphilly-ng.secrets/`.
+- **Cutover is a hostname move, not a DNS change** — the apex already resolves to the live cluster's gateway; T-0 is one commit in `cfp-live-cluster` moving listeners from `_gateways/code-for-philly.yaml` to `_gateways/codeforphilly-ng.yaml`.
 
-Full operator docs: [`docs/operations/`](../docs/operations/) — `deploy.md` (boot sequence + env table), `sandbox-deploy.md` (manual bring-up), `secrets.md` (the secret contract), `runbook.md` (incident response + hot-reload webhook), `cutover.md` (production switch plan).
+Full operator docs: [`docs/operations/`](../docs/operations/) — `deploy.md` (environments, GitOps flow, boot sequence, env table), `releases.md` (cutting a release), `sandbox-deploy.md` (sandbox specifics + manual escape hatch), `secrets.md` (the secret contract), `runbook.md` (incident response + hot-reload webhook), `cutover.md` (production hostname move), `legacy-credentials-import.md` (private-store seeding).
 
 ## Source control
 
