@@ -32,6 +32,8 @@ import type { Person, PrivateProfile } from '@cfp/shared/schemas';
 const CHAT_CHANNEL_REGEX = /^[a-z0-9][a-z0-9_-]{0,40}$/;
 const RESUME_COOKIE = 'cfp_saml_resume';
 const RESUME_COOKIE_TTL_SECONDS = 10 * 60;
+/** Site-relative — it is also the `?return=` handed to /login (see safeReturnPath). */
+const RESUME_PATH = '/api/saml/slack/sso/resume';
 
 /**
  * SAML ID values must start with an XML NCName character — `_` followed by
@@ -53,26 +55,6 @@ function safeReturnPath(input: string | undefined | null): string {
   if (!input || typeof input !== 'string') return '/';
   if (!input.startsWith('/') || input.startsWith('//')) return '/';
   return input;
-}
-
-function selfUrl(request: FastifyRequest): string {
-  const protocol = request.headers['x-forwarded-proto']
-    ? String(request.headers['x-forwarded-proto']).split(',')[0]?.trim() ?? 'http'
-    : request.protocol;
-  const host = request.headers['x-forwarded-host']
-    ? String(request.headers['x-forwarded-host']).split(',')[0]?.trim() ?? request.hostname
-    : request.hostname;
-  return `${protocol}://${host}${request.url}`;
-}
-
-function originBase(request: FastifyRequest): string {
-  const protocol = request.headers['x-forwarded-proto']
-    ? String(request.headers['x-forwarded-proto']).split(',')[0]?.trim() ?? 'http'
-    : request.protocol;
-  const host = request.headers['x-forwarded-host']
-    ? String(request.headers['x-forwarded-host']).split(',')[0]?.trim() ?? request.hostname
-    : request.hostname;
-  return `${protocol}://${host}`;
 }
 
 function htmlEscape(value: string): string {
@@ -361,8 +343,10 @@ async function handleSpInitiatedSso(
       path: '/api/saml',
       maxAge: RESUME_COOKIE_TTL_SECONDS,
     });
-    const resumeReturn = `${originBase(request)}/api/saml/slack/sso/resume`;
-    return reply.redirect(`/login?return=${encodeURIComponent(resumeReturn)}`);
+    // Site-relative on purpose: `/login` and the OAuth start both run the
+    // return through the same leading-slash guard as `safeReturnPath`, so an
+    // absolute URL here is silently dropped and the user lands on `/`.
+    return reply.redirect(`/login?return=${encodeURIComponent(RESUME_PATH)}`);
   }
 
   // Signed in — build the assertion immediately.
@@ -462,10 +446,11 @@ export async function samlRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const cfg = fastify.config;
 
-      // Anonymous → bounce through /login preserving the current URL.
+      // Anonymous → bounce through /login preserving the current path + query
+      // (`channel` / `redir` ride along). Site-relative: see the SP-initiated
+      // handler for why an absolute URL would be dropped.
       if (!request.session.personId) {
-        const here = selfUrl(request);
-        return reply.redirect(`/login?return=${encodeURIComponent(here)}`);
+        return reply.redirect(`/login?return=${encodeURIComponent(safeReturnPath(request.url))}`);
       }
 
       const query = request.query as { channel?: string; redir?: string };
@@ -589,7 +574,7 @@ export async function samlRoutes(fastify: FastifyInstance): Promise<void> {
   // -------------------------------------------------------------------------
 
   fastify.get(
-    '/api/saml/slack/sso/resume',
+    RESUME_PATH,
     {
       schema: {
         tags: ['saml'],
