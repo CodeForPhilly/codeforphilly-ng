@@ -130,7 +130,7 @@ Plus `Set-Cookie` headers for `cfp_session` and `cfp_refresh`.
 ### Errors
 
 - `401 unauthenticated` with `error.code = "invalid_credentials"` — covers no-such-user, wrong-password, unknown-hash-format. Single response, comparable timing across cases.
-- `429 too_many_requests` — per the auth-endpoint rate cap (10/min/IP) in [api/conventions.md](conventions.md).
+- `429 too_many_requests` — per the auth-endpoint rate cap (the credential-endpoint cap in [api/conventions.md](conventions.md#rate-limiting)).
 
 ## POST /api/auth/password-reset/request
 
