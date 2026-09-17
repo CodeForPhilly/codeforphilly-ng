@@ -2,10 +2,18 @@
  * In-memory rate-limit plugin.
  *
  * Enforces per-IP and per-account caps per specs/api/conventions.md#rate-limiting:
- *   - Unauthenticated reads: 60 req / min / IP
- *   - Authenticated reads:  300 req / min / account
- *   - Writes:                30 req / min / account
- *   - Auth endpoints:        10 req / min / IP
+ *   - Unauthenticated reads:  1200 req / min / IP
+ *   - Authenticated reads:     300 req / min / account
+ *   - Writes:                   30 req / min / account (120 / min / IP anonymous)
+ *   - Credential endpoints:    120 req / min / IP
+ *
+ * Only `/api/**` is counted. The SPA shell, its assets, and thumbnails come out
+ * of the same process and a single page load fetches dozens of them; counting
+ * those against the read cap is what produced a site-wide 429 storm at cutover.
+ *
+ * Per-IP caps are generous on purpose: production's load balancer does not yet
+ * preserve client addresses (cfp-live-cluster #201), so every visitor shares
+ * one "IP" until that lands.
  *
  * Counters are reset on restart (intentional — single replica, civic scale).
  * Exceeded limit → RateLimitedError(retryAfterSeconds).
@@ -22,6 +30,14 @@ interface BucketEntry {
 }
 
 const WINDOW_MS = 60_000; // 1 minute
+
+export const RATE_LIMITS = {
+  unauthenticatedReadsPerIp: 1200,
+  authenticatedReadsPerAccount: 300,
+  writesPerAccount: 30,
+  anonymousWritesPerIp: 120,
+  credentialPerIp: 120,
+} as const;
 
 function getOrCreate(map: Map<string, BucketEntry>, key: string): BucketEntry {
   let entry = map.get(key);
@@ -60,7 +76,30 @@ function clientIp(request: FastifyRequest): string {
 }
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const AUTH_PATH_PREFIX = '/api/auth';
+const API_PREFIX = '/api/';
+
+/**
+ * Routes that accept or mint a credential. Session reads (`/api/auth/me`,
+ * `/api/auth/refresh`, `/api/auth/sessions`, `/api/auth/logout`) are ordinary
+ * traffic — `/me` runs on every page load.
+ */
+const CREDENTIAL_PATHS = [
+  '/api/auth/login',
+  '/api/auth/github/start',
+  '/api/auth/github/callback',
+  '/api/auth/link-github',
+  '/api/auth/password-reset/',
+  '/api/account-claim/by-password',
+];
+
+function pathOf(url: string): string {
+  const q = url.indexOf('?');
+  return q === -1 ? url : url.slice(0, q);
+}
+
+export function isCredentialPath(path: string): boolean {
+  return CREDENTIAL_PATHS.some((p) => (p.endsWith('/') ? path.startsWith(p) : path === p));
+}
 
 async function rateLimitPlugin(fastify: FastifyInstance): Promise<void> {
   const ipBuckets = new Map<string, BucketEntry>();
@@ -68,29 +107,29 @@ async function rateLimitPlugin(fastify: FastifyInstance): Promise<void> {
 
   fastify.addHook('onRequest', (request, _reply, done) => {
     try {
+      const path = pathOf(request.url);
+      if (!path.startsWith(API_PREFIX)) {
+        done();
+        return;
+      }
+
       const ip = clientIp(request);
       const isWrite = WRITE_METHODS.has(request.method);
-      const isAuthEndpoint = request.url.startsWith(AUTH_PATH_PREFIX);
-
       const personId = request.session?.person?.id;
 
-      if (isAuthEndpoint) {
-        // Auth endpoints: 10 req / min / IP
-        check(ipBuckets, `auth:${ip}`, 10);
+      if (isCredentialPath(path)) {
+        check(ipBuckets, `credential:${ip}`, RATE_LIMITS.credentialPerIp);
       } else if (isWrite) {
         if (personId) {
-          // Authenticated writes: 30 req / min / account
-          check(accountBuckets, `write-account:${personId}`, 30);
+          check(accountBuckets, `write-account:${personId}`, RATE_LIMITS.writesPerAccount);
         } else {
-          check(ipBuckets, `write:${ip}`, 30);
+          check(ipBuckets, `write:${ip}`, RATE_LIMITS.anonymousWritesPerIp);
         }
       } else {
         if (personId) {
-          // Authenticated reads: 300 req / min / account
-          check(accountBuckets, `account:${personId}`, 300);
+          check(accountBuckets, `account:${personId}`, RATE_LIMITS.authenticatedReadsPerAccount);
         } else {
-          // Unauthenticated reads: 60 req / min / IP
-          check(ipBuckets, `read:${ip}`, 60);
+          check(ipBuckets, `read:${ip}`, RATE_LIMITS.unauthenticatedReadsPerIp);
         }
       }
     } catch (err) {
