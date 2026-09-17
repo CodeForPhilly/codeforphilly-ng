@@ -1,10 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: [saml-authn-statement]
 specs:
   - specs/api/saml.md
 issues: []
-pr: null
+pr: 175
 ---
 
 # Plan: SAML sign-in return path
