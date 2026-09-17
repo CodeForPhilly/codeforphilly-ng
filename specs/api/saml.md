@@ -114,7 +114,7 @@ Rules:
 
 ### Behavior
 
-1. Require a signed-in session. If not signed in → redirect to `/login?return=<encoded current URL>`.
+1. Require a signed-in session. If not signed in → redirect to `/login?return=<encoded site-relative path + query of this request>`. The return is a path, never an absolute URL: `/login` and the OAuth start both drop anything that does not begin with a single `/`.
 2. Validate the member is permitted (default: any `user` accountLevel; configurable via the same `userIsPermitted` hook the legacy code provided).
 3. Build a SAML Response containing the NameID + attributes for the current Person.
 4. Sign the Response with the IdP private key.
@@ -159,7 +159,7 @@ Query string (saml-bindings §3.4.4.1, `DEFLATE` encoding):
 ### Behavior
 
 1. Decode + parse the AuthnRequest (inflate first for the Redirect binding). Validate signature if Slack signs requests (configurable; usually no for Slack).
-2. Require a signed-in session. If not → store the AuthnRequest in a short-lived signed cookie, redirect to `/login?return=/api/saml/slack/sso?resume=1`. After login the user comes back here and the AuthnRequest replays from the cookie.
+2. Require a signed-in session. If not → store the AuthnRequest in a short-lived signed cookie, redirect to `/login?return=/api/saml/slack/sso/resume` (site-relative, as for `/launch`). After login the user comes back to `/sso/resume` and the AuthnRequest replays from the cookie. Because that return is an API route rather than an SPA route, the login page performs a full navigation to it instead of client-side routing.
 3. Resolve the AuthnRequest's `AssertionConsumerServiceURL` against Slack's documented ACS endpoint(s) — only Slack's ACS is accepted.
 4. Build + sign a SAML Response as in `/launch`.
 5. POST back to Slack's ACS via the auto-submitting form, including `RelayState`. The Response always goes back over HTTP-POST regardless of which binding carried the request — Slack's ACS only accepts POST.
