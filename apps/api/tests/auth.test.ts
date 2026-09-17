@@ -22,6 +22,7 @@ import { type FastifyInstance } from 'fastify';
 import { SignJWT } from 'jose';
 
 import { buildApp } from '../src/app.js';
+import { RATE_LIMITS } from '../src/plugins/rate-limit.js';
 import { mintSessionFor } from '../src/auth/issue.js';
 import { verifyAccess, verifyRefresh } from '../src/auth/jwt.js';
 import { createFullDataRepo, createPrivateStorageDir } from './helpers/test-full-repo.js';
@@ -499,12 +500,13 @@ describe('account-based rate limits', () => {
   it('authenticated reads key on account bucket (300/min), separate from IP bucket', async () => {
     const { accessToken } = await mintSessionFor(personId, 'user', JWT_KEY);
 
-    // Exhaust the IP bucket with anonymous reads (60 limit)
-    for (let i = 0; i < 60; i++) {
-      await app.inject({ method: 'GET', url: '/api/health', remoteAddress: '10.99.0.1' });
-    }
+    // Exhaust the IP bucket (prime it to the cap rather than issuing 1200 reads)
+    app.rateLimitBuckets.ip.set('read:10.99.0.1', {
+      count: RATE_LIMITS.unauthenticatedReadsPerIp,
+      windowStart: Date.now(),
+    });
 
-    // 61st anonymous request → 429
+    // Next anonymous request → 429
     const anonRes = await app.inject({
       method: 'GET',
       url: '/api/health',

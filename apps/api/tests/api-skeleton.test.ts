@@ -6,7 +6,7 @@
  *  - ValidationError surfaces as 422 validation_failed with expected shape
  *  - Unknown Error surfaces as 500 internal_error with no message leak
  *  - traceId appears in error responses
- *  - Per-IP rate limit: 61 anonymous reads → 429 with Retry-After
+ *  - Per-IP rate limit: one read past the cap → 429 with Retry-After
  *  - Idempotency-Key: repeat POST returns cached response
  *  - /api/_openapi.json returns a valid OpenAPI 3.1 document
  *  - /api/_docs renders (200 response)
@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { RATE_LIMITS } from '../src/plugins/rate-limit.js';
 import { createFullDataRepo, createPrivateStorageDir } from './helpers/test-full-repo.js';
 
 // ---------------------------------------------------------------------------
@@ -169,18 +170,19 @@ describe('/api/_test/* route gating', () => {
 // ---------------------------------------------------------------------------
 
 describe('rate limiting', () => {
-  it('61 anonymous reads from the same IP → 429 with Retry-After on the 61st', async () => {
-    // Make 60 reads — all should succeed
-    for (let i = 0; i < 60; i++) {
-      const res = await app!.inject({
-        method: 'GET',
-        url: '/api/health',
-        remoteAddress: '10.0.0.1',
-      });
-      expect(res.statusCode, `Request ${i + 1} should succeed`).toBe(200);
-    }
+  it('one read past the per-IP cap → 429 with Retry-After', async () => {
+    // Prime the bucket to the cap rather than issuing 1200 requests; the last
+    // in-cap read must still succeed.
+    const limit = RATE_LIMITS.unauthenticatedReadsPerIp;
+    app!.rateLimitBuckets.ip.set('read:10.0.0.1', { count: limit - 1, windowStart: Date.now() });
+    const okRes = await app!.inject({
+      method: 'GET',
+      url: '/api/health',
+      remoteAddress: '10.0.0.1',
+    });
+    expect(okRes.statusCode).toBe(200);
 
-    // The 61st should be rate-limited
+    // The next one should be rate-limited
     const res = await app!.inject({
       method: 'GET',
       url: '/api/health',
