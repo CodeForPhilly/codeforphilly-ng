@@ -159,10 +159,14 @@ Every request body and query string is validated by a zod schema declared alongs
 
 Single-replica means rate-limit state is in-memory. Counters reset on restart; acceptable at civic scale.
 
-- Unauthenticated reads: 60 requests / minute / IP
+Only `/api/**` requests are counted. The SPA shell, its assets, and image thumbnails are served by the same process but are never rate limited — a single page load fetches dozens of them.
+
+- Unauthenticated reads: 1200 requests / minute / IP
 - Authenticated reads: 300 requests / minute / account
-- Writes: 30 requests / minute / account
-- Auth endpoints (`/api/auth/*`): 10 requests / minute / IP
+- Writes: 30 requests / minute / account (120 / minute / IP when anonymous)
+- Credential endpoints: 120 requests / minute / IP. These are the routes that accept or mint a credential: `POST /api/auth/login`, `/api/auth/github/start` and `/callback`, `/api/auth/link-github`, `/api/auth/password-reset/*`, and `POST /api/account-claim/by-password`. Session reads such as `GET /api/auth/me` (called on every page load) and `/api/auth/refresh` are ordinary reads.
+
+The per-IP caps are deliberately generous: in production the gateway sits behind a load balancer that does not yet preserve client addresses, so every visitor currently shares one "IP" (cfp-live-cluster #201). Tighten the credential cap once that lands.
 
 Exceeded → `429 rate_limited`, `Retry-After` header in seconds.
 
