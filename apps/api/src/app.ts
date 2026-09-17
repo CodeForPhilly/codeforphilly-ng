@@ -13,8 +13,9 @@
  *                             is built from the post-reconciliation tree)
  *  6b. push-daemon plugin  → starts gitsheets push daemon
  *  6c. services plugin     → builds in-memory state + FTS
- *  7. rate-limit plugin    → in-memory counters keyed per-IP + per-account
- *  8. idempotency plugin   → in-memory map keyed by personId+key
+ *  7. session middleware   → parses the JWT cookie into request.session
+ *  8. rate-limit plugin    → in-memory counters keyed per-IP + per-account
+ *  8a. idempotency plugin  → in-memory map keyed by personId+key
  *  9. @fastify/swagger      → OpenAPI 3.1 doc generation
  * 10. @fastify/swagger-ui   → Swagger UI at /api/_docs
  * 11. routes               → registered last after all plumbing
@@ -151,14 +152,16 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(slugRedirectPlugin);
   await fastify.register(legacyRedirectPlugin);
 
-  // ----- 7. Rate limiting -----
+  // ----- 7. Session middleware (JWT auth) -----
+  // Before rate-limit and idempotency: all three use onRequest hooks, which run
+  // in registration order, and the other two key on request.session.person.
+  await fastify.register(sessionMiddlewarePlugin);
+
+  // ----- 8. Rate limiting -----
   await fastify.register(rateLimitPlugin);
 
-  // ----- 8. Idempotency -----
+  // ----- 8a. Idempotency -----
   await fastify.register(idempotencyPlugin);
-
-  // ----- 8a. Session middleware (JWT auth) -----
-  await fastify.register(sessionMiddlewarePlugin);
 
   // ----- 9-10. OpenAPI / Swagger UI -----
   await fastify.register(fastifySwagger, {
