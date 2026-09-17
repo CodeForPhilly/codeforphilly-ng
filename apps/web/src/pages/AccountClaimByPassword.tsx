@@ -13,12 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
-
-function safeReturn(input: string | null): string {
-  if (!input) return '/';
-  if (!input.startsWith('/') || input.startsWith('//')) return '/';
-  return input;
-}
+import { goToReturn, safeReturn } from '@/lib/return-path';
 
 export function AccountClaimByPassword() {
   const [searchParams] = useSearchParams();
@@ -39,7 +34,7 @@ export function AccountClaimByPassword() {
       await api.accountClaim.byPassword(slug.trim(), password);
       toast.success('Welcome back');
       await reload();
-      void navigate(returnPath, { replace: true });
+      goToReturn(navigate, returnPath);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401 && err.code === 'claim_token_invalid') {

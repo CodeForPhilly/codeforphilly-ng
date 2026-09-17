@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/useAuth';
+import { goToReturn, safeReturn } from '@/lib/return-path';
 import {
   api,
   ApiError,
@@ -18,12 +19,6 @@ import {
   type AccountClaimCandidatesPayload,
 } from '@/lib/api';
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/time';
-
-function safeReturn(input: string | null): string {
-  if (!input) return '/';
-  if (!input.startsWith('/') || input.startsWith('//')) return '/';
-  return input;
-}
 
 export function AccountClaim() {
   const [searchParams] = useSearchParams();
@@ -82,7 +77,7 @@ export function AccountClaim() {
       await api.accountClaim.confirm(candidate.personId);
       toast.success(`Welcome back, ${candidate.fullName}`);
       await reload();
-      void navigate(returnPath, { replace: true });
+      goToReturn(navigate, returnPath);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to confirm';
       toast.error(msg);
@@ -96,7 +91,7 @@ export function AccountClaim() {
       await api.accountClaim.decline();
       toast.success("Got it — we'll set up a fresh profile");
       await reload();
-      void navigate(returnPath, { replace: true });
+      goToReturn(navigate, returnPath);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Failed to start fresh');
       setDeclining(false);

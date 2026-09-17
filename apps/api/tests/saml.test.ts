@@ -74,6 +74,16 @@ function slackAuthnRequestXml(id: string, acsHost: string = SLACK_TEAM_HOST): st
 }
 
 /**
+ * The decoded `?return=` a /login redirect carries. Must be site-relative:
+ * both /login and the OAuth start drop anything not beginning with one `/`.
+ */
+function loginReturnOf(location: string | string[] | undefined): string {
+  const url = new URL(String(location), 'http://placeholder.test');
+  expect(url.pathname).toBe('/login');
+  return url.searchParams.get('return') ?? '';
+}
+
+/**
  * HTTP-Redirect binding encoding (saml-bindings §3.4.4.1): raw DEFLATE →
  * base64 → URL-encode. Returns the ready-to-append query string.
  */
@@ -232,10 +242,21 @@ describe('SAML IdP — Slack', () => {
     expect(formats).toContain('urn:oasis:names:tc:SAML:2.0:nameid-format:persistent');
   });
 
-  it('GET /api/saml/slack/launch (anonymous) redirects to /login', async () => {
+  it('GET /api/saml/slack/launch (anonymous) redirects to /login with a site-relative return', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/saml/slack/launch' });
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toMatch(/^\/login\?return=/);
+    // An absolute URL here is silently dropped by /login's leading-slash guard
+    // and the user lands on `/` instead of coming back to finish SSO.
+    expect(loginReturnOf(res.headers.location)).toBe('/api/saml/slack/launch');
+  });
+
+  it('GET /api/saml/slack/launch (anonymous) keeps channel/redir in the return', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/saml/slack/launch?channel=general',
+    });
+    expect(res.statusCode).toBe(302);
+    expect(loginReturnOf(res.headers.location)).toBe('/api/saml/slack/launch?channel=general');
   });
 
   it('GET /api/saml/slack/launch (signed-in) returns auto-submit form with signed SAML response', async () => {
@@ -400,7 +421,7 @@ describe('SAML IdP — Slack', () => {
       url: `/api/saml/slack/sso?${redirectBindingQuery(slackAuthnRequestXml('id-redirect-1'), 'opaque-redirect-state')}`,
     });
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toMatch(/^\/login\?return=/);
+    expect(loginReturnOf(res.headers.location)).toBe('/api/saml/slack/sso/resume');
     expect(resumeCookieValue(res)).not.toBe('');
   });
 
@@ -513,7 +534,7 @@ describe('SAML IdP — Slack', () => {
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
     });
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toMatch(/^\/login\?return=/);
+    expect(loginReturnOf(res.headers.location)).toBe('/api/saml/slack/sso/resume');
     // Resume cookie set
     const cookies = res.headers['set-cookie'];
     const cookieStr = Array.isArray(cookies) ? cookies.join('\n') : String(cookies ?? '');

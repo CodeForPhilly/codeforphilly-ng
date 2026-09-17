@@ -14,12 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
-
-function safeReturn(input: string | null): string {
-  if (!input) return '/';
-  if (!input.startsWith('/') || input.startsWith('//')) return '/';
-  return input;
-}
+import { goToReturn, safeReturn } from '@/lib/return-path';
 
 export function AccountClaimRequestStaffReview() {
   const [searchParams] = useSearchParams();
@@ -55,7 +50,7 @@ export function AccountClaimRequestStaffReview() {
     try {
       await api.accountClaim.decline();
       await reload();
-      void navigate(returnPath, { replace: true });
+      goToReturn(navigate, returnPath);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Failed to continue');
       setContinuing(false);

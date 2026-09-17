@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { GitHubIcon } from '@/components/icons/GitHubIcon';
 import { useAuth } from '@/hooks/useAuth';
 import { api, ApiError } from '@/lib/api';
+import { goToReturn, safeReturn } from '@/lib/return-path';
 
 type ErrorCode =
   | 'access_denied'
@@ -93,15 +94,14 @@ export function LoginPlaceholder() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const returnPath = searchParams.get('return');
+  const rawReturn = searchParams.get('return');
+  const returnPath = safeReturn(rawReturn);
   const errorCode = searchParams.get('error') as ErrorCode | null;
 
   // Redirect already-authenticated users
   useEffect(() => {
     if (!loading && person) {
-      const target =
-        returnPath && returnPath.startsWith('/') ? returnPath : '/';
-      void navigate(target, { replace: true });
+      goToReturn(navigate, returnPath);
     }
   }, [loading, person, navigate, returnPath]);
 
@@ -117,7 +117,7 @@ export function LoginPlaceholder() {
     );
   }
 
-  const startUrl = returnPath
+  const startUrl = rawReturn
     ? `/api/auth/github/start?return=${encodeURIComponent(returnPath)}`
     : '/api/auth/github/start';
 
@@ -126,9 +126,7 @@ export function LoginPlaceholder() {
     // picks up the new session before we navigate. Without this, the
     // navbar stays in its anonymous state until the next hard refresh.
     await reload();
-    const target =
-      returnPath && returnPath.startsWith('/') ? returnPath : '/';
-    void navigate(target, { replace: true });
+    goToReturn(navigate, returnPath);
   };
 
   return (
