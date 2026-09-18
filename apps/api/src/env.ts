@@ -104,6 +104,12 @@ export const EnvSchema = z.object({
   CFP_NOTIFICATION_FROM: z
     .string()
     .default('Code for Philly <notifications@codeforphilly.org>'),
+  /**
+   * Shared secret Postmark presents on the bounce webhook (basic-auth password
+   * or bearer token). Unset → POST /api/_webhooks/postmark/bounce answers 503.
+   * See specs/api/webhooks.md.
+   */
+  POSTMARK_WEBHOOK_SECRET: z.string().min(16).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -144,6 +150,7 @@ export const envJsonSchema = {
     CFP_SITE_HOST: { type: 'string', default: 'codeforphilly.org' },
     POSTMARK_SERVER_TOKEN: { type: 'string' },
     POSTMARK_MESSAGE_STREAM: { type: 'string', default: 'outbound' },
+    POSTMARK_WEBHOOK_SECRET: { type: 'string', minLength: 16 },
     CFP_NOTIFICATION_FROM: {
       type: 'string',
       default: 'Code for Philly <notifications@codeforphilly.org>',
