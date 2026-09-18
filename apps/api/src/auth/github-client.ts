@@ -24,6 +24,20 @@ export interface GitHubUser {
   readonly login: string;
   readonly name: string | null;
   readonly avatar_url?: string;
+  /** Reputation facts from the same /user response (specs/api/auth.md step 5). */
+  readonly created_at: string | null;
+  readonly public_repos: number | null;
+  readonly followers: number | null;
+  readonly following: number | null;
+  readonly type: string | null;
+}
+
+export type GitHubProbeStatus = 'ok' | 'gone';
+
+export interface GitHubProbeResult {
+  readonly status: GitHubProbeStatus;
+  /** Present when status is `ok`. */
+  readonly user: GitHubUser | null;
 }
 
 export interface GitHubEmail {
@@ -153,12 +167,63 @@ export async function fetchGitHubUser(accessToken: string): Promise<GitHubUser> 
   if (!body || typeof body.id !== 'number' || typeof body.login !== 'string') {
     throw new GitHubApiError('GitHub /user returned unexpected shape', 'github_unreachable');
   }
+  return toGitHubUser(body as Partial<GitHubUser> & { id: number; login: string });
+}
+
+function toGitHubUser(body: Partial<GitHubUser> & { id: number; login: string }): GitHubUser {
   return {
     id: body.id,
     login: body.login,
     name: typeof body.name === 'string' ? body.name : null,
     ...(typeof body.avatar_url === 'string' ? { avatar_url: body.avatar_url } : {}),
+    created_at: typeof body.created_at === 'string' ? body.created_at : null,
+    public_repos: typeof body.public_repos === 'number' ? body.public_repos : null,
+    followers: typeof body.followers === 'number' ? body.followers : null,
+    following: typeof body.following === 'number' ? body.following : null,
+    type: typeof body.type === 'string' ? body.type : null,
   };
+}
+
+/**
+ * Is the linked GitHub account still there? `GET /user/{id}` authenticated
+ * with the OAuth app's client credentials (5,000 req/h). GitHub answers 404
+ * once it has deleted or suspended the account; that is the signal. Any other
+ * non-2xx throws so the caller keeps its previous record rather than
+ * misreading an outage as a verdict.
+ */
+export async function probeGitHubUser(
+  githubUserId: number,
+  clientId: string,
+  clientSecret: string,
+  opts: { readonly timeoutMs?: number } = {},
+): Promise<GitHubProbeResult> {
+  const url = `https://api.github.com/user/${githubUserId}`;
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Basic ${basic}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': USER_AGENT,
+      },
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 4000),
+    });
+  } catch (err) {
+    throw new GitHubApiError(`GitHub API transport error: ${url}`, 'github_unreachable', { cause: err });
+  }
+  if (res.status === 404) return { status: 'gone', user: null };
+  if (!res.ok) {
+    throw new GitHubApiError(`GitHub API ${url} returned ${res.status}`, 'github_unreachable', {
+      status: res.status,
+    });
+  }
+  const body = (await res.json().catch(() => null)) as Partial<GitHubUser> | null;
+  if (!body || typeof body.id !== 'number' || typeof body.login !== 'string') {
+    throw new GitHubApiError('GitHub /user/{id} returned unexpected shape', 'github_unreachable');
+  }
+  return { status: 'ok', user: toGitHubUser(body as Partial<GitHubUser> & { id: number; login: string }) };
 }
 
 export async function fetchGitHubEmails(accessToken: string): Promise<GitHubEmail[]> {
@@ -197,6 +262,12 @@ export interface ResolvedGitHubIdentity {
   readonly name: string | null;
   readonly emails: readonly GitHubEmail[];
   readonly primaryEmail: string | null;
+  /**
+   * The full /user snapshot, kept so sign-in can record reputation facts.
+   * Absent when the identity was rebuilt from a claim-pending token rather
+   * than a live GitHub response.
+   */
+  readonly user?: GitHubUser;
 }
 
 export function resolveIdentitySnapshot(
@@ -211,5 +282,20 @@ export function resolveIdentitySnapshot(
     name: user.name,
     emails: verified,
     primaryEmail: primary?.email.toLowerCase() ?? null,
+    user,
+  };
+}
+
+/** Shape the reputation facts for the private profile (specs/behaviors/private-storage.md). */
+export function githubFactsFrom(user: GitHubUser, status: GitHubProbeStatus, checkedAt: string) {
+  return {
+    login: user.login,
+    accountCreatedAt: user.created_at,
+    publicRepos: user.public_repos,
+    followers: user.followers,
+    following: user.following,
+    type: user.type,
+    status,
+    checkedAt,
   };
 }

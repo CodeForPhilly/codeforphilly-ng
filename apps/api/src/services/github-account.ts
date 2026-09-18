@@ -24,7 +24,7 @@ import {
   isValidPersonSlug,
   slugify,
 } from '../lib/slug.js';
-import type { ResolvedGitHubIdentity } from '../auth/github-client.js';
+import { githubFactsFrom, type ResolvedGitHubIdentity } from '../auth/github-client.js';
 
 const PERSON_SLUG_MAX = 50;
 
@@ -107,6 +107,7 @@ export class GitHubAccountService {
       email: primaryEmail.toLowerCase(),
       emailRefreshedAt: now,
       newsletter: null,
+      github: identity.user ? githubFactsFrom(identity.user, 'ok', now) : null,
       updatedAt: now,
     });
 
@@ -162,6 +163,9 @@ export class GitHubAccountService {
           email: normalized,
           emailRefreshedAt: now,
           newsletter: currentProfile?.newsletter ?? null,
+          lastSlackSsoAt: currentProfile?.lastSlackSsoAt ?? null,
+          emailBounce: currentProfile?.emailBounce ?? null,
+          github: identity.user ? githubFactsFrom(identity.user, 'ok', now) : (currentProfile?.github ?? null),
           updatedAt: now,
         });
         tx.private.putProfile(profile);
@@ -171,6 +175,7 @@ export class GitHubAccountService {
         const profile: PrivateProfile = PrivateProfileSchema.parse({
           ...currentProfile,
           emailRefreshedAt: now,
+          github: identity.user ? githubFactsFrom(identity.user, 'ok', now) : (currentProfile?.github ?? null),
           updatedAt: now,
         });
         tx.private.putProfile(profile);

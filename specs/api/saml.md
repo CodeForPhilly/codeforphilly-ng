@@ -122,6 +122,8 @@ Rules:
    - `SAMLResponse` (base64-encoded signed XML)
    - `RelayState` — the channel/redir path so Slack lands the user in the right place
 
+6. **Slack SSO stamp.** Set `PrivateProfile.lastSlackSsoAt = now` for the person (best-effort; a private-store failure never fails the assertion). Surfaced on the staff roster ([api/moderation.md](moderation.md)).
+
 The destination URL inside the Response includes the `redir` so Slack's POST endpoint sees it.
 
 ### Errors
@@ -162,7 +164,7 @@ Query string (saml-bindings §3.4.4.1, `DEFLATE` encoding):
 2. Require a signed-in session. If not → store the AuthnRequest in a short-lived signed cookie, redirect to `/login?return=/api/saml/slack/sso/resume` (site-relative, as for `/launch`). After login the user comes back to `/sso/resume` and the AuthnRequest replays from the cookie. Because that return is an API route rather than an SPA route, the login page performs a full navigation to it instead of client-side routing.
 3. Resolve the AuthnRequest's `AssertionConsumerServiceURL` against Slack's documented ACS endpoint(s) — only Slack's ACS is accepted.
 4. Build + sign a SAML Response as in `/launch`.
-5. POST back to Slack's ACS via the auto-submitting form, including `RelayState`. The Response always goes back over HTTP-POST regardless of which binding carried the request — Slack's ACS only accepts POST.
+. **Slack SSO stamp**, as for `/launch`.
 
 ### Errors
 

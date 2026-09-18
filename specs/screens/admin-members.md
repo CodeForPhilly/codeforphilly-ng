@@ -30,18 +30,38 @@ See [api/moderation.md](../api/moderation.md).
 ### Roster
 
 - Newest signup first by default; sort toggles for name and last sign-in.
-- Filter bar: text search; **Vote**: any / no vote yet (default) / voted spam /
-  voted legit; joined date range; a "show deactivated" toggle (on by default —
-  moderation needs to see what it hid).
+- Filter bar: text search; **Vote**: any / **no vote yet (default)** / voted
+  spam / voted legit; **Origin**: any / signed up here / imported; joined date
+  range; a "show deactivated" toggle (on by default — moderation needs to see
+  what it hid).
 - Each row: avatar, `fullName` (link to the public profile, opens in a new tab),
-  `@slug`, "joined {createdAt relative}", GitHub-linked badge, last sign-in
-  relative, email (staff-visible), bio excerpt, compact footprint counts
-  (`2 projects · 1 update · 3 tags`), and the vote state:
+  `@slug`, then the **badges**, then "joined {createdAt relative}", sign-ins
+  (`signed in 4× · last 2h ago` or `never signed in`), email (staff-visible),
+  bio excerpt, compact footprint counts (`2 projects · 1 update · 3 tags`), and
+  the vote state:
   - no vote → two buttons **Spam** / **Not spam**
   - voted → a badge `Spam · by {voter} · {when}` or `Not spam · …` with a
     "Change" affordance that re-shows the buttons
+- **Badges** (from the row's `origin`, `github`, `lastSlackSsoAt`,
+  `emailBounce`, and `signals`):
+  - `Signed up here` (green) or `Imported` (neutral).
+  - `GitHub · @login · {account age} · {repos} repos · {followers} followers`,
+    linking to the GitHub profile; **red `GitHub account gone`** when
+    `status = gone`; amber when `github-new-account` or `github-no-activity`.
+  - `Slack · {lastSlackSsoAt relative}` when the person has signed into Slack
+    through us.
+  - `Email bounced · {type}` (red) when `emailBounce` is set.
+  - `email ≠ name` (amber), `{n} links in bio` (amber), `no bio`, `no avatar`
+    (neutral) from the signals.
+- **Attention tint**: the row's left border goes amber at `attention ≥ 3` and
+  red at `attention ≥ 5` (or whenever `github-gone` / `email-bounced` is
+  present), so the eye lands on the spam shape without reading every field.
+  Rows with `has-footprint` and `attention = 0` stay plain.
 - Deactivated members render dimmed with a "Deactivated" chip; a member hidden by
   a spam vote shows "Hidden by {voter}".
+- **Keyboard triage**: `j` / `k` move the selection, `s` opens the Spam
+  confirm for the selected row, `n` votes Not spam, `Enter` toggles details.
+  The selected row is outlined and scrolled into view.
 
 ### Expanded row / detail
 

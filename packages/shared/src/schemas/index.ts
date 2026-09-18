@@ -35,7 +35,7 @@ export { RevocationSchema } from './revocation.js';
 export type { Revocation } from './revocation.js';
 
 export { PrivateProfileSchema } from './private-profile.js';
-export type { PrivateProfile, Newsletter } from './private-profile.js';
+export type { PrivateProfile, Newsletter, GitHubFacts, EmailBounce } from './private-profile.js';
 
 export { LegacyPasswordCredentialSchema } from './legacy-password-credential.js';
 export type { LegacyPasswordCredential } from './legacy-password-credential.js';

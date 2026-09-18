@@ -54,9 +54,29 @@ That's the entire on-disk footprint. No per-record files, no indexes on disk, no
     "optedInAt": "2026-04-01T...",
     "unsubscribeToken": "base64url-32byte"
   },
+  "github": {
+    "login": "janedoe", "accountCreatedAt": "2019-03-02T...", "publicRepos": 12,
+    "followers": 40, "following": 7, "type": "User",
+    "status": "ok", "checkedAt": "2026-09-18T20:00:00Z"
+  },
+  "lastSlackSsoAt": "2026-09-18T01:12:00Z",
+  "emailBounce": { "type": "HardBounce", "bouncedAt": "2026-09-10T...", "description": "…", "inactive": true },
   "updatedAt": "2026-05-15T18:42:00Z"
 }
 ```
+
+The three trailing fields are optional and exist for staff moderation
+([api/moderation.md](../api/moderation.md)):
+
+- `github` — what GitHub said about the linked account, captured at every GitHub
+  sign-in ([api/auth.md](../api/auth.md)) and refreshed by the roster's probe
+  (`GET /user/{id}` with the OAuth app's client credentials, at most once a day
+  per person). `status = "gone"` means GitHub now 404s the account — deleted or
+  suspended.
+- `lastSlackSsoAt` — set whenever our SAML IdP issues an assertion for the
+  person ([api/saml.md](../api/saml.md)).
+- `emailBounce` — the last terminal bounce Postmark reported for the address
+  ([api/webhooks.md](../api/webhooks.md)). Never cleared automatically.
 
 **`legacy-passwords.jsonl`** — one line per migrated Person who hasn't yet claimed via password-match:
 
