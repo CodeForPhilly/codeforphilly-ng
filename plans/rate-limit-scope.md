@@ -53,4 +53,6 @@ cap back down once real client IPs arrive.
 
 ## Follow-ups
 
-- Tracked as: cfp-live-cluster #201 (PROXY protocol so per-IP is per visitor).
+- Tracked as: cfp-live-cluster #203 landed PROXY protocol the same night; the
+  generous caps were then tightened to real per-visitor numbers (reads 300,
+  credential 20, anonymous writes 30 per minute per IP).
