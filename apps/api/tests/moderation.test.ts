@@ -217,6 +217,14 @@ describe('moderation API', () => {
     expect(res.statusCode).toBe(422);
   });
 
+  it('search matches an email substring without an @, across the whole roster', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/admin/members?q=regular%40example', ...asStaff(staffCookie) });
+    expect(res.json<{ data: Array<{ slug: string }> }>().data.map((r) => r.slug)).toEqual(['regular']);
+    const bare = await app.inject({ method: 'GET', url: '/api/admin/members?q=example.org', ...asStaff(staffCookie) });
+    const slugs = bare.json<{ data: Array<{ slug: string }> }>().data.map((r) => r.slug).sort();
+    expect(slugs).toEqual(['newest', 'regular']);
+  });
+
   it('rejects an unknown sort key', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/admin/members?sort=bogus', ...asStaff(staffCookie) });
     expect(res.statusCode).toBe(422);

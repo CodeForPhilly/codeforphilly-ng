@@ -21,7 +21,7 @@ a signal.
 
 | Param | Type | Notes |
 | ----- | ---- | ----- |
-| `q` | string | Full-text on `fullName`, `slug`, `bio`, and (staff-visible) `email`. |
+| `q` | string | Substring match on `fullName`, `slug`, `bio`, and (staff-visible) `email` — searched for every query, so `.com` finds every member on that domain. Applies to the whole roster, then paginates. |
 | `vote` | enum | `none` (no human vote yet) \| `spam` \| `legit`. Filters on the **latest** human vote. |
 | `origin` | enum | `imported` (has a laddr `legacyId`) \| `signed-up` (created on this site through GitHub). |
 | `joinedAfter`, `joinedBefore` | ISO date | Inclusive bounds on `createdAt`. |
