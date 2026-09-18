@@ -1,10 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: [samlify-esm-interop]
 specs:
   - specs/screens/chat.md
 issues: []
-pr: null
+pr: 185
 ---
 
 # Plan: `/chat/<channel>` signs into Slack and opens the channel
