@@ -28,6 +28,7 @@ import { PersonWriteService } from '../services/person.write.js';
 import { TagWriteService } from '../services/tag.write.js';
 import { GitHubAccountService } from '../services/github-account.js';
 import { AccountClaimService } from '../services/account-claim.js';
+import { ModerationService, ModerationWriteService } from '../services/moderation.js';
 import { LoggingNotifier, type Notifier } from '../notify/index.js';
 import { EmailNotifier } from '../notify/email-notifier.js';
 import { PostmarkTransport } from '../notify/postmark-transport.js';
@@ -53,6 +54,8 @@ declare module 'fastify' {
       tagsWrite: TagWriteService;
       githubAccount: GitHubAccountService;
       accountClaim: AccountClaimService;
+      moderation: ModerationService;
+      moderationWrite: ModerationWriteService;
     };
     /** Shared in-memory state — write routes call StateApply.apply against this. */
     inMemoryState: InMemoryState;
@@ -107,6 +110,16 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
     tagsWrite: new TagWriteService(state),
     githubAccount,
     accountClaim: new AccountClaimService(state, fastify.store.private, githubAccount),
+    moderation: new ModerationService(state, fastify.store.private, (personId) => {
+      // Newest sign-in from session metadata; the auth plugin decorates it
+      // after this one registers, so resolve lazily per call.
+      let latest: string | null = null;
+      for (const m of fastify.sessionMetadata?.getAll(personId) ?? []) {
+        if (!latest || m.issuedAt > latest) latest = m.issuedAt;
+      }
+      return latest;
+    }),
+    moderationWrite: new ModerationWriteService(state),
   });
 }
 
