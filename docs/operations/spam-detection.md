@@ -2,11 +2,18 @@
 
 The `codeforphilly-data` site has accumulated tens of thousands of legacy signups, the majority of which are spam — SEO link drops, gambling / adult / cleaning-service promotional bios, foreign-language commercial content, and so on. This document describes the multi-pass evaluation system that scores every person record and the workflow for refreshing the evaluations as new data arrives.
 
-> See also: the [codeforphilly-data repo](https://github.com/CodeForPhilly/codeforphilly-data), currently on the `spam-detection` branch where the scripts, sheet configs, and evaluation data all live.
+> See also: the private [codeforphilly-spam-detection repo](https://github.com/CodeForPhilly/codeforphilly-spam-detection), where the scripts, the evaluation sheet configs, and the machine-produced evaluation data live. Staff **human votes** live in the public data repo (`person-evaluations` on `published`) — see [specs/api/moderation.md](../../specs/api/moderation.md).
 
 ## Where everything lives
 
-All work — scripts, sheet configs, and evaluation records — currently sits on the `spam-detection` branch of `codeforphilly-data`. Eventually this will migrate (scripts + configs up to `empty`, eval data down to `published`), but for now treat `spam-detection` as the source of truth for the spam moderation surface.
+Since 2026-09-18 the pipeline is split across two repositories:
+
+| Repo | Visibility | Holds |
+| --- | --- | --- |
+| `CodeForPhilly/codeforphilly-spam-detection` | **private** | scripts, the four evaluation sheet configs, machine `person-evaluations` (heuristic + LLM), and the Slack-derived sheets. Slack message text, Slack identities, and LLM prose about named people never leave it. |
+| `CodeForPhilly/codeforphilly-data` | public-by-design | the served data on `published`, plus `person-evaluations` records written by the site: staff votes with `evaluator = "human-<voterSlug>"`. |
+
+The scripts read people/projects/etc. from a clone of the data repo on `published` (`CFP_DATA_GIT_DIR`) and write only to the private repo. The prune reads machine verdicts from the private repo and human votes from `published`; **a human vote is final** ([spam-exclusion.md](../../specs/behaviors/spam-exclusion.md)). The old `spam-detection` branch of the data repo was deleted when the split landed.
 
 ## Data model
 
@@ -108,7 +115,7 @@ Per-person cache at `.llm-eval-cache/<evaluator>.json`, flushed every 50 evaluat
 `person-evaluations` is keyed `personSlug/evaluator`, so multiple evaluator opinions coexist per person. To compute the authoritative verdict for a given slug, apply priority:
 
 ```
-1. Any `human:*` evaluator        → use that  (manual override is final)
+1. Any `human-*` evaluator        → use that  (manual override is final)
 2. Latest `haiku-*` evaluator     → use that  (most recent LLM is current)
 3. Latest `heuristic-*` evaluator → use that
 4. No record                      → treat as legit (default-allow per
@@ -119,12 +126,12 @@ When new evaluator versions ship (e.g. `haiku-2026-06` with rubric improvements)
 
 ## Manual overrides
 
-To override an LLM verdict for one person — for example, to mark a mis-flagged spammer as legit, or to confirm a high-confidence-spam call as definitely-spam before a deletion pass — upsert a `human:<your-handle>` record:
+To override an LLM verdict for one person — for example, to mark a mis-flagged spammer as legit, or to confirm a high-confidence-spam call as definitely-spam before a deletion pass — upsert a `human-<your-handle>` record:
 
 ```bash
 gitsheets-axi upsert person-evaluations --data '{
   "personSlug": "ackrolix123",
-  "evaluator": "human:chris",
+  "evaluator": "human-chris",
   "verdict": "legit",
   "confidence": 1.0,
   "flags": ["manual-override"],
@@ -133,18 +140,17 @@ gitsheets-axi upsert person-evaluations --data '{
 }'
 ```
 
-Because the path template is `${{ personSlug }}/${{ evaluator }}` and `evaluator` is `human:chris`, the file lands at `person-evaluations/ackrolix123/human:chris.toml`. Verdict aggregation will pick it up automatically.
+Because the path template is `${{ personSlug }}/${{ evaluator }}` and `evaluator` is `human-chris`, the file lands at `person-evaluations/ackrolix123/human-chris.toml`. Verdict aggregation will pick it up automatically.
 
-To unset a human override, `gitsheets-axi delete person-evaluations ackrolix123/human:chris`.
+To unset a human override, `gitsheets-axi delete person-evaluations ackrolix123/human-chris`.
 
 ## Refreshing evaluations after new data arrives
 
 `legacy-import` snapshots and live API writes land new + updated person records on `published`. To refresh:
 
 ```bash
-# 1. Pull latest data
-git fetch origin published
-git merge origin/published     # or rebase onto spam-detection's data work
+# 1. Refresh the data clone the scripts read from (CFP_DATA_GIT_DIR, HEAD on published)
+git -C $CFP_DATA_GIT_DIR fetch origin published:published
 
 # 2. Refresh Slack snapshot (cheap — cache hits if no new channels)
 npm run fetch-slack
@@ -157,6 +163,13 @@ npm run evaluate-heuristic
 
 # 5. LLM-eval the new uncertain bucket
 npm run evaluate-llm
+
+# 5b. LLM-confirm the heuristic-spam bucket. REQUIRED: heuristic records carry a
+#     `score` but no `confidence`, so the prune ignores them until Haiku confirms.
+npm run evaluate-llm -- --filter spam
+
+# 5c. Push the evaluations (they commit to this repo's current branch)
+git push
 
 # 6. Apply the verdicts — prune confident-spam from `published` (see below).
 #    Run from the codeforphilly-ng repo against a bare clone, then push.
@@ -173,13 +186,13 @@ When source records get updated (e.g., a previously-empty profile gets a new bio
 
 Verdicts are advisory until the **prune** step applies them. Prune is not a read-path filter (the runtime loader stays spam-unaware); it **removes confident-spam people from `published`** so the deployed app never loads them into memory or shows them. This is what keeps the in-memory footprint within the node budget — see [specs/behaviors/spam-exclusion.md](../../specs/behaviors/spam-exclusion.md) for the full contract.
 
-The tool is `apps/api/scripts/prune-spam.ts` in the **`codeforphilly-ng`** repo (not the data repo). Run it against a bare clone of the data repo that carries both `published` and `spam-detection`, dry-run first, then push:
+The tool is `apps/api/scripts/prune-spam.ts` in the **`codeforphilly-ng`** repo (not the data repo). Run it against a bare clone of the data repo (`--data-repo`, carrying `published` with the staff votes) and a clone of the private repo (`--evaluations-repo`), dry-run first, then push:
 
 ```bash
 # From the codeforphilly-ng repo
 npm run -w apps/api script:prune-spam -- \
   --data-repo=/path/to/codeforphilly-data.git \
-  --evaluations-ref=spam-detection \
+  --evaluations-repo=/path/to/codeforphilly-spam-detection \
   --branch=published \
   --threshold=0.8 \
   --dry-run                       # drop --dry-run to commit the prune
@@ -247,4 +260,4 @@ legit     11,819  (37.6%)
 uncertain     28  (0.09%)  — review backlog
 ```
 
-The 28 uncertain are the small set worth eyeballing for tuning the rubric or supplying manual `human:*` overrides.
+The 28 uncertain are the small set worth eyeballing for tuning the rubric or supplying manual `human-*` overrides.
