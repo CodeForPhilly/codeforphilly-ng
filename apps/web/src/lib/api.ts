@@ -591,6 +591,17 @@ export interface VoteView {
   readonly evaluatedAt: string;
 }
 
+export type MemberOrigin = 'imported' | 'signed-up';
+
+export interface MemberGitHub {
+  readonly login: string | null;
+  readonly accountCreatedAt: string | null;
+  readonly publicRepos: number | null;
+  readonly followers: number | null;
+  readonly status: 'ok' | 'gone' | 'unknown';
+  readonly checkedAt: string | null;
+}
+
 export interface MemberRow {
   readonly id: string;
   readonly slug: string;
@@ -598,9 +609,14 @@ export interface MemberRow {
   readonly avatarUrl: string | null;
   readonly createdAt: string;
   readonly deletedAt: string | null;
+  readonly origin: MemberOrigin;
   readonly email: string | null;
   readonly hasGitHubLink: boolean;
+  readonly github: MemberGitHub | null;
   readonly lastLoginAt: string | null;
+  readonly signInCount: number;
+  readonly lastSlackSsoAt: string | null;
+  readonly emailBounce: { readonly type: string; readonly bouncedAt: string } | null;
   readonly bioExcerpt: string;
   readonly footprint: {
     readonly memberships: number;
@@ -611,11 +627,14 @@ export interface MemberRow {
     readonly tags: number;
   };
   readonly latestVote: VoteView | null;
+  readonly signals: string[];
+  readonly attention: number;
 }
 
 export interface MemberListParams {
   q?: string;
   vote?: 'none' | VoteVerdict;
+  origin?: MemberOrigin;
   joinedAfter?: string;
   joinedBefore?: string;
   includeDeactivated?: boolean;
