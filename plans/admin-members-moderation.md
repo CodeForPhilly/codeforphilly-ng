@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [person-deactivate-purge, spam-prune]
 specs:
   - specs/screens/admin-members.md
@@ -7,7 +7,7 @@ specs:
   - specs/behaviors/spam-exclusion.md
   - specs/behaviors/person-lifecycle.md
 issues: []
-pr: null
+pr: 187
 ---
 
 # Plan: admin members roster + human spam votes
