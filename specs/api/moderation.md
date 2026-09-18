@@ -41,7 +41,6 @@ a signal.
       "email": "jane@example.org",
       "hasGitHubLink": true,
       "lastLoginAt": "2026-09-18T01:12:00Z",
-      "lastLoginMethod": "github",
       "bioExcerpt": "first ~160 chars of bio, markdown stripped",
       "footprint": { "memberships": 2, "updates": 1, "buzz": 0, "blogPosts": 0, "helpWantedInterest": 1, "tags": 3 },
       "latestVote": { "verdict": "legit", "voter": { "slug": "chris", "fullName": "Chris Alfano" }, "evaluatedAt": "…" }
@@ -51,9 +50,10 @@ a signal.
 }
 ```
 
-`email`, `lastLoginAt`, `lastLoginMethod`, and `hasGitHubLink` come from the private
-store and are the same staff-only fields `GET /api/people/:slug` exposes; they are
-never present for a non-staff caller (who gets 404 anyway). `latestVote` is `null`
+`email` comes from the private store (the same staff-only field `GET /api/people/:slug`
+exposes); `lastLoginAt` is the newest session issued to the person; `hasGitHubLink`
+mirrors `Person.githubUserId`. None of it is reachable by a non-staff caller (who gets
+404 anyway). `latestVote` is `null`
 when no human has voted.
 
 ## GET /api/admin/members/:slug
@@ -90,7 +90,7 @@ public state — nothing here is fetched from elsewhere.
 ## POST /api/admin/members/:slug/vote
 
 Record the caller's verdict on this person as a `person-evaluations` record with
-`evaluator = "human:<callerSlug>"` (one record per voter per person — voting
+`evaluator = "human-<callerSlug>"` (one record per voter per person — voting
 again replaces the caller's previous record). Committed through the write mutex
 as the caller, so the vote carries the voter's pseudonymous git identity.
 

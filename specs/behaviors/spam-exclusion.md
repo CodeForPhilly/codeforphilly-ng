@@ -24,7 +24,7 @@ Two sources write the same record shape into the **`person-evaluations`** sheet
    Slack-derived inputs. That material — public-channel message text, Slack
    identities, LLM prose about named people — never enters the public data repo.
 2. **Human votes** are cast by staff on the site ([api/moderation.md](../api/moderation.md))
-   and committed to **`published`** in this repo as `evaluator = "human:<voterSlug>"`,
+   and committed to **`published`** in this repo as `evaluator = "human-<voterSlug>"`,
    authored by the voter. They are small, summary-only, and attributable, which is
    what a public civic dataset can carry.
 
@@ -33,7 +33,7 @@ Each record:
 | Field | Meaning |
 | ----- | ------- |
 | `personSlug` | the evaluated person |
-| `evaluator` | model/run id (e.g. `haiku-2026-05`) or `human:<voterSlug>` |
+| `evaluator` | model/run id (e.g. `haiku-2026-05`) or `human-<voterSlug>` |
 | `verdict` | `"spam"` \| `"legit"` \| `"uncertain"` |
 | `confidence` | 0–1 (LLM); absent on heuristic records, which carry `score` instead; `1` on human votes |
 | `flags` | array of short reason tags |
@@ -49,7 +49,7 @@ pipeline reads machine records from its own repo and human votes from
 A person may have multiple evaluator records. The aggregate decision is
 deliberately **conservative — only confident spam is pruned**:
 
-> **A human vote is final.** If any `human:*` records exist for the person, the
+> **A human vote is final.** If any `human-*` records exist for the person, the
 > latest one decides: `spam` → pruned (membership protection does not apply —
 > a person looked at the profile); `legit` → kept.
 >
