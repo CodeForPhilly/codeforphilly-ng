@@ -22,6 +22,7 @@ import type { DualStoreTx } from '../store/store.js';
 import { StateApply } from '../store/state-apply.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
+import { githubFactsFrom, type GitHubProbeResult } from '../auth/github-client.js';
 
 export type VoteVerdict = 'spam' | 'legit';
 export type VoteFilter = 'none' | VoteVerdict;
@@ -29,6 +30,7 @@ export type VoteFilter = 'none' | VoteVerdict;
 export interface MemberListOptions {
   readonly q?: string;
   readonly vote?: VoteFilter;
+  readonly origin?: MemberOrigin;
   readonly joinedAfter?: string;
   readonly joinedBefore?: string;
   readonly includeDeactivated?: boolean;
@@ -58,6 +60,17 @@ export interface FootprintCounts {
   readonly tags: number;
 }
 
+export type MemberOrigin = 'imported' | 'signed-up';
+
+export interface MemberGitHub {
+  readonly login: string | null;
+  readonly accountCreatedAt: string | null;
+  readonly publicRepos: number | null;
+  readonly followers: number | null;
+  readonly status: 'ok' | 'gone' | 'unknown';
+  readonly checkedAt: string | null;
+}
+
 export interface MemberRow {
   readonly id: string;
   readonly slug: string;
@@ -65,12 +78,22 @@ export interface MemberRow {
   readonly avatarUrl: string | null;
   readonly createdAt: string;
   readonly deletedAt: string | null;
+  /** Imported from laddr (has a legacyId) or signed up on this site through GitHub. */
+  readonly origin: MemberOrigin;
   readonly email: string | null;
   readonly hasGitHubLink: boolean;
+  readonly github: MemberGitHub | null;
   readonly lastLoginAt: string | null;
+  readonly signInCount: number;
+  readonly lastSlackSsoAt: string | null;
+  readonly emailBounce: { readonly type: string; readonly bouncedAt: string } | null;
   readonly bioExcerpt: string;
   readonly footprint: FootprintCounts;
   readonly latestVote: VoteView | null;
+  /** Row-local facts worth a glance; see `computeSignals`. */
+  readonly signals: string[];
+  /** Number of negative signals — drives the roster's attention tint. */
+  readonly attention: number;
 }
 
 export interface ProjectRef {
@@ -87,6 +110,13 @@ export interface MemberFootprint {
   readonly tags: Array<{ handle: string; type: string }>;
 }
 
+interface AuthoredCounts {
+  updates: Map<string, number>;
+  buzz: Map<string, number>;
+  blogPosts: Map<string, number>;
+  interest: Map<string, number>;
+}
+
 export interface MemberListResult {
   readonly items: MemberRow[];
   readonly totalItems: number;
@@ -94,10 +124,90 @@ export interface MemberListResult {
   readonly perPage: number;
 }
 
-/** Newest sign-in for a person, from session metadata; injected to avoid a plugin dependency. */
-export type LastLoginLookup = (personId: string) => string | null;
+/** Sign-in facts for a person from session metadata; injected to avoid a plugin dependency. */
+export type SessionLookup = (personId: string) => { lastLoginAt: string | null; count: number };
+
+/**
+ * Asks GitHub whether a linked account still exists. Injected so tests and
+ * deployments without an OAuth app never touch the network.
+ */
+export type GitHubProbe = (githubUserId: number) => Promise<GitHubProbeResult>;
+
+/** How old a `github` record may be before the roster re-probes it. */
+const GITHUB_PROBE_TTL_MS = 24 * 60 * 60 * 1000;
+const GITHUB_PROBE_CONCURRENCY = 5;
+const GITHUB_NEW_ACCOUNT_DAYS = 30;
 
 const SORT_KEYS = new Set(['createdAt', 'fullName', 'lastLoginAt']);
+
+const EMAIL_TOKEN_MIN = 3;
+
+/**
+ * Does the email's local part share a recognisable token with the display
+ * name? `stacey.villarreal@` vs "Stacey Villarreal" → true; `benjamin_cox8mzr@`
+ * vs "Stacey Villarreal" → false. Names shorter than three letters are ignored
+ * to avoid false matches on initials.
+ */
+export function emailMatchesName(email: string | null, fullName: string): boolean | null {
+  if (!email) return null;
+  const local = email.split('@')[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
+  const tokens = fullName
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((t) => t.length >= EMAIL_TOKEN_MIN);
+  if (!local || tokens.length === 0) return null;
+  return tokens.some((t) => local.includes(t));
+}
+
+export function countLinks(bio: string | null | undefined): number {
+  if (!bio) return 0;
+  return (bio.match(/https?:\/\/|www\.|\]\(|<a\s/gi) ?? []).length;
+}
+
+/**
+ * Row-local signals. Negative ones (the spam shape) count toward `attention`;
+ * positive ones are informational. None of this consults the machine
+ * evaluators — it is what a careful reader would notice on the row.
+ */
+export function computeSignals(input: {
+  readonly person: Person;
+  readonly email: string | null;
+  readonly signInCount: number;
+  readonly github: MemberGitHub | null;
+  readonly emailBounce: { type: string } | null;
+  readonly lastSlackSsoAt: string | null;
+  readonly footprint: FootprintCounts;
+}): { signals: string[]; attention: number } {
+  const { person } = input;
+  const signals: string[] = [];
+  let attention = 0;
+  const negative = (s: string): void => {
+    signals.push(s);
+    attention += 1;
+  };
+
+  if (input.signInCount === 0) negative('never-signed-in');
+  if (!person.avatarKey) negative('no-avatar');
+  if (!person.bio || person.bio.trim() === '') negative('no-bio');
+  const links = countLinks(person.bio);
+  if (links > 0) negative(`bio-links:${links}`);
+  if (emailMatchesName(input.email, person.fullName) === false) negative('email-name-mismatch');
+  if (input.emailBounce) negative(`email-bounced:${input.emailBounce.type}`);
+  if (input.github) {
+    if (input.github.status === 'gone') negative('github-gone');
+    if (input.github.accountCreatedAt) {
+      const ageDays = (Date.now() - Date.parse(input.github.accountCreatedAt)) / 86_400_000;
+      if (ageDays < GITHUB_NEW_ACCOUNT_DAYS) negative('github-new-account');
+    }
+    if ((input.github.publicRepos ?? 0) === 0 && (input.github.followers ?? 0) === 0) {
+      negative('github-no-activity');
+    }
+  }
+  if (input.lastSlackSsoAt) signals.push('slack-sso');
+  const fp = input.footprint;
+  if (fp.memberships + fp.updates + fp.buzz + fp.blogPosts + fp.helpWantedInterest > 0) signals.push('has-footprint');
+  return { signals, attention };
+}
 
 function parseSort(sort: string | undefined): { key: string; desc: boolean } | null {
   const raw = sort && sort.trim() !== '' ? sort.trim() : '-createdAt';
@@ -126,12 +236,66 @@ function nowIso(): string {
 export class ModerationService {
   readonly #state: InMemoryState;
   readonly #privateStore: PrivateStore;
-  readonly #lastLogin: LastLoginLookup;
+  readonly #sessions: SessionLookup;
+  readonly #probe: GitHubProbe | null;
+  readonly #log: { warn(obj: unknown, msg: string): void } | null;
 
-  constructor(state: InMemoryState, privateStore: PrivateStore, lastLogin: LastLoginLookup) {
+  constructor(
+    state: InMemoryState,
+    privateStore: PrivateStore,
+    sessions: SessionLookup,
+    opts: { readonly probe?: GitHubProbe; readonly log?: { warn(obj: unknown, msg: string): void } } = {},
+  ) {
     this.#state = state;
     this.#privateStore = privateStore;
-    this.#lastLogin = lastLogin;
+    this.#sessions = sessions;
+    this.#probe = opts.probe ?? null;
+    this.#log = opts.log ?? null;
+  }
+
+  /**
+   * Refresh stale `github` records for the given people (bounded concurrency,
+   * best-effort). A probe failure keeps the old record; a 404 marks it gone.
+   */
+  async refreshGitHubFacts(people: readonly Person[]): Promise<void> {
+    if (!this.#probe) return;
+    const cutoff = Date.now() - GITHUB_PROBE_TTL_MS;
+    const stale: Person[] = [];
+    for (const p of people) {
+      if (typeof p.githubUserId !== 'number') continue;
+      const profile = await this.#privateStore.getProfile(p.id);
+      const checked = profile?.github?.checkedAt ? Date.parse(profile.github.checkedAt) : 0;
+      if (checked < cutoff) stale.push(p);
+    }
+    const queue = [...stale];
+    const worker = async (): Promise<void> => {
+      for (let p = queue.shift(); p; p = queue.shift()) {
+        try {
+          const result = await this.#probe!(p.githubUserId as number);
+          const profile = await this.#privateStore.getProfile(p.id);
+          if (!profile) continue;
+          const now = new Date().toISOString();
+          const previous = profile.github ?? null;
+          const github =
+            result.status === 'ok' && result.user
+              ? githubFactsFrom(result.user, 'ok', now)
+              : {
+                  login: previous?.login ?? p.githubLogin ?? '',
+                  accountCreatedAt: previous?.accountCreatedAt ?? null,
+                  publicRepos: previous?.publicRepos ?? null,
+                  followers: previous?.followers ?? null,
+                  following: previous?.following ?? null,
+                  type: previous?.type ?? null,
+                  status: 'gone' as const,
+                  checkedAt: now,
+                };
+          await this.#privateStore.putProfile({ ...profile, github, updatedAt: now });
+        } catch (err) {
+          this.#log?.warn({ err, personId: p.id }, 'github probe failed; keeping previous record');
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(GITHUB_PROBE_CONCURRENCY, queue.length) }, worker));
   }
 
   /** Every human vote on a person, newest first. */
@@ -161,6 +325,11 @@ export class ModerationService {
 
     let people = [...this.#state.people.values()];
     if (!includeDeactivated) people = people.filter((p) => !p.deletedAt);
+    if (opts.origin) {
+      people = people.filter(
+        (p) => (typeof p.legacyId === 'number' ? 'imported' : 'signed-up') === opts.origin,
+      );
+    }
     if (opts.joinedAfter) people = people.filter((p) => p.createdAt >= opts.joinedAfter!);
     if (opts.joinedBefore) people = people.filter((p) => p.createdAt <= opts.joinedBefore!);
     if (opts.vote) {
@@ -172,7 +341,7 @@ export class ModerationService {
     }
 
     const authored = this.#authoredCounts();
-    const lastLogins = new Map<string, string | null>();
+    const lastLogins = new Map<string, { lastLoginAt: string | null; count: number }>();
     const emails = new Map<string, string | null>();
     const emailOf = async (p: Person): Promise<string | null> => {
       if (!emails.has(p.id)) emails.set(p.id, (await this.#privateStore.getProfile(p.id))?.email ?? null);
@@ -195,10 +364,11 @@ export class ModerationService {
       people = matched;
     }
 
-    const lastLoginOf = (p: Person): string | null => {
-      if (!lastLogins.has(p.id)) lastLogins.set(p.id, this.#lastLogin(p.id));
-      return lastLogins.get(p.id) ?? null;
+    const sessionsOf = (p: Person): { lastLoginAt: string | null; count: number } => {
+      if (!lastLogins.has(p.id)) lastLogins.set(p.id, this.#sessions(p.id));
+      return lastLogins.get(p.id)!;
     };
+    const lastLoginOf = (p: Person): string | null => sessionsOf(p).lastLoginAt;
 
     people.sort((a, b) => {
       let cmp: number;
@@ -213,32 +383,84 @@ export class ModerationService {
     const perPage = Math.min(200, Math.max(1, opts.perPage ?? 50));
     const slice = people.slice((page - 1) * perPage, page * perPage);
 
+    // Only the rows on this page get a (possibly stale) GitHub re-check.
+    await this.refreshGitHubFacts(slice);
+
     const items: MemberRow[] = [];
-    for (const p of slice) {
-      items.push({
-        id: p.id,
-        slug: p.slug,
-        fullName: p.fullName,
-        avatarUrl: p.avatarKey ? `/api/attachments/${p.avatarKey}` : null,
-        createdAt: p.createdAt,
-        deletedAt: p.deletedAt ?? null,
-        email: await emailOf(p),
-        hasGitHubLink: typeof p.githubUserId === 'number',
-        lastLoginAt: lastLoginOf(p),
-        bioExcerpt: bioExcerpt(p.bio),
-        footprint: {
-          memberships: this.#state.membershipsByPerson.get(p.id)?.size ?? 0,
-          updates: authored.updates.get(p.id) ?? 0,
-          buzz: authored.buzz.get(p.id) ?? 0,
-          blogPosts: authored.blogPosts.get(p.id) ?? 0,
-          helpWantedInterest: authored.interest.get(p.id) ?? 0,
-          tags: this.#state.tagAssignmentsByTaggable.get(p.id)?.size ?? 0,
-        },
-        latestVote: this.latestHumanVote(p.slug),
-      });
-    }
+    for (const p of slice) items.push(await this.#row(p, authored, sessionsOf(p)));
 
     return { items, totalItems: people.length, page, perPage };
+  }
+
+  /** The roster row for one person (used by the list and the detail endpoint). */
+  async memberRow(slug: string): Promise<MemberRow | null> {
+    const id = this.#state.personIdBySlug.get(slug);
+    const person = id ? this.#state.people.get(id) : undefined;
+    if (!person) return null;
+    await this.refreshGitHubFacts([person]);
+    return this.#row(person, this.#authoredCounts(), this.#sessions(person.id));
+  }
+
+  async #row(
+    p: Person,
+    authored: AuthoredCounts,
+    sessions: { lastLoginAt: string | null; count: number },
+  ): Promise<MemberRow> {
+    const profile = await this.#privateStore.getProfile(p.id);
+    const github: MemberGitHub | null =
+      typeof p.githubUserId === 'number'
+        ? {
+            login: profile?.github?.login ?? p.githubLogin ?? null,
+            accountCreatedAt: profile?.github?.accountCreatedAt ?? null,
+            publicRepos: profile?.github?.publicRepos ?? null,
+            followers: profile?.github?.followers ?? null,
+            status: profile?.github?.status ?? 'unknown',
+            checkedAt: profile?.github?.checkedAt ?? null,
+          }
+        : null;
+    const emailBounce = profile?.emailBounce
+      ? { type: profile.emailBounce.type, bouncedAt: profile.emailBounce.bouncedAt }
+      : null;
+    const footprint: FootprintCounts = {
+      memberships: this.#state.membershipsByPerson.get(p.id)?.size ?? 0,
+      updates: authored.updates.get(p.id) ?? 0,
+      buzz: authored.buzz.get(p.id) ?? 0,
+      blogPosts: authored.blogPosts.get(p.id) ?? 0,
+      helpWantedInterest: authored.interest.get(p.id) ?? 0,
+      tags: this.#state.tagAssignmentsByTaggable.get(p.id)?.size ?? 0,
+    };
+    const email = profile?.email ?? null;
+    const lastSlackSsoAt = profile?.lastSlackSsoAt ?? null;
+    const { signals, attention } = computeSignals({
+      person: p,
+      email,
+      signInCount: sessions.count,
+      github,
+      emailBounce,
+      lastSlackSsoAt,
+      footprint,
+    });
+    return {
+      id: p.id,
+      slug: p.slug,
+      fullName: p.fullName,
+      avatarUrl: p.avatarKey ? `/api/attachments/${p.avatarKey}` : null,
+      createdAt: p.createdAt,
+      deletedAt: p.deletedAt ?? null,
+      origin: typeof p.legacyId === 'number' ? 'imported' : 'signed-up',
+      email,
+      hasGitHubLink: typeof p.githubUserId === 'number',
+      github,
+      lastLoginAt: sessions.lastLoginAt,
+      signInCount: sessions.count,
+      lastSlackSsoAt,
+      emailBounce,
+      bioExcerpt: bioExcerpt(p.bio),
+      footprint,
+      latestVote: this.latestHumanVote(p.slug),
+      signals,
+      attention,
+    };
   }
 
   /** Full footprint for one member (deactivated included — this is moderation). */
@@ -311,12 +533,7 @@ export class ModerationService {
     };
   }
 
-  #authoredCounts(): {
-    updates: Map<string, number>;
-    buzz: Map<string, number>;
-    blogPosts: Map<string, number>;
-    interest: Map<string, number>;
-  } {
+  #authoredCounts(): AuthoredCounts {
     const bump = (m: Map<string, number>, k: string | null | undefined): void => {
       if (k) m.set(k, (m.get(k) ?? 0) + 1);
     };
