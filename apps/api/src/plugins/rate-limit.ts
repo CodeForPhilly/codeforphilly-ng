@@ -2,18 +2,17 @@
  * In-memory rate-limit plugin.
  *
  * Enforces per-IP and per-account caps per specs/api/conventions.md#rate-limiting:
- *   - Unauthenticated reads:  1200 req / min / IP
+ *   - Unauthenticated reads:   300 req / min / IP
  *   - Authenticated reads:     300 req / min / account
- *   - Writes:                   30 req / min / account (120 / min / IP anonymous)
- *   - Credential endpoints:    120 req / min / IP
+ *   - Writes:                   30 req / min / account (30 / min / IP anonymous)
+ *   - Credential endpoints:     20 req / min / IP
  *
  * Only `/api/**` is counted. The SPA shell, its assets, and thumbnails come out
  * of the same process and a single page load fetches dozens of them; counting
  * those against the read cap is what produced a site-wide 429 storm at cutover.
  *
- * Per-IP caps are generous on purpose: production's load balancer does not yet
- * preserve client addresses (cfp-live-cluster #201), so every visitor shares
- * one "IP" until that lands.
+ * Per-IP caps assume the first X-Forwarded-For hop is the real client — the
+ * NodeBalancer speaks PROXY protocol to Envoy (cfp-live-cluster #203).
  *
  * Counters are reset on restart (intentional — single replica, civic scale).
  * Exceeded limit → RateLimitedError(retryAfterSeconds).
@@ -32,11 +31,11 @@ interface BucketEntry {
 const WINDOW_MS = 60_000; // 1 minute
 
 export const RATE_LIMITS = {
-  unauthenticatedReadsPerIp: 1200,
+  unauthenticatedReadsPerIp: 300,
   authenticatedReadsPerAccount: 300,
   writesPerAccount: 30,
-  anonymousWritesPerIp: 120,
-  credentialPerIp: 120,
+  anonymousWritesPerIp: 30,
+  credentialPerIp: 20,
 } as const;
 
 function getOrCreate(map: Map<string, BucketEntry>, key: string): BucketEntry {
