@@ -30,6 +30,7 @@ import {
   createEmptyState,
   indexBlogPost,
   indexHelpWantedInterest,
+  indexPersonEvaluation,
   indexHelpWantedRole,
   indexMembership,
   indexPerson,
@@ -159,6 +160,14 @@ function buildState(base: number, slugs: { project: string; buzz: string; oldSlu
   indexHelpWantedRole(state, role);
   indexHelpWantedInterest(state, makeInterest(base + 10, role.id, person.id));
   indexSlugHistory(state, makeSlugHistory(base + 11, project.id, slugs.oldSlug, slugs.project));
+  indexPersonEvaluation(state, {
+    personSlug: person.slug,
+    evaluator: 'human-voter' + base,
+    verdict: 'legit',
+    confidence: 1,
+    flags: [],
+    evaluatedAt: '2026-05-01T00:00:00Z',
+  });
   return state;
 }
 

@@ -12,6 +12,7 @@ import type {
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
+  PersonEvaluation,
   Project,
   ProjectBuzz,
   ProjectMembership,
@@ -27,6 +28,7 @@ import {
   indexHelpWantedRole,
   indexMembership,
   indexPerson,
+  indexPersonEvaluation,
   indexProject,
   indexProjectBuzz,
   indexProjectUpdate,
@@ -264,6 +266,11 @@ export class StateApply {
    */
   upsertSlugHistory(record: SlugHistory): this {
     this.#ops.push((state) => indexSlugHistory(state, record));
+    return this;
+  }
+
+  upsertPersonEvaluation(record: PersonEvaluation): this {
+    this.#ops.push((state) => indexPersonEvaluation(state, record));
     return this;
   }
 

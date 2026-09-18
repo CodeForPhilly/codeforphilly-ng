@@ -12,6 +12,7 @@ import type {
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
+  PersonEvaluation,
   Project,
   ProjectBuzz,
   ProjectMembership,
@@ -114,6 +115,15 @@ export interface InMemoryState {
    * decide whether to serve a 301 per specs/behaviors/slug-handles.md.
    */
   slugHistory: Map<string, { newSlug: string; expiresAt: string }>;
+
+  /**
+   * Human spam votes from `person-evaluations` on the served branch, keyed
+   * `${personSlug}/${evaluator}`. Machine verdicts never reach the runtime
+   * (specs/behaviors/spam-exclusion.md → "What the runtime sees").
+   */
+  personEvaluations: Map<string, PersonEvaluation>;
+  /** personSlug → Set<evaluation key> */
+  evaluationsByPerson: Map<string, Set<string>>;
 }
 
 /** Compose the slug-history map key. Kept here so call sites stay consistent. */
@@ -155,6 +165,8 @@ export function createEmptyState(): InMemoryState {
     interestByRoleAndPerson: new Map(),
     interestByRole: new Map(),
     slugHistory: new Map(),
+    personEvaluations: new Map(),
+    evaluationsByPerson: new Map(),
   };
 }
 
@@ -299,4 +311,16 @@ export function indexHelpWantedInterest(state: InMemoryState, expr: HelpWantedIn
 
   const key = `${expr.roleId}:${expr.personId}`;
   state.interestByRoleAndPerson.set(key, expr.id);
+}
+
+/** Add or replace one person-evaluation record (one per person + evaluator). */
+export function indexPersonEvaluation(state: InMemoryState, record: PersonEvaluation): void {
+  const key = `${record.personSlug}/${record.evaluator}`;
+  state.personEvaluations.set(key, record);
+  let set = state.evaluationsByPerson.get(record.personSlug);
+  if (!set) {
+    set = new Set();
+    state.evaluationsByPerson.set(record.personSlug, set);
+  }
+  set.add(key);
 }
