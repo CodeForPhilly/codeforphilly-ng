@@ -127,6 +127,9 @@ function AuthControls({ mobile = false }: { mobile?: boolean }) {
             <DropdownMenuItem asChild>
               <Link to="/tags?staff=true">Manage tags</Link>
             </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to="/admin/members">Members roster</Link>
+            </DropdownMenuItem>
             <DropdownMenuItem disabled>Recent staff actions</DropdownMenuItem>
             <DropdownMenuSeparator />
           </>

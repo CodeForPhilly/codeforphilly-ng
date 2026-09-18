@@ -1,23 +1,30 @@
 /**
  * prune-spam.ts — Re-runnable spam-prune operator script.
  *
- * Reads spam verdicts from the `spam-detection` branch of the data repo,
- * aggregates them per the spec rule, and removes confident-spam people from
- * the `published` branch with cascaded deletes of their associated records.
+ * Reads machine spam verdicts from the private spam-detection repo and staff
+ * `human-*` votes from the data repo's served branch, aggregates them per the
+ * spec rule (a human vote is final), and removes spam people from the
+ * `published` branch with cascaded deletes of their associated records.
  *
  * Spec: specs/behaviors/spam-exclusion.md
  *
  * Usage:
  *   npm run -w apps/api script:prune-spam -- \
- *     --data-repo=/path/to/codeforphilly-data \
- *     [--evaluations-ref=spam-detection] \
+ *     --data-repo=/path/to/codeforphilly-data.git \
+ *     --evaluations-repo=/path/to/codeforphilly-spam-detection \
+ *     [--evaluations-ref=HEAD] \
+ *     [--human-votes-ref=published] \
  *     [--branch=published] \
  *     [--threshold=0.8] \
  *     [--dry-run] [--verbose]
  *
  *   --data-repo        Path to a local bare clone of the data repo.
  *                      Falls back to $CFP_DATA_REPO_PATH.
- *   --evaluations-ref  Ref to read person-evaluations from (default: spam-detection).
+ *   --evaluations-repo Repo (bare or not) holding machine person-evaluations —
+ *                      the private codeforphilly-spam-detection clone. Defaults
+ *                      to --data-repo for single-repo setups.
+ *   --evaluations-ref  Ref in --evaluations-repo to read (default: HEAD).
+ *   --human-votes-ref  Ref in --data-repo carrying staff votes (default: --branch).
  *   --branch           Branch to prune (default: published).
  *   --threshold        Spam confidence threshold (default: 0.8).
  *   --dry-run          Report without writing.
@@ -43,7 +50,11 @@ import type {
 
 interface CliArgs {
   readonly dataRepo: string;
+  /** Repo holding the machine evaluations (the private spam-detection clone). Defaults to dataRepo. */
+  readonly evaluationsRepo: string;
   readonly evaluationsRef: string;
+  /** Ref in dataRepo carrying staff `human-*` votes. Defaults to --branch. */
+  readonly humanVotesRef: string;
   readonly branch: string;
   readonly threshold: number;
   readonly dryRun: boolean;
@@ -73,16 +84,23 @@ function parseArgs(argv: readonly string[]): CliArgs {
   const threshold =
     typeof thresholdRaw === 'string' ? Number.parseFloat(thresholdRaw) : 0.8;
 
+  const branch =
+    typeof opts['branch'] === 'string' && opts['branch'] !== '' ? opts['branch'] : 'published';
   return {
     dataRepo: resolve(dataRepoRaw),
+    evaluationsRepo:
+      typeof opts['evaluations-repo'] === 'string' && opts['evaluations-repo'] !== ''
+        ? resolve(opts['evaluations-repo'])
+        : resolve(dataRepoRaw),
     evaluationsRef:
       typeof opts['evaluations-ref'] === 'string' && opts['evaluations-ref'] !== ''
         ? opts['evaluations-ref']
-        : 'spam-detection',
-    branch:
-      typeof opts['branch'] === 'string' && opts['branch'] !== ''
-        ? opts['branch']
-        : 'published',
+        : 'HEAD',
+    humanVotesRef:
+      typeof opts['human-votes-ref'] === 'string' && opts['human-votes-ref'] !== ''
+        ? opts['human-votes-ref']
+        : branch,
+    branch,
     threshold: Number.isFinite(threshold) ? threshold : 0.8,
     dryRun: opts['dry-run'] === true,
     verbose: opts['verbose'] === true,
@@ -94,22 +112,31 @@ function parseArgs(argv: readonly string[]): CliArgs {
 // ---------------------------------------------------------------------------
 
 interface PersonVerdict {
-  /** Whether any evaluator gave spam confidence >= threshold. */
+  /** Whether any machine evaluator gave spam confidence >= threshold. */
   hasConfidentSpam: boolean;
-  /** Whether any evaluator gave a legit verdict at any confidence. */
+  /** Whether any machine evaluator gave a legit verdict at any confidence. */
   hasAnyLegit: boolean;
+  /**
+   * The latest `human-*` verdict, if any. A human vote is final: `spam`
+   * prunes regardless of machine verdicts or project membership; `legit`
+   * keeps. Per specs/behaviors/spam-exclusion.md.
+   */
+  humanVerdict: string | null;
+  humanEvaluatedAt: string | null;
 }
 
 /**
- * Parse verdict and confidence from TOML content using line-regex
- * (tolerant, avoids pulling in a full TOML parser just for two fields).
+ * Parse verdict, confidence, and evaluatedAt from TOML content using
+ * line-regex (tolerant, avoids pulling in a full TOML parser for three fields).
  */
 function parseEvaluationRecord(tomlContent: string): {
   verdict: string | null;
   confidence: number | null;
+  evaluatedAt: string | null;
 } {
   let verdict: string | null = null;
   let confidence: number | null = null;
+  let evaluatedAt: string | null = null;
 
   for (const line of tomlContent.split('\n')) {
     const trimmed = line.trim();
@@ -122,11 +149,16 @@ function parseEvaluationRecord(tomlContent: string): {
     if (confidenceMatch) {
       const parsed = Number.parseFloat(confidenceMatch[1] ?? '');
       if (Number.isFinite(parsed)) confidence = parsed;
+      continue;
     }
+    const atMatch = trimmed.match(/^evaluatedAt\s*=\s*"([^"]+)"/);
+    if (atMatch) evaluatedAt = atMatch[1] ?? null;
   }
 
-  return { verdict, confidence };
+  return { verdict, confidence, evaluatedAt };
 }
+
+const HUMAN_EVALUATOR_PREFIX = 'human-';
 
 /**
  * Read all person-evaluations from the given ref via `git cat-file` bulk read.
@@ -138,8 +170,9 @@ async function aggregateVerdicts(
   evaluationsRef: string,
   threshold: number,
   log: (msg: string) => void,
+  verdictMap: Map<string, PersonVerdict> = new Map(),
 ): Promise<Map<string, PersonVerdict>> {
-  log(`[prune-spam] listing person-evaluations under ref=${evaluationsRef}`);
+  log(`[prune-spam] listing person-evaluations in ${repo} under ref=${evaluationsRef}`);
 
   // List all blobs under person-evaluations/ in the evaluations ref.
   const lsOutput = await exec(
@@ -152,7 +185,7 @@ async function aggregateVerdicts(
   log(`[prune-spam] found ${lines.length} evaluation records`);
 
   if (lines.length === 0) {
-    return new Map();
+    return verdictMap;
   }
 
   // Build a batch-check-mailbox input: one object hash per line.
@@ -173,8 +206,6 @@ async function aggregateVerdicts(
   // Stream all blobs. We pass hashes on stdin, get "<hash> blob <size>\n<content>\n" back.
   // Use child_process.spawn for streaming instead of execFile (fits in memory for this size).
   const { spawn } = await import('node:child_process');
-
-  const verdictMap = new Map<string, PersonVerdict>();
 
   await new Promise<void>((resolvePromise, reject) => {
     const catFile = spawn('git', ['cat-file', '--batch'], { cwd: repo });
@@ -248,20 +279,25 @@ async function aggregateVerdicts(
           const pathParts = currentExpected.path.split('/');
           // path is like: person-evaluations/<personSlug>/<evaluator>.toml
           const personSlug = pathParts[1];
+          const evaluator = (pathParts[2] ?? '').replace(/\.toml$/, '');
           if (personSlug) {
-            const { verdict, confidence } = parseEvaluationRecord(tomlContent);
-            if (verdict !== null && confidence !== null) {
-              let entry = verdictMap.get(personSlug);
-              if (!entry) {
-                entry = { hasConfidentSpam: false, hasAnyLegit: false };
-                verdictMap.set(personSlug, entry);
+            const { verdict, confidence, evaluatedAt } = parseEvaluationRecord(tomlContent);
+            let entry = verdictMap.get(personSlug);
+            if (!entry) {
+              entry = { hasConfidentSpam: false, hasAnyLegit: false, humanVerdict: null, humanEvaluatedAt: null };
+              verdictMap.set(personSlug, entry);
+            }
+            if (evaluator.startsWith(HUMAN_EVALUATOR_PREFIX)) {
+              // Latest human vote wins; ties resolve to whichever is read last.
+              if (verdict !== null && (entry.humanEvaluatedAt === null || (evaluatedAt ?? '') >= entry.humanEvaluatedAt)) {
+                entry.humanVerdict = verdict;
+                entry.humanEvaluatedAt = evaluatedAt ?? '';
               }
-              if (verdict === 'spam' && confidence >= threshold) {
-                (entry as { hasConfidentSpam: boolean }).hasConfidentSpam = true;
-              }
-              if (verdict === 'legit') {
-                (entry as { hasAnyLegit: boolean }).hasAnyLegit = true;
-              }
+            } else if (verdict !== null && confidence !== null) {
+              // Heuristic records carry `score`, not `confidence`, and never
+              // reach here — they must be LLM-confirmed before they can prune.
+              if (verdict === 'spam' && confidence >= threshold) entry.hasConfidentSpam = true;
+              if (verdict === 'legit') entry.hasAnyLegit = true;
             }
           }
 
@@ -292,17 +328,30 @@ async function aggregateVerdicts(
 }
 
 /**
- * Compute the set of person slugs to prune:
- * prune iff hasConfidentSpam AND NOT hasAnyLegit.
+ * Compute the set of person slugs to prune. A human vote is final: `spam`
+ * prunes, `legit` keeps. Otherwise prune iff hasConfidentSpam AND NOT
+ * hasAnyLegit. Returns the human-spam subset too, since those bypass the
+ * project-membership protection.
  */
-function computePruneSet(verdictMap: Map<string, PersonVerdict>): Set<string> {
+function computePruneSet(verdictMap: Map<string, PersonVerdict>): {
+  pruneSet: Set<string>;
+  humanSpam: Set<string>;
+} {
   const pruneSet = new Set<string>();
+  const humanSpam = new Set<string>();
   for (const [slug, v] of verdictMap) {
+    if (v.humanVerdict !== null) {
+      if (v.humanVerdict === 'spam') {
+        pruneSet.add(slug);
+        humanSpam.add(slug);
+      }
+      continue;
+    }
     if (v.hasConfidentSpam && !v.hasAnyLegit) {
       pruneSet.add(slug);
     }
   }
-  return pruneSet;
+  return { pruneSet, humanSpam };
 }
 
 /** Minimal read surface shared by the live store and an open transaction. */
@@ -326,6 +375,7 @@ interface CandidatePerson {
 async function partitionCandidates(
   q: Queryable,
   candidateSlugs: Set<string>,
+  humanSpam: Set<string> = new Set(),
 ): Promise<{ prune: CandidatePerson[]; protectedByMembership: number }> {
   const candidates: CandidatePerson[] = [];
   for await (const person of q.people.query()) {
@@ -343,7 +393,9 @@ async function partitionCandidates(
     if (typeof pid === 'string') memberPersonIds.add(pid);
   }
 
-  const prune = candidates.filter((c) => !memberPersonIds.has(c.id));
+  // Membership protects against machine verdicts only — a human looked at the
+  // profile, so a human `spam` vote is not overridden by real-looking content.
+  const prune = candidates.filter((c) => humanSpam.has(c.slug) || !memberPersonIds.has(c.id));
   return { prune, protectedByMembership: candidates.length - prune.length };
 }
 
@@ -406,17 +458,22 @@ async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
   // -------------------------------------------------------------------------
   // 1. Read verdicts from evaluations ref (efficient git read)
   // -------------------------------------------------------------------------
-  log(`[prune-spam] reading verdicts from ref=${args.evaluationsRef}, threshold=${args.threshold}`);
+  log(
+    `[prune-spam] reading machine verdicts from ${args.evaluationsRepo}@${args.evaluationsRef}, ` +
+      `human votes from ${args.dataRepo}@${args.humanVotesRef}, threshold=${args.threshold}`,
+  );
   const verdictMap = await aggregateVerdicts(
-    args.dataRepo,
+    args.evaluationsRepo,
     args.evaluationsRef,
     args.threshold,
     log,
   );
+  await aggregateVerdicts(args.dataRepo, args.humanVotesRef, args.threshold, log, verdictMap);
 
-  const pruneSet = computePruneSet(verdictMap);
+  const { pruneSet, humanSpam } = computePruneSet(verdictMap);
   log(
-    `[prune-spam] evaluated=${verdictMap.size} persons, pruneSet=${pruneSet.size} (confident spam with no legit)`,
+    `[prune-spam] evaluated=${verdictMap.size} persons, pruneSet=${pruneSet.size} ` +
+      `(${humanSpam.size} by human vote; the rest confident machine spam with no legit)`,
   );
 
   // -------------------------------------------------------------------------
@@ -443,6 +500,7 @@ async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
     const { prune, protectedByMembership } = await partitionCandidates(
       store as unknown as Queryable,
       pruneSet,
+      humanSpam,
     );
     console.log(
       `[prune-spam] dry-run: would prune ${prune.length} (of ${pruneSet.size} verdict-flagged slugs); ${protectedByMembership} protected by project membership`,
@@ -492,6 +550,7 @@ async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
       const { prune, protectedByMembership: protectedCount } = await partitionCandidates(
         tx as unknown as Queryable,
         pruneSet,
+        humanSpam,
       );
       protectedByMembership = protectedCount;
 

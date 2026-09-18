@@ -750,6 +750,7 @@ async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> 
     ],
     ['slug-history', "root = 'slug-history'\npath = '${{ entityType }}/${{ slug }}'\n"],
     ['revocations', "root = 'revocations'\npath = '${{ jti }}'\n"],
+    ['person-evaluations', "root = 'person-evaluations'\npath = '${{ personSlug }}/${{ evaluator }}'\n"],
   ];
   for (const [name, body] of sheets) {
     await writeFile(join(seedDir, '.gitsheets', `${name}.toml`), `[gitsheet]\n${body}`);

@@ -580,6 +580,70 @@ export interface UpdateTagInput {
   mergeInto?: string;
 }
 
+// --- Moderation (specs/api/moderation.md) ---------------------------------
+
+export type VoteVerdict = 'spam' | 'legit';
+
+export interface VoteView {
+  readonly verdict: 'spam' | 'legit' | 'uncertain';
+  readonly reasoning: string | null;
+  readonly voter: { readonly slug: string; readonly fullName: string };
+  readonly evaluatedAt: string;
+}
+
+export interface MemberRow {
+  readonly id: string;
+  readonly slug: string;
+  readonly fullName: string;
+  readonly avatarUrl: string | null;
+  readonly createdAt: string;
+  readonly deletedAt: string | null;
+  readonly email: string | null;
+  readonly hasGitHubLink: boolean;
+  readonly lastLoginAt: string | null;
+  readonly bioExcerpt: string;
+  readonly footprint: {
+    readonly memberships: number;
+    readonly updates: number;
+    readonly buzz: number;
+    readonly blogPosts: number;
+    readonly helpWantedInterest: number;
+    readonly tags: number;
+  };
+  readonly latestVote: VoteView | null;
+}
+
+export interface MemberListParams {
+  q?: string;
+  vote?: 'none' | VoteVerdict;
+  joinedAfter?: string;
+  joinedBefore?: string;
+  includeDeactivated?: boolean;
+  sort?: string;
+  page?: number;
+  perPage?: number;
+}
+
+interface ProjectRef {
+  readonly slug: string;
+  readonly title: string;
+}
+
+export interface MemberFootprint {
+  readonly memberships: Array<{ project: ProjectRef; role: string; joinedAt: string }>;
+  readonly updates: Array<{ project: ProjectRef; number: number; title: string; postedAt: string }>;
+  readonly buzz: Array<{ project: ProjectRef; slug: string; title: string; postedAt: string }>;
+  readonly blogPosts: Array<{ slug: string; title: string; postedAt: string }>;
+  readonly helpWantedInterest: Array<{ project: ProjectRef; role: { title: string }; createdAt: string }>;
+  readonly tags: Array<{ handle: string; type: string }>;
+}
+
+export interface MemberDetail {
+  readonly person: PersonDetail;
+  readonly footprint: MemberFootprint;
+  readonly votes: VoteView[];
+}
+
 export const api = {
   preview: (source: string): Promise<SuccessEnvelope<{ html: string }>> =>
     request(`/api/_preview`, {
@@ -829,6 +893,21 @@ export const api = {
       request(`/api/account-claim/legacy/request`, {
         method: 'POST',
         body: JSON.stringify({ claimedSlug, evidence }),
+      }),
+  },
+  admin: {
+    members: (params: MemberListParams = {}): Promise<PaginatedEnvelope<MemberRow>> =>
+      request(`/api/admin/members${buildQuery(params)}`),
+    member: (slug: string): Promise<SuccessEnvelope<MemberDetail>> =>
+      request(`/api/admin/members/${encodeURIComponent(slug)}`),
+    vote: (
+      slug: string,
+      verdict: VoteVerdict,
+      reasoning?: string,
+    ): Promise<SuccessEnvelope<{ person: PersonDetail; vote: unknown; latestVote: VoteView | null }>> =>
+      request(`/api/admin/members/${encodeURIComponent(slug)}/vote`, {
+        method: 'POST',
+        body: JSON.stringify(reasoning ? { verdict, reasoning } : { verdict }),
       }),
   },
   staffAccountClaim: {

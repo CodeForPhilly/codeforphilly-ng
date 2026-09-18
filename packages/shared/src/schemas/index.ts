@@ -45,3 +45,11 @@ export type { PasswordToken } from './password-token.js';
 
 export { AccountClaimRequestSchema } from './account-claim-request.js';
 export type { AccountClaimRequest } from './account-claim-request.js';
+export {
+  PersonEvaluationSchema,
+  HUMAN_EVALUATOR_PREFIX,
+  isHumanEvaluator,
+  humanEvaluatorFor,
+  personEvaluationKey,
+} from './person-evaluation.js';
+export type { PersonEvaluation } from './person-evaluation.js';
