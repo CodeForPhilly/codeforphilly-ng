@@ -321,7 +321,6 @@ export class ModerationService {
 
     const includeDeactivated = opts.includeDeactivated ?? true;
     const q = opts.q?.trim().toLowerCase() ?? '';
-    const emailSearch = q.includes('@');
 
     let people = [...this.#state.people.values()];
     if (!includeDeactivated) people = people.filter((p) => !p.deletedAt);
@@ -356,10 +355,10 @@ export class ModerationService {
           matched.push(p);
           continue;
         }
-        if (emailSearch) {
-          const email = await emailOf(p);
-          if (email && email.toLowerCase().includes(q)) matched.push(p);
-        }
+        // Email is searched for any query, not just ones with an "@" — a bare
+        // domain or local-part substring is the common case when triaging.
+        const email = await emailOf(p);
+        if (email && email.toLowerCase().includes(q)) matched.push(p);
       }
       people = matched;
     }

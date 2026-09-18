@@ -36,7 +36,9 @@ See [api/moderation.md](../api/moderation.md).
   what it hid).
 - Each row: avatar, `fullName` (link to the public profile, opens in a new tab),
   `@slug`, then the **badges**, then "joined {createdAt relative}", sign-ins
-  (`signed in 4× · last 2h ago` or `never signed in`), email (staff-visible),
+  (`signed in 4× · last 2h ago` or `never signed in`), email (staff-visible;
+  the domain is a button that searches `@domain` across the whole roster, so
+  one throwaway address leads to every account from that domain),
   bio excerpt, compact footprint counts (`2 projects · 1 update · 3 tags`), and
   the vote state:
   - no vote → two buttons **Spam** / **Not spam**

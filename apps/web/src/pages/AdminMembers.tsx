@@ -93,6 +93,31 @@ function Badges({ row }: { row: MemberRow }) {
   );
 }
 
+/**
+ * The email with its domain as a button that searches `@domain` across the
+ * whole roster — the quickest way to find every account from a throwaway
+ * domain once one turns up.
+ */
+function EmailWithDomainSearch({ email, onSearchDomain }: { email: string; onSearchDomain: (domain: string) => void }) {
+  const at = email.lastIndexOf('@');
+  if (at === -1) return <span>{email}</span>;
+  const local = email.slice(0, at + 1);
+  const domain = email.slice(at + 1);
+  return (
+    <span>
+      {local}
+      <button
+        type="button"
+        className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+        title={`Search for every member with an @${domain} address`}
+        onClick={() => onSearchDomain(domain)}
+      >
+        {domain}
+      </button>
+    </span>
+  );
+}
+
 function rowTint(row: MemberRow): string {
   const critical = row.signals.some((s) => s === 'github-gone' || s.startsWith('email-bounced'));
   if (critical || row.attention >= 5) return 'border-l-4 border-l-destructive';
@@ -211,6 +236,7 @@ function MemberRowView({
   onPendingHandled,
   onToggle,
   onChanged,
+  onSearchDomain,
 }: {
   row: MemberRow;
   selfSlug: string | undefined;
@@ -220,6 +246,7 @@ function MemberRowView({
   onPendingHandled: () => void;
   onToggle: () => void;
   onChanged: () => Promise<void>;
+  onSearchDomain: (domain: string) => void;
 }) {
   const [changing, setChanging] = useState(false);
   const ref = useRef<HTMLLIElement>(null);
@@ -273,7 +300,12 @@ function MemberRowView({
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
             joined {formatRelativeTime(row.createdAt)} · {signIns}
-            {row.email ? ` · ${row.email}` : ''}
+            {row.email && (
+              <>
+                {' · '}
+                <EmailWithDomainSearch email={row.email} onSearchDomain={onSearchDomain} />
+              </>
+            )}
           </div>
           {row.bioExcerpt && <p className="mt-1 text-sm">{row.bioExcerpt}</p>}
           <div className="mt-1 text-xs text-muted-foreground">{counts.join(' · ')}</div>
@@ -497,7 +529,14 @@ export function AdminMembers() {
       >
         <div className="flex flex-col gap-1">
           <Label htmlFor="q" className="text-xs">Search</Label>
-          <Input id="q" name="q" defaultValue={listParams.q ?? ''} placeholder="name, @slug, bio, email" className="w-64" />
+          <Input
+            id="q"
+            name="q"
+            key={listParams.q ?? ''}
+            defaultValue={listParams.q ?? ''}
+            placeholder="name, @slug, bio, email, @domain"
+            className="w-64"
+          />
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor="vote" className="text-xs">Vote</Label>
@@ -574,6 +613,7 @@ export function AdminMembers() {
                   setExpanded(expanded === row.slug ? null : row.slug);
                 }}
                 onChanged={refresh}
+                onSearchDomain={(domain) => setParam('q', `@${domain}`)}
               />
             ))}
           </ul>
