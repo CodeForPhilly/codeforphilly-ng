@@ -8,6 +8,7 @@ import {
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
   PersonSchema,
+  PersonEvaluationSchema,
   ProjectBuzzSchema,
   ProjectMembershipSchema,
   ProjectSchema,
@@ -22,6 +23,7 @@ import type {
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
+  PersonEvaluation,
   ProjectBuzz,
   ProjectMembership,
   ProjectUpdate,
@@ -117,6 +119,7 @@ type PublicValidators = {
   readonly 'tag-assignments': StandardSchemaV1<unknown, TagAssignment>;
   readonly 'slug-history': StandardSchemaV1<unknown, SlugHistory>;
   readonly revocations: StandardSchemaV1<unknown, Revocation>;
+  readonly 'person-evaluations': StandardSchemaV1<unknown, PersonEvaluation>;
 } & ValidatorMap;
 
 export type PublicStore = Store<PublicValidators>;
@@ -167,6 +170,7 @@ export async function openPublicStore(
     'tag-assignments': asValidator<TagAssignment>(TagAssignmentSchema),
     'slug-history': asValidator<SlugHistory>(SlugHistorySchema),
     revocations: asValidator<Revocation>(RevocationSchema),
+    'person-evaluations': asValidator<PersonEvaluation>(PersonEvaluationSchema),
   };
 
   const store = (await openStore(repo, { validators })) as PublicStore;

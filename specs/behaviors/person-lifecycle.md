@@ -5,7 +5,7 @@ A person record has two removal paths with very different intent and reversibili
 | State | Set by | Effect | Reversible |
 | ----- | ------ | ------ | ---------- |
 | **Active** | default | Normal — visible in lists, detail, and as a reference on content. | — |
-| **Deactivated** | self **or** staff/admin | Soft hide. `deletedAt` set. Hidden from public lists + detail; references render a placeholder. The person **can still sign in** and reactivate. | Reactivate (clears `deletedAt`). |
+| **Deactivated** | self, staff/admin, **or a staff spam vote** | Soft hide. `deletedAt` set. Hidden from public lists + detail; references render a placeholder. The person **can still sign in** and reactivate. | Reactivate (clears `deletedAt`). |
 | **Purged** | admin only | Cascading hard delete of the person + their content, in a single commit. | Via git history only (revert the commit). |
 
 ## Deactivate (soft, self-service)
@@ -16,7 +16,8 @@ The privacy / self-removal path — members should be able to remove themselves;
 - **Mechanism:** sets `person.deletedAt = now()` (reactivate clears it). The record and relationships stay intact.
 - **Visibility while deactivated:** excluded from public list endpoints; `GET /api/people/:slug` returns 404 for non-staff (staff may still fetch it, with `deletedAt` populated). Anywhere a deactivated person is referenced (project member grids, project-update/project-buzz authors, help-wanted "posted by", blog author) the serialized reference is a **"Deactivated user" placeholder** (no slug link, generic avatar) rather than the person — substitute, do not omit, so counts/history stay coherent.
 - **Login is NOT blocked** — a deactivated user can still authenticate and reactivate themselves. No session revocation.
-- **Surfaces:** self at `/account` ("Deactivate my account" / "Reactivate"); staff/admin via a person "Danger Zone".
+- **Surfaces:** self at `/account` ("Deactivate my account" / "Reactivate"); staff/admin via a person "Danger Zone"; and the **admin members screen**, where a `spam` vote deactivates the person in the same transaction that records the vote ([api/moderation.md](../api/moderation.md)).
+- **Vote reversal rule:** a `legit` vote clears `deletedAt` only when the person's previous latest human vote was `spam` — that is, when moderation set it. A self-deactivation is never undone by a vote.
 
 ## Purge (cascading hard delete, admin only)
 
@@ -32,6 +33,7 @@ The garbage-collection path for spam — the runtime sibling of the offline spam
 | Action | Self | Staff | Admin |
 | ------ | ---- | ----- | ----- |
 | Deactivate / Reactivate | ✓ (own) | ✓ (any) | ✓ (any) |
+| Spam / not-spam vote (deactivates / may reactivate) | – | ✓ | ✓ |
 | Purge | – | – | ✓ |
 
 ## Relationship to other specs

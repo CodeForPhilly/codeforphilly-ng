@@ -29,6 +29,7 @@ const SHEET_CONFIGS: Record<string, string> = {
   'tag-assignments': `[gitsheet]\nroot = 'tag-assignments'\npath = '\${{ tagId }}/\${{ taggableType }}/\${{ taggableId }}'\n`,
   'slug-history': `[gitsheet]\nroot = 'slug-history'\npath = '\${{ entityType }}/\${{ oldSlug }}'\n`,
   'revocations': `[gitsheet]\nroot = 'revocations'\npath = '\${{ jti }}'\n`,
+  'person-evaluations': `[gitsheet]\nroot = 'person-evaluations'\npath = '\${{ personSlug }}/\${{ evaluator }}'\n`,
 };
 
 export interface FullTestRepo {

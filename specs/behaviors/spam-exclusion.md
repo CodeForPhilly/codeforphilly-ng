@@ -16,33 +16,50 @@ whatever `published` contains.
 
 ## Where verdicts come from
 
-Spam evaluation runs offline and lands on the **`spam-detection`** branch of the
-data repo, in the **`person-evaluations`** sheet (path template
-`${personSlug}/${evaluator}` — one record per (person, evaluator)). Each record:
+Two sources write the same record shape into the **`person-evaluations`** sheet
+(path template `${personSlug}/${evaluator}` — one record per (person, evaluator)):
+
+1. **Machine evaluators** (heuristic, LLM passes) run offline in the **private
+   spam-detection repo** (`codeforphilly-spam-detection`), which also holds the
+   Slack-derived inputs. That material — public-channel message text, Slack
+   identities, LLM prose about named people — never enters the public data repo.
+2. **Human votes** are cast by staff on the site ([api/moderation.md](../api/moderation.md))
+   and committed to **`published`** in this repo as `evaluator = "human-<voterSlug>"`,
+   authored by the voter. They are small, summary-only, and attributable, which is
+   what a public civic dataset can carry.
+
+Each record:
 
 | Field | Meaning |
 | ----- | ------- |
 | `personSlug` | the evaluated person |
-| `evaluator` | model/run id (e.g. `haiku-2026-05`) |
+| `evaluator` | model/run id (e.g. `haiku-2026-05`) or `human-<voterSlug>` |
 | `verdict` | `"spam"` \| `"legit"` \| `"uncertain"` |
-| `confidence` | 0–1 |
+| `confidence` | 0–1 (LLM); absent on heuristic records, which carry `score` instead; `1` on human votes |
 | `flags` | array of short reason tags |
-| `reasoning` | free-text justification |
+| `reasoning` | free-text justification (optional on human votes) |
 | `evaluatedAt` | ISO 8601 UTC |
 
-The evaluations stay on `spam-detection`; they are **not** merged into
-`published` (they are bulky and not runtime data). The pipeline reads them from
-`spam-detection` and applies the result to `published`.
+Machine evaluations stay in the private repo; the runtime never loads them. The
+pipeline reads machine records from its own repo and human votes from
+`published`, aggregates, and applies the result to `published`.
 
 ## Per-person verdict aggregation
 
 A person may have multiple evaluator records. The aggregate decision is
 deliberately **conservative — only confident spam is pruned**:
 
-> A person is **pruned as spam** iff they have at least one `spam` verdict with
-> `confidence ≥ SPAM_CONFIDENCE_THRESHOLD` (default **0.8**), no `legit`
-> verdict at any confidence, **and no `project-membership`** (real project
-> involvement overrides any spam verdict). Otherwise they are **kept** — this
+> **A human vote is final.** If any `human-*` records exist for the person, the
+> latest one decides: `spam` → pruned (membership protection does not apply —
+> a person looked at the profile); `legit` → kept.
+>
+> Otherwise a person is **pruned as spam** iff they have at least one `spam`
+> verdict with `confidence ≥ SPAM_CONFIDENCE_THRESHOLD` (default **0.8**), no
+> `legit` verdict at any confidence, **and no `project-membership`** (real
+> project involvement overrides any machine verdict). Heuristic records carry
+> a `score`, not a `confidence`, and therefore never prune on their own: the
+> pipeline must LLM-confirm the heuristic-spam bucket (`evaluate-llm --filter spam`)
+> before pruning, or those accounts stay. Otherwise they are **kept** — this
 > includes `uncertain`, `legit`, low-confidence spam, anyone who is a project
 > member, and people with no evaluation.
 
@@ -74,7 +91,11 @@ records, not a full-tree replacement like the importer).
 
 ## What the runtime sees
 
-Nothing changes in the loader or read services. After a prune, `published` holds
+The runtime loads exactly one evaluation sheet: `person-evaluations` from
+`published`, which by construction holds only human votes. It uses them for the
+admin members screen and for the vote side effect (a `spam` vote deactivates the
+person immediately — [person-lifecycle.md](./person-lifecycle.md)); the public
+read services stay spam-unaware. After a prune, `published` holds
 only kept people (legit + uncertain + unevaluated minus confident spam), so the
 in-memory state, indices, and FTS are built over that smaller set. Dangling
 references are avoided by the cascade, so member lists, help-wanted interest, and

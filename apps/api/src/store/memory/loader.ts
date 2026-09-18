@@ -12,6 +12,7 @@ import {
   indexHelpWantedRole,
   indexMembership,
   indexPerson,
+  indexPersonEvaluation,
   indexProject,
   indexProjectBuzz,
   indexProjectUpdate,
@@ -44,6 +45,8 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
   const roles = await publicStore['help-wanted-roles'].queryAll();
   const interests = await publicStore['help-wanted-interest'].queryAll();
   const slugHistoryRecords = await publicStore['slug-history'].queryAll();
+  // Human spam votes. Absent on data repos without the sheet config → [].
+  const evaluations = await publicStore['person-evaluations'].queryAll();
 
   for (const p of projects) indexProject(state, p);
   for (const p of people) indexPerson(state, p);
@@ -60,6 +63,7 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
   // separate sweeper purges; this is the read-path defense).
   const bootNow = new Date();
   for (const r of slugHistoryRecords) indexSlugHistory(state, r, bootNow);
+  for (const e of evaluations) indexPersonEvaluation(state, e);
 
   return state;
 }
