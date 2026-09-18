@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 depends: [person-deactivate-purge, spam-prune]
 specs:
   - specs/screens/admin-members.md
@@ -56,7 +56,7 @@ signup; the private-repo migration itself (tracked on the data repo).
    people + private profiles + vote index), footprint assembly from existing
    indices (`membershipsByPerson`, updates/buzz/blog by author, interest,
    tag-assignments), and `castVote()` inside the write mutex: upsert the
-   `human:<voter>` record, apply the deactivate/reactivate rule, one commit
+   `human-<voter>` record, apply the deactivate/reactivate rule, one commit
    authored by the voter.
 5. **Routes**: `apps/api/src/routes/moderation.ts` — three endpoints, staff
    guard that 404s. Reuse the people serializer's staff-visible fields.
@@ -70,7 +70,7 @@ signup; the private-repo migration itself (tracked on the data repo).
 ## Validation
 
 - API: staff sees roster/footprint/email, non-staff and anonymous get 404 on
-  all three; vote writes a `human:<slug>` record and deactivates; legit vote
+  all three; vote writes a `human-<slug>` record and deactivates; legit vote
   after spam reactivates; legit vote after self-deactivate does not; self-vote
   422; re-voting replaces the caller's record; hot reload keeps the vote index.
 - Web: roster renders, filters work, vote buttons update row state, own row
