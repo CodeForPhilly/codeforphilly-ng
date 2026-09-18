@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [admin-members-moderation]
 specs:
   - specs/screens/admin-members.md
@@ -10,7 +10,7 @@ specs:
   - specs/behaviors/private-storage.md
   - specs/behaviors/spam-exclusion.md
 issues: []
-pr: null
+pr: 189
 ---
 
 # Plan: roster signals — origin, GitHub reputation, Slack SSO, bounces
