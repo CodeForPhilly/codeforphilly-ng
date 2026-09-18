@@ -29,6 +29,7 @@ import { TagWriteService } from '../services/tag.write.js';
 import { GitHubAccountService } from '../services/github-account.js';
 import { AccountClaimService } from '../services/account-claim.js';
 import { ModerationService, ModerationWriteService } from '../services/moderation.js';
+import { probeGitHubUser } from '../auth/github-client.js';
 import { LoggingNotifier, type Notifier } from '../notify/index.js';
 import { EmailNotifier } from '../notify/email-notifier.js';
 import { PostmarkTransport } from '../notify/postmark-transport.js';
@@ -110,15 +111,36 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
     tagsWrite: new TagWriteService(state),
     githubAccount,
     accountClaim: new AccountClaimService(state, fastify.store.private, githubAccount),
-    moderation: new ModerationService(state, fastify.store.private, (personId) => {
-      // Newest sign-in from session metadata; the auth plugin decorates it
-      // after this one registers, so resolve lazily per call.
-      let latest: string | null = null;
-      for (const m of fastify.sessionMetadata?.getAll(personId) ?? []) {
-        if (!latest || m.issuedAt > latest) latest = m.issuedAt;
-      }
-      return latest;
-    }),
+    moderation: new ModerationService(
+      state,
+      fastify.store.private,
+      (personId) => {
+        // Session facts from session metadata; the auth plugin decorates it
+        // after this one registers, so resolve lazily per call.
+        let latest: string | null = null;
+        let count = 0;
+        for (const m of fastify.sessionMetadata?.getAll(personId) ?? []) {
+          count += 1;
+          if (!latest || m.issuedAt > latest) latest = m.issuedAt;
+        }
+        return { lastLoginAt: latest, count };
+      },
+      {
+        log: fastify.log,
+        // The roster re-checks linked GitHub accounts against the API using the
+        // OAuth app's client credentials; without them the probe is simply off.
+        ...(fastify.config.GITHUB_OAUTH_CLIENT_ID && fastify.config.GITHUB_OAUTH_CLIENT_SECRET
+          ? {
+              probe: (githubUserId: number) =>
+                probeGitHubUser(
+                  githubUserId,
+                  fastify.config.GITHUB_OAUTH_CLIENT_ID as string,
+                  fastify.config.GITHUB_OAUTH_CLIENT_SECRET as string,
+                ),
+            }
+          : {}),
+      },
+    ),
     moderationWrite: new ModerationWriteService(state),
   });
 }

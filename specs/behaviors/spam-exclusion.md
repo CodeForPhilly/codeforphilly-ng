@@ -23,6 +23,11 @@ Two sources write the same record shape into the **`person-evaluations`** sheet
    spam-detection repo** (`codeforphilly-spam-detection`), which also holds the
    Slack-derived inputs. That material — public-channel message text, Slack
    identities, LLM prose about named people — never enters the public data repo.
+   One of them, `github-probe`, asks GitHub whether each linked account still
+   exists (`GET /user/{githubUserId}`): a 404 — GitHub deleted or suspended the
+   account — yields `spam` at 0.95; an account older than a year with real
+   activity (repos or followers) yields `legit` at 0.9, which protects the
+   person from every machine verdict; anything else yields `uncertain`.
 2. **Human votes** are cast by staff on the site ([api/moderation.md](../api/moderation.md))
    and committed to **`published`** in this repo as `evaluator = "human-<voterSlug>"`,
    authored by the voter. They are small, summary-only, and attributable, which is

@@ -259,6 +259,20 @@ describe('SAML IdP — Slack', () => {
     expect(loginReturnOf(res.headers.location)).toBe('/api/saml/slack/launch?channel=general');
   });
 
+  it('GET /api/saml/slack/launch (signed-in) stamps lastSlackSsoAt on the private profile', async () => {
+    const { accessToken } = await mintSessionFor(personId, 'user', JWT_KEY);
+    const before = await app.store.private.getProfile(personId);
+    expect(before?.lastSlackSsoAt ?? null).toBeNull();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/saml/slack/launch',
+      cookies: { cfp_session: accessToken },
+    });
+    expect(res.statusCode).toBe(200);
+    const after = await app.store.private.getProfile(personId);
+    expect(typeof after?.lastSlackSsoAt).toBe('string');
+  });
+
   it('GET /api/saml/slack/launch (signed-in) returns auto-submit form with signed SAML response', async () => {
     const { accessToken } = await mintSessionFor(personId, 'user', JWT_KEY);
     const res = await app.inject({

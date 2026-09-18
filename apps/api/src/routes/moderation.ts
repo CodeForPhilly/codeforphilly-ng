@@ -13,7 +13,7 @@ import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
-import type { VoteFilter } from '../services/moderation.js';
+import type { MemberOrigin, VoteFilter } from '../services/moderation.js';
 
 function requireStaffOr404(request: FastifyRequest): void {
   const level = request.session.accountLevel;
@@ -34,6 +34,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
           properties: {
             q: { type: 'string' },
             vote: { type: 'string', enum: ['none', 'spam', 'legit'] },
+            origin: { type: 'string', enum: ['imported', 'signed-up'] },
             joinedAfter: { type: 'string' },
             joinedBefore: { type: 'string' },
             includeDeactivated: { type: 'boolean' },
@@ -51,6 +52,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
       const result = await fastify.services.moderation.listMembers({
         q: q['q'] as string | undefined,
         vote: q['vote'] as VoteFilter | undefined,
+        origin: q['origin'] as MemberOrigin | undefined,
         joinedAfter: q['joinedAfter'] as string | undefined,
         joinedBefore: q['joinedBefore'] as string | undefined,
         includeDeactivated: q['includeDeactivated'] as boolean | undefined,

@@ -23,6 +23,7 @@ a signal.
 | ----- | ---- | ----- |
 | `q` | string | Full-text on `fullName`, `slug`, `bio`, and (staff-visible) `email`. |
 | `vote` | enum | `none` (no human vote yet) \| `spam` \| `legit`. Filters on the **latest** human vote. |
+| `origin` | enum | `imported` (has a laddr `legacyId`) \| `signed-up` (created on this site through GitHub). |
 | `joinedAfter`, `joinedBefore` | ISO date | Inclusive bounds on `createdAt`. |
 | `includeDeactivated` | bool | Default `true` — moderation needs to see what it hid. |
 | `sort` | sort | Default `-createdAt`. Allowed: `createdAt`, `fullName`, `lastLoginAt`. |
@@ -38,22 +39,45 @@ a signal.
       "id": "…", "slug": "jane", "fullName": "Jane Doe", "avatarUrl": "…",
       "createdAt": "2026-09-17T22:41:00Z",
       "deletedAt": null,
+      "origin": "signed-up",
       "email": "jane@example.org",
       "hasGitHubLink": true,
+      "github": { "login": "janedoe", "accountCreatedAt": "2019-03-02T…", "publicRepos": 12, "followers": 40, "status": "ok", "checkedAt": "…" },
       "lastLoginAt": "2026-09-18T01:12:00Z",
+      "signInCount": 4,
+      "lastSlackSsoAt": "2026-09-18T01:15:00Z",
+      "emailBounce": null,
       "bioExcerpt": "first ~160 chars of bio, markdown stripped",
       "footprint": { "memberships": 2, "updates": 1, "buzz": 0, "blogPosts": 0, "helpWantedInterest": 1, "tags": 3 },
-      "latestVote": { "verdict": "legit", "voter": { "slug": "chris", "fullName": "Chris Alfano" }, "evaluatedAt": "…" }
+      "latestVote": { "verdict": "legit", "voter": { "slug": "chris", "fullName": "Chris Alfano" }, "evaluatedAt": "…" },
+      "signals": ["slack-sso", "has-footprint"],
+      "attention": 0
     }
   ],
   "metadata": { "timestamp": "…", "page": 1, "perPage": 50, "totalItems": 12661, "totalPages": 254 }
 }
 ```
 
-`email` comes from the private store (the same staff-only field `GET /api/people/:slug`
-exposes); `lastLoginAt` is the newest session issued to the person; `hasGitHubLink`
-mirrors `Person.githubUserId`. None of it is reachable by a non-staff caller (who gets
-404 anyway). `latestVote` is `null`
+Field notes:
+
+- `origin` — `imported` when the record carries a laddr `legacyId`, else
+  `signed-up` (every new-site account arrives through GitHub OAuth).
+- `email`, `github`, `lastSlackSsoAt`, `emailBounce` come from the private
+  profile ([behaviors/private-storage.md](../behaviors/private-storage.md)).
+  `github` is present whenever the person is GitHub-linked; `status` is `ok`,
+  `gone` (GitHub 404s the account — deleted or suspended), or `unknown` (never
+  probed). Rows on the requested page are re-probed when their record is older
+  than a day, with bounded concurrency; a failed probe keeps the old record.
+- `lastLoginAt` / `signInCount` come from session metadata (sessions issued to
+  the person).
+- `signals` are **row-local** facts, never machine verdicts. Negative ones
+  count toward `attention`: `never-signed-in`, `no-avatar`, `no-bio`,
+  `bio-links:<n>`, `email-name-mismatch` (email local-part shares no ≥3-letter
+  token with the display name), `email-bounced:<type>`, `github-gone`,
+  `github-new-account` (< 30 days), `github-no-activity` (0 repos and 0
+  followers). Informational: `slack-sso`, `has-footprint`.
+
+None of it is reachable by a non-staff caller (who gets 404 anyway). `latestVote` is `null`
 when no human has voted.
 
 ## GET /api/admin/members/:slug

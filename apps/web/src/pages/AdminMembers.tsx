@@ -1,8 +1,8 @@
 /**
- * /admin/members — staff roster with footprint and human spam votes.
+ * /admin/members — staff roster with footprint, signals, and human spam votes.
  * Per specs/screens/admin-members.md.
  */
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -18,6 +18,86 @@ const PER_PAGE = 50;
 
 function isStaff(level: string | undefined): boolean {
   return level === 'staff' || level === 'administrator';
+}
+
+type Tone = 'neutral' | 'good' | 'warn' | 'bad';
+
+const TONE_CLASS: Record<Tone, string> = {
+  neutral: 'bg-muted text-muted-foreground',
+  good: 'bg-emerald-100 text-emerald-800',
+  warn: 'bg-amber-100 text-amber-900',
+  bad: 'bg-destructive/10 text-destructive',
+};
+
+function Chip({ tone = 'neutral', title, children, href }: { tone?: Tone; title?: string; children: React.ReactNode; href?: string }) {
+  const cls = `inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${TONE_CLASS[tone]}`;
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={`${cls} hover:underline`} title={title}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <span className={cls} title={title}>
+      {children}
+    </span>
+  );
+}
+
+function accountAge(iso: string): string {
+  const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
+  if (days < 1) return 'today';
+  if (days < 30) return `${days}d`;
+  if (days < 365) return `${Math.floor(days / 30)}mo`;
+  return `${Math.floor(days / 365)}y`;
+}
+
+/** The badges for a row, from origin/github/slack/bounce and the row-local signals. */
+function Badges({ row }: { row: MemberRow }) {
+  const has = (s: string) => row.signals.includes(s);
+  const links = row.signals.find((s) => s.startsWith('bio-links:'))?.split(':')[1];
+  const bounce = row.emailBounce;
+  const gh = row.github;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {row.origin === 'signed-up' ? <Chip tone="good">Signed up here</Chip> : <Chip>Imported</Chip>}
+      {gh && gh.status === 'gone' && (
+        <Chip tone="bad" title="GitHub returns 404 for this account — deleted or suspended">
+          GitHub account gone
+        </Chip>
+      )}
+      {gh && gh.status !== 'gone' && (
+        <Chip
+          tone={has('github-new-account') || has('github-no-activity') ? 'warn' : 'neutral'}
+          href={gh.login ? `https://github.com/${gh.login}` : undefined}
+          title={gh.checkedAt ? `checked ${formatRelativeTime(gh.checkedAt)}` : 'not yet checked'}
+        >
+          GitHub{gh.login ? ` · @${gh.login}` : ''}
+          {gh.accountCreatedAt ? ` · ${accountAge(gh.accountCreatedAt)} old` : ''}
+          {gh.publicRepos !== null ? ` · ${gh.publicRepos} repos` : ''}
+          {gh.followers !== null ? ` · ${gh.followers} followers` : ''}
+        </Chip>
+      )}
+      {row.lastSlackSsoAt && <Chip tone="good">Slack · {formatRelativeTime(row.lastSlackSsoAt)}</Chip>}
+      {bounce && (
+        <Chip tone="bad" title={formatAbsoluteDate(bounce.bouncedAt)}>
+          Email bounced · {bounce.type}
+        </Chip>
+      )}
+      {has('email-name-mismatch') && <Chip tone="warn">email ≠ name</Chip>}
+      {links && <Chip tone="warn">{links} link{links === '1' ? '' : 's'} in bio</Chip>}
+      {has('no-bio') && <Chip>no bio</Chip>}
+      {has('no-avatar') && <Chip>no avatar</Chip>}
+    </div>
+  );
+}
+
+function rowTint(row: MemberRow): string {
+  const critical = row.signals.some((s) => s === 'github-gone' || s.startsWith('email-bounced'));
+  if (critical || row.attention >= 5) return 'border-l-4 border-l-destructive';
+  if (row.attention >= 3) return 'border-l-4 border-l-amber-500';
+  return 'border-l-4 border-l-transparent';
 }
 
 function VoteBadge({ vote, hiddenByVote }: { vote: VoteView; hiddenByVote: boolean }) {
@@ -38,10 +118,15 @@ function VoteBadge({ vote, hiddenByVote }: { vote: VoteView; hiddenByVote: boole
 function VoteButtons({
   slug,
   disabled,
+  pending,
+  onPendingHandled,
   onDone,
 }: {
   slug: string;
   disabled: boolean;
+  /** A verdict requested from the keyboard; the component opens the confirm (spam) or fires (legit). */
+  pending: VoteVerdict | null;
+  onPendingHandled: () => void;
   onDone: () => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState<VoteVerdict | null>(null);
@@ -58,15 +143,32 @@ function VoteButtons({
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Vote failed'),
   });
 
-  if (confirming) {
+  // Keyboard `n` fires immediately; keyboard `s` is rendered as the open
+  // confirm below (derived, not stored) until the staffer confirms or cancels.
+  useEffect(() => {
+    if (pending === 'legit' && !disabled) {
+      mutation.mutate({ verdict: 'legit', why: '' });
+      onPendingHandled();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending]);
+
+  const active = confirming ?? (pending === 'spam' && !disabled ? 'spam' : null);
+
+  if (active) {
     const submit = (e: FormEvent) => {
       e.preventDefault();
-      mutation.mutate({ verdict: confirming, why: reasoning });
+      mutation.mutate({ verdict: active, why: reasoning });
+      onPendingHandled();
+    };
+    const cancel = () => {
+      setConfirming(null);
+      onPendingHandled();
     };
     return (
       <form onSubmit={submit} className="flex flex-col gap-2">
         <Label htmlFor={`why-${slug}`} className="text-xs">
-          {confirming === 'spam' ? 'Why spam? (optional, saved with your vote)' : 'Note (optional)'}
+          {active === 'spam' ? 'Why spam? (optional, saved with your vote)' : 'Note (optional)'}
         </Label>
         <Textarea
           id={`why-${slug}`}
@@ -75,12 +177,13 @@ function VoteButtons({
           maxLength={1000}
           rows={2}
           className="text-sm"
+          autoFocus
         />
         <div className="flex gap-2">
-          <Button type="submit" size="sm" variant={confirming === 'spam' ? 'destructive' : 'default'} disabled={mutation.isPending}>
-            Confirm {confirming === 'spam' ? 'spam' : 'not spam'}
+          <Button type="submit" size="sm" variant={active === 'spam' ? 'destructive' : 'default'} disabled={mutation.isPending}>
+            Confirm {active === 'spam' ? 'spam' : 'not spam'}
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(null)} disabled={mutation.isPending}>
+          <Button type="button" size="sm" variant="ghost" onClick={cancel} disabled={mutation.isPending}>
             Cancel
           </Button>
         </div>
@@ -103,16 +206,26 @@ function MemberRowView({
   row,
   selfSlug,
   expanded,
+  selected,
+  pendingVote,
+  onPendingHandled,
   onToggle,
   onChanged,
 }: {
   row: MemberRow;
   selfSlug: string | undefined;
   expanded: boolean;
+  selected: boolean;
+  pendingVote: VoteVerdict | null;
+  onPendingHandled: () => void;
   onToggle: () => void;
   onChanged: () => Promise<void>;
 }) {
   const [changing, setChanging] = useState(false);
+  const ref = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (selected) ref.current?.scrollIntoView({ block: 'nearest' });
+  }, [selected]);
   const hiddenByVote = row.deletedAt !== null && row.latestVote?.verdict === 'spam';
   const isSelf = row.slug === selfSlug;
   const fp = row.footprint;
@@ -124,9 +237,19 @@ function MemberRowView({
     fp.helpWantedInterest ? `${fp.helpWantedInterest} help-wanted` : null,
     `${fp.tags} tag${fp.tags === 1 ? '' : 's'}`,
   ].filter(Boolean);
+  const signIns =
+    row.signInCount === 0
+      ? 'never signed in'
+      : `signed in ${row.signInCount}×${row.lastLoginAt ? ` · last ${formatRelativeTime(row.lastLoginAt)}` : ''}`;
 
   return (
-    <li className={`rounded-lg border p-4 ${row.deletedAt ? 'opacity-60' : ''}`}>
+    <li
+      ref={ref}
+      className={`rounded-lg border p-4 ${rowTint(row)} ${row.deletedAt ? 'opacity-60' : ''} ${
+        selected ? 'ring-2 ring-primary' : ''
+      }`}
+      aria-current={selected ? 'true' : undefined}
+    >
       <div className="flex flex-wrap items-start gap-4">
         {row.avatarUrl ? (
           <img src={row.avatarUrl} alt="" className="h-12 w-12 rounded-full object-cover" />
@@ -139,18 +262,17 @@ function MemberRowView({
               {row.fullName}
             </Link>
             <span className="text-sm text-muted-foreground">@{row.slug}</span>
-            {row.hasGitHubLink && (
-              <span className="rounded bg-muted px-1.5 py-0.5 text-xs">GitHub</span>
-            )}
             {row.deletedAt && (
               <span className="rounded bg-muted px-1.5 py-0.5 text-xs">
                 {hiddenByVote ? `Hidden by ${row.latestVote?.voter.fullName ?? 'vote'}` : 'Deactivated'}
               </span>
             )}
           </div>
+          <div className="mt-1">
+            <Badges row={row} />
+          </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            joined {formatRelativeTime(row.createdAt)}
-            {row.lastLoginAt ? ` · last sign-in ${formatRelativeTime(row.lastLoginAt)}` : ' · never signed in'}
+            joined {formatRelativeTime(row.createdAt)} · {signIns}
             {row.email ? ` · ${row.email}` : ''}
           </div>
           {row.bioExcerpt && <p className="mt-1 text-sm">{row.bioExcerpt}</p>}
@@ -168,6 +290,8 @@ function MemberRowView({
             <VoteButtons
               slug={row.slug}
               disabled={isSelf}
+              pending={pendingVote}
+              onPendingHandled={onPendingHandled}
               onDone={async () => {
                 setChanging(false);
                 await onChanged();
@@ -267,6 +391,12 @@ function MemberDetailView({ slug }: { slug: string }) {
   );
 }
 
+function isTypingTarget(el: EventTarget | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
 export function AdminMembers() {
   const { person, loading } = useAuth();
   const navigate = useNavigate();
@@ -274,6 +404,8 @@ export function AdminMembers() {
   const params = useParams<{ slug?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [expanded, setExpanded] = useState<string | null>(params.slug ?? null);
+  const [selected, setSelected] = useState<string | null>(params.slug ?? null);
+  const [pendingVote, setPendingVote] = useState<{ slug: string; verdict: VoteVerdict } | null>(null);
 
   const allowed = !!person && isStaff(person.accountLevel);
   useEffect(() => {
@@ -287,9 +419,12 @@ export function AdminMembers() {
     }
   }, [loading, person, navigate]);
 
+  // "No vote yet" is the default: the page exists for triage.
+  const voteParam = searchParams.has('vote') ? searchParams.get('vote') : 'none';
   const listParams: MemberListParams = {
     q: searchParams.get('q') || undefined,
-    vote: (searchParams.get('vote') as MemberListParams['vote']) || undefined,
+    vote: (voteParam as MemberListParams['vote']) || undefined,
+    origin: (searchParams.get('origin') as MemberListParams['origin']) || undefined,
     includeDeactivated: searchParams.get('hidden') !== '0',
     sort: searchParams.get('sort') || undefined,
     page: Number(searchParams.get('page') || '1'),
@@ -303,16 +438,41 @@ export function AdminMembers() {
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(searchParams);
-    if (value === null || value === '') next.delete(key);
+    if (value === null) next.delete(key);
     else next.set(key, value);
     if (key !== 'page') next.delete('page');
     setSearchParams(next);
   };
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin-members'] });
     await queryClient.invalidateQueries({ queryKey: ['admin-member'] });
-  };
+  }, [queryClient]);
+
+  const rows = useMemo(() => listQ.data?.data ?? [], [listQ.data]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (rows.length === 0) return;
+      const idx = selected ? rows.findIndex((r) => r.slug === selected) : -1;
+      if (e.key === 'j') {
+        e.preventDefault();
+        setSelected(rows[Math.min(rows.length - 1, idx + 1)]!.slug);
+      } else if (e.key === 'k') {
+        e.preventDefault();
+        setSelected(rows[Math.max(0, idx - 1)]!.slug);
+      } else if (e.key === 'Enter' && selected) {
+        e.preventDefault();
+        setExpanded((cur) => (cur === selected ? null : selected));
+      } else if ((e.key === 's' || e.key === 'n') && selected) {
+        e.preventDefault();
+        setPendingVote({ slug: selected, verdict: e.key === 's' ? 'spam' : 'legit' });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rows, selected]);
 
   if (!allowed) return null;
 
@@ -323,7 +483,8 @@ export function AdminMembers() {
       <h1 className="text-2xl font-bold">Members roster</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Newest signups first. Votes are recorded under your name; a spam vote hides the member immediately and the next
-        pipeline run removes them.
+        pipeline run removes them. Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>s</kbd> spam, <kbd>n</kbd> not spam,{' '}
+        <kbd>Enter</kbd> details.
       </p>
 
       <form
@@ -331,7 +492,7 @@ export function AdminMembers() {
         onSubmit={(e) => {
           e.preventDefault();
           const data = new FormData(e.currentTarget);
-          setParam('q', String(data.get('q') ?? ''));
+          setParam('q', String(data.get('q') ?? '') || null);
         }}
       >
         <div className="flex flex-col gap-1">
@@ -343,13 +504,26 @@ export function AdminMembers() {
           <select
             id="vote"
             className="h-9 rounded-md border bg-background px-2 text-sm"
-            value={listParams.vote ?? ''}
+            value={voteParam ?? ''}
             onChange={(e) => setParam('vote', e.target.value)}
           >
             <option value="">Any</option>
             <option value="none">No vote yet</option>
             <option value="spam">Voted spam</option>
             <option value="legit">Voted not spam</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="origin" className="text-xs">Origin</Label>
+          <select
+            id="origin"
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+            value={listParams.origin ?? ''}
+            onChange={(e) => setParam('origin', e.target.value || null)}
+          >
+            <option value="">Any</option>
+            <option value="signed-up">Signed up here</option>
+            <option value="imported">Imported</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
@@ -386,13 +560,19 @@ export function AdminMembers() {
             {meta && meta.totalPages > 1 ? ` · page ${meta.page} of ${meta.totalPages}` : ''}
           </p>
           <ul className="mt-2 space-y-3">
-            {listQ.data.data.map((row) => (
+            {rows.map((row) => (
               <MemberRowView
                 key={row.id}
                 row={row}
                 selfSlug={person?.slug}
                 expanded={expanded === row.slug}
-                onToggle={() => setExpanded(expanded === row.slug ? null : row.slug)}
+                selected={selected === row.slug}
+                pendingVote={pendingVote?.slug === row.slug ? pendingVote.verdict : null}
+                onPendingHandled={() => setPendingVote(null)}
+                onToggle={() => {
+                  setSelected(row.slug);
+                  setExpanded(expanded === row.slug ? null : row.slug);
+                }}
                 onChanged={refresh}
               />
             ))}

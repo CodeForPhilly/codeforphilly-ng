@@ -61,6 +61,7 @@ import { previewRoutes } from './routes/preview.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { chatRoutes } from './routes/chat.js';
 import { moderationRoutes } from './routes/moderation.js';
+import { webhookRoutes } from './routes/webhooks.js';
 import { samlRoutes } from './routes/saml.js';
 import { internalRoutes } from './routes/internal.js';
 
@@ -203,6 +204,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(attachmentRoutes);
   await fastify.register(chatRoutes);
   await fastify.register(moderationRoutes);
+  await fastify.register(webhookRoutes);
   await fastify.register(samlRoutes);
   await fastify.register(internalRoutes);
 
