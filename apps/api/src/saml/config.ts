@@ -10,7 +10,18 @@
  * NameID + attribute statement template that produces the assertion shape
  * required by specs/api/saml.md.
  */
-import * as samlify from 'samlify';
+import * as samlifyNs from 'samlify';
+
+// samlify is CommonJS. Under Node's ESM loader, cjs-module-lexer does not
+// detect `SamlLib` (it is re-exported through a getter), so `import * as`
+// leaves it undefined and only `default` (the whole module.exports) carries
+// it. vitest's interop exposes it as a named export, which is why the tests
+// never saw the production 500. Resolve from whichever view has it.
+type SamlifyModule = typeof samlifyNs;
+const samlify: SamlifyModule =
+  (samlifyNs as SamlifyModule & { default?: SamlifyModule }).default?.SamlLib !== undefined
+    ? (samlifyNs as SamlifyModule & { default: SamlifyModule }).default
+    : samlifyNs;
 
 const { IdentityProvider, ServiceProvider, Constants, SamlLib, setSchemaValidator } = samlify;
 
