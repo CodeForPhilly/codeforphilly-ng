@@ -371,6 +371,8 @@ async function handleSpInitiatedSso(
     { relayState, customTagReplacement },
   );
 
+  await stampSlackSso(fastify, person.id);
+
   const samlResponse = bindingCtx.context;
   const actionUrl =
     'entityEndpoint' in bindingCtx && typeof bindingCtx.entityEndpoint === 'string'
@@ -378,6 +380,7 @@ async function handleSpInitiatedSso(
       : acsUrl;
   const replyRelayState = 'relayState' in bindingCtx ? bindingCtx.relayState : relayState;
 
+  await stampSlackSso(fastify, person.id);
   return reply.header('Content-Type', 'text/html; charset=utf-8').send(
     renderPostForm({
       actionUrl,
@@ -385,6 +388,22 @@ async function handleSpInitiatedSso(
       relayState: replyRelayState ?? undefined,
     }),
   );
+}
+
+/**
+ * Record that the IdP just vouched for this person to Slack. Best-effort: a
+ * private-store hiccup must not turn a successful assertion into an error.
+ * specs/api/saml.md → "Slack SSO stamp".
+ */
+async function stampSlackSso(fastify: FastifyInstance, personId: string): Promise<void> {
+  try {
+    const profile = await fastify.store.private.getProfile(personId);
+    if (!profile) return;
+    const now = new Date().toISOString();
+    await fastify.store.private.putProfile({ ...profile, lastSlackSsoAt: now, updatedAt: now });
+  } catch (err) {
+    fastify.log.warn({ err, personId }, 'could not stamp lastSlackSsoAt');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -487,6 +506,7 @@ export async function samlRoutes(fastify: FastifyInstance): Promise<void> {
       );
 
       // PostBindingContext.context holds the base64-encoded signed Response.
+      await stampSlackSso(fastify, person.id);
       const samlResponse = bindingCtx.context;
       const relayState = 'relayState' in bindingCtx ? bindingCtx.relayState : query.redir;
       const actionUrl =
@@ -639,6 +659,8 @@ export async function samlRoutes(fastify: FastifyInstance): Promise<void> {
         {},
         { relayState: resumeClaims.relayState, customTagReplacement },
       );
+
+      await stampSlackSso(fastify, person.id);
 
       const samlResponse = bindingCtx.context;
       const actionUrl =
