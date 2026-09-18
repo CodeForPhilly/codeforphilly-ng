@@ -35,6 +35,7 @@ import { AccountClaimByPassword } from '@/pages/AccountClaimByPassword';
 import { AccountClaimRequestStaffReview } from '@/pages/AccountClaimRequestStaffReview';
 import { AccountClaimLegacy } from '@/pages/AccountClaimLegacy';
 import { StaffAccountClaimQueue } from '@/pages/StaffAccountClaimQueue';
+import { AdminMembers } from '@/pages/AdminMembers';
 
 const router = createBrowserRouter([
   {
@@ -74,6 +75,8 @@ const router = createBrowserRouter([
       { path: '/account-claim/request-staff-review', element: <AccountClaimRequestStaffReview /> },
       { path: '/account/claim-legacy', element: <AccountClaimLegacy /> },
       { path: '/staff/account-claim', element: <StaffAccountClaimQueue /> },
+      { path: '/admin/members', element: <AdminMembers /> },
+      { path: '/admin/members/:slug', element: <AdminMembers /> },
       { path: '*', element: <NotFound /> },
     ],
   },
