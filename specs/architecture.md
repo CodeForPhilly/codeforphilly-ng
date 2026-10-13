@@ -11,7 +11,7 @@ Out of scope for v1: see [deferred.md](deferred.md).
 ## Stack
 
 | Layer | Choice | Why |
-|-------|--------|-----|
+| ------- | -------- | ----- |
 | Backend framework | **Fastify 5.x + TypeScript** | Per `backend-fastify` skill. Plugin model maps cleanly to laddr's RequestHandler hierarchy. Schema-validated routes replace ad-hoc PHP validation. |
 | Frontend framework | **Vite + React 19 + TypeScript** | Per `frontend-shadcn` skill. SPA for the dynamic surface; SSR not required for v1 (search engines find existing project pages via sitemap). |
 | Routing (web) | **React Router v7** | Per skill. Use `react-router` (not `react-router-dom`). |

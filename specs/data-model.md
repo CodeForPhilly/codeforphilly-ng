@@ -55,7 +55,7 @@ The user/member of the brigade. Replaces laddr's `Emergence\People\Person`. Stor
 **Path template:** `people/${slug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | laddr `people.ID` |
 | slug | string | unique. Was `Username`. URL: `/members/<slug>`. |
@@ -109,7 +109,7 @@ The sensitive complement to a Person. Stored in the **private store** (S3-compat
 **Storage:** `profiles.jsonl` in the private bucket — one record per line, single overwrite per mutation.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | personId | uuid | references `Person.id` |
 | email | string | the user's most-recent GitHub-verified primary email. Refreshed on every OAuth login. Lowercased for canonical form. |
 | emailRefreshedAt | iso8601 | when `email` was last refreshed from GitHub |
@@ -119,7 +119,7 @@ The sensitive complement to a Person. Stored in the **private store** (S3-compat
 The `newsletter` sub-object:
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | optedIn | bool | |
 | optedInAt | iso8601 nullable | |
 | optedOutAt | iso8601 nullable | |
@@ -156,7 +156,7 @@ Password material is sensitive and **must not** appear in the public gitsheets r
 **Storage:** `legacy-passwords.jsonl` in the private bucket — one record per line, single overwrite per mutation.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | personId | uuid | references `Person.id`, 1:1 |
 | passwordHash | string | The current password hash. Format is auto-detected by the verifier (SHA-1 hex / bcrypt `$2[aby]$` / argon2id `$argon2id$`). Every successful verify rotates this to argon2id with current params. |
 | importedAt | iso8601 | when the laddr migration wrote this record |
@@ -176,7 +176,7 @@ Tracks revoked JWT IDs (`jti` claims) so that explicit sign-out / "revoke sessio
 **Path template:** `revocations/${jti}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | jti | string | the JWT ID being revoked. Also the filename. |
 | personId | uuid | |
 | revokedAt | iso8601 | |
@@ -194,7 +194,7 @@ A periodic background task (in-process) sweeps `revocations` for records whose `
 **Path template:** `projects/${slug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | laddr `projects.ID` |
 | slug | string | unique. Was `Handle`. URL: `/projects/<slug>`. See [behaviors/slug-handles.md](behaviors/slug-handles.md). |
@@ -239,7 +239,7 @@ Join record between Person and Project. Was laddr's `project_members`.
 The composite path makes "list members of project X" a single directory traversal.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | projectId | uuid | references projects.id |
 | personId | uuid | references people.id |
@@ -264,7 +264,7 @@ Markdown updates posted by project members. Was laddr's `project_updates`. No ve
 **Path template:** `project-updates/${projectSlug}/${number}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | |
 | projectId | uuid | |
@@ -290,7 +290,7 @@ Staff-authored long-form posts at `/blog`. Was laddr's `blog_posts`. Stored as a
 **Format:** `markdown` (gitsheets `[gitsheet.format]` with `type = 'markdown'`, `body = 'body'`)
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int nullable | laddr `blog_posts.ID`. Per [behaviors/legacy-id-mapping.md](behaviors/legacy-id-mapping.md). |
 | slug | string | unique. URL: `/blog/<slug>`. Used as the filename (`<slug>.md`). |
@@ -322,7 +322,7 @@ External media / press / "buzz" about a project. Was laddr's `project_buzz`.
 **Path template:** `project-buzz/${projectSlug}/${slug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | |
 | projectId | uuid | |
@@ -351,7 +351,7 @@ Polymorphic taxonomy. Replaces laddr's `tags` + `tag_items`, but with a typed `n
 **Path template:** `tags/${namespace}/${slug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | |
 | namespace | enum | `topic` \| `tech` \| `event` |
@@ -381,7 +381,7 @@ Polymorphic link between tags and (project | person | help_wanted_role).
 This composite path makes "things with tag X" a single directory traversal in the right shape; "tags on this thing" needs an in-memory inverted index.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | tagId | uuid | |
 | taggableType | enum | `project` \| `person` \| `help_wanted_role` \| `blog_post` |
@@ -406,7 +406,7 @@ A specific volunteer "ask" a maintainer posts on their project. See [behaviors/h
 The `id` is used as the filename (rather than a derived slug) because role titles are freeform and the URL form is `/projects/:slug/help-wanted/:roleId`.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | projectId | uuid | |
 | postedById | uuid | references people.id |
@@ -433,7 +433,7 @@ Tracks who has expressed interest in which role.
 **Path template:** `help-wanted-interest/${roleId}/${personSlug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | roleId | uuid | references help-wanted-roles.id |
 | personId | uuid | references people.id |
@@ -452,7 +452,7 @@ Records past slugs of an entity to power the 90-day redirect window. See [behavi
 **Path template:** `slug-history/${entityType}/${oldSlug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | entityType | enum | `project` \| `person` \| `tag` \| `buzz` |
 | oldSlug | string | the previous slug, used as the filename |
@@ -472,7 +472,7 @@ See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log) for t
 ## Relationships at a glance
 
 | From | To | Cardinality | Field |
-|------|----|-----------:|----|
+| ------ | ---- | -----------: | ---- |
 | Project | Person | many-to-one (maintainer) | `Project.maintainerId` |
 | ProjectMembership | Project | many-to-one | `ProjectMembership.projectId` |
 | ProjectMembership | Person | many-to-one | `ProjectMembership.personId` |
@@ -493,7 +493,7 @@ Cascading deletes are not enforced by gitsheets; the API's mutation services del
 ## Naming map: laddr → rewrite
 
 | laddr (PHP/MySQL) | rewrite (gitsheets/TOML) |
-|---|---|
+| --- | --- |
 | `projects.ID` | `projects` record's `id` (uuid) + `legacyId` (int) |
 | `projects.Handle` | `projects.slug` |
 | `projects.Title` | `projects.title` |
