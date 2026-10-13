@@ -15,6 +15,7 @@ This v1 page is a blend: marketing hero + featured projects + live activity. The
 
 - `GET /api/projects?featured=true&perPage=8` — featured project list (Project list items)
   - `featured` is a new boolean column on `projects` (add to [data-model.md](../data-model.md#project)). Staff toggles it.
+- `GET /api/events?when=upcoming&perPage=3` — the upcoming-events strip
 - `GET /api/project-updates?perPage=10` — recent activity for the activity stream
 - `GET /api/help-wanted?perPage=4&sort=-createdAt` — recent open roles for the "How to help" rail
 - `GET /api/auth/me` — bootstraps the auth context (changes header CTA)
@@ -31,6 +32,18 @@ The page is composed of four sections, top to bottom:
 - Primary CTA: "Volunteer" (links to `/volunteer`)
 - Background: a Ken Burns photo slideshow rendered by `<HeroSlideshow />`. Photos live in `apps/web/public/hero/` as optimized JPG (primary) + WebP (via `<picture>`), with a `manifest.json` index. On mount the photo set is shuffled; each photo is displayed for 8 seconds with a slow ambient pan (scale 1.05 → 1.10, translate ±2% on a randomized vector), then crossfades to the next over 1.5 seconds while the incoming photo immediately starts its own independent random pan. The `prefers-reduced-motion` media query disables the pan entirely; the crossfade still occurs. A dark gradient overlay sits above the photos to keep hero text legible. Asset regeneration is reproducible via `apps/web/scripts/optimize-hero-photos.sh <input-dir>`.
 - If the user is signed in, the primary CTA changes to "Browse Projects" (`/projects`).
+
+### 1b. Upcoming events
+
+A slim strip directly under the hero. Rules in [behaviors/events.md](../behaviors/events.md); data from `GET /api/events?when=upcoming&perPage=3`.
+
+- Heading: "Upcoming Events"
+- Up to 3 events, soonest first, each as a compact row: date block (weekday, day, month in `America/New_York`), title linked to `/events/<slug>`, time range, `venueName` (or "Online"), and "14 going" — or "You're going ✓" when the viewer has an RSVP
+- The soonest event's row carries an inline "RSVP" button (anonymous: "Sign in to RSVP") so the next hack night is one click from the home page; the other rows link only
+- Cancelled events render with a "Cancelled" badge and no button
+- "See all events →" links to `/events`; "Subscribe" links to the `webcal://` feed
+
+When there are no upcoming events the strip is **hidden entirely** (unlike the featured grid, which stays as an empty heading). An empty "Upcoming Events" box on the home page would advertise that nothing is happening.
 
 ### 2. Featured projects
 
@@ -82,6 +95,8 @@ Three side-by-side cards (current site has these; they translate cleanly):
 | Get-involved card click | Navigation | Whole card is clickable |
 | Activity card click | Navigation | Card body links to project; "by <author>" links to person |
 | Help-wanted card click | Navigation | Whole card links to project page, anchored to that role |
+| Upcoming event row click | Navigation to `/events/<slug>` | Row |
+| RSVP to the next event | `PUT /api/events/:slug/rsvp` in place; row flips to "You're going ✓" | Inline button on the soonest event |
 | Filter chip click | Local filter of activity stream | No re-fetch in v1 — client-side filter of the loaded 10 |
 
 ## Navigation
@@ -93,7 +108,7 @@ Three side-by-side cards (current site has these; they translate cleanly):
 
 **From here:**
 
-- `/volunteer`, `/sponsor`, `/projects`, `/projects/<slug>`, `/members/<slug>`, `/project-updates`, `/project-buzz`, `/help-wanted`, `/login`
+- `/volunteer`, `/sponsor`, `/projects`, `/projects/<slug>`, `/members/<slug>`, `/project-updates`, `/project-buzz`, `/help-wanted`, `/events`, `/events/<slug>`, `/login`
 
 ## Authorization
 

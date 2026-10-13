@@ -44,6 +44,7 @@ Content cluster, items in this order:
 | Item | Target | Style |
 | ---- | ------ | ----- |
 | Projects | `/projects` | text link |
+| Events | `/events` | text link |
 | Help Wanted | `/help-wanted` | text link |
 | Members | `/members` | text link |
 | About ▾ | dropdown | text link with caret |
@@ -132,6 +133,11 @@ Optional row below the header. A screen opts in by declaring a `breadcrumbs` tra
 | `/members/:slug` | Members › `<fullName>` |
 | `/tags/:namespace/:slug` | Tags › `<namespace>` › `<title>` |
 | `/help-wanted` | (none) |
+| `/events` | (none) |
+| `/events/past` | Events › Past |
+| `/events/:slug` | Events › `<title>` |
+| `/events/:slug/edit` | Events › `<title>` › Edit |
+| `/events/new` | Events › New event |
 | `/account` | Settings |
 
 Each segment except the last is a link to the parent route.
@@ -144,6 +150,7 @@ Three columns at ≥ md, stacked below.
 
 - Active Projects → `/projects`
 - Start a Project → `/projects/create` (or external link for anonymous)
+- Events → `/events`
 - Hackathons → `/pages/hackathons`
 - Members → `/members`
 - Help Wanted → `/help-wanted`

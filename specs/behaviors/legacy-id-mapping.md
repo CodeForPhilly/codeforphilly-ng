@@ -42,6 +42,11 @@ The web layer catches these patterns and 301s to the canonical URL:
 | `/project-updates?ProjectID=<n>` | `/projects/:slug` | by `legacyId` |
 | `/project-buzz/<slug>` | `/projects/:projectSlug/buzz/<buzzSlug>` | buzz slugs preserved |
 | `/tags/<handle>` | `/tags/<namespace>/<slug>` | split on `.` |
+| `/events/*past` | `/events/past` | static rewrite |
+| `/events/*upcoming`, `/events/*all` | `/events` | static rewrite |
+| `/events/<handle>` | unchanged | the four laddr events are backfilled with their handles as slugs ([events.md](events.md#legacy-urls)) |
+| `/events/<handle>/segments/<segHandle>` | `/events/<handle>` | segments are flattened into the event description |
+| `/calendar` | `/events` | static rewrite (not a laddr URL; the issue asked for the alias) |
 
 Patterns not listed (e.g., `/checkin`, `/bigscreen`) return 410 Gone with an explanation page (see [deferred.md](../deferred.md) for why those URLs no longer exist).
 

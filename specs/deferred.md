@@ -14,9 +14,9 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 
 ### Event check-ins (Meetup.com integration)
 
-- **What:** `member_checkins` table, `/checkin` endpoint, current-meetup card on the home page, "top members" list.
-- **Why:** Meetup.com's API and pricing make this hard to maintain. The community no longer uses Meetup.com as the source of truth — meetups are coordinated in Slack and via Eventbrite/Google Calendar. SquadQuest (a Code for Philly project) covers the "RSVP to events" use case better.
-- **What replaces it:** Nothing in v1. If we want a check-in flow back, it should be reframed around the actual event source (Slack channel auto-detection, or an Eventbrite/iCal feed).
+- **What:** `member_checkins` table, `/checkin` endpoint, current-meetup card on the home page, "top members" list — all keyed by Meetup.com event IDs pulled live from Meetup's iCal feed.
+- **Why:** Meetup.com is being displaced, not integrated. Events now live on the site with their own RSVPs ([behaviors/events.md](behaviors/events.md)), and the RSVP window stays open through the end of the event, which covers the "I'm here" case that check-ins served. The "top members" leaderboard is not coming back.
+- **What replaces it:** Site-native events and RSVPs, including the attendee list grouped by project that check-ins used to provide.
 
 ### Big Screen mode (`/bigscreen`)
 
@@ -64,6 +64,37 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 - **Replaced by:** The gitsheets commit log itself — every record edit is a commit with author, timestamp, and diff. See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log). No separate history tables needed.
 
 ## Deferred
+
+### Event programs with sessions
+
+- **What:** Laddr's `Event` + `EventSegment` pair: a multi-week program (Launchpad, a hackathon) whose detail page carried a day-grouped "Schedule" sidebar of sessions, each with its own time, venue, and page. It held four records in twelve years.
+- **Why deferred:** The v1 goal ([behaviors/events.md](behaviors/events.md)) is displacing Meetup for the monthly hack night, which is a flat, single-session event with RSVPs. Programs are a different shape and not the current need.
+- **When promoted:** Add a nullable `parentId` on `Event`. A parent event (the program) spans its children's date range, renders them as the day-grouped schedule sidebar, and does **not** take RSVPs itself — RSVPs stay on the sessions, so "going to Showcase Night" stays one click. The flat v1 record needs no migration; the four backfilled laddr programs would regain their sessions by splitting their flattened descriptions back out.
+
+### Event recurrence
+
+- **What:** "Every first Tuesday" rules that generate occurrences.
+- **Why deferred:** One explicit record per occurrence (duplicate-and-adjust) is the stated principle in [behaviors/events.md](behaviors/events.md#principles). Revisit only if staff are visibly burned by monthly duplication.
+
+### Event capacity, waitlists, and guests
+
+- **What:** A cap on RSVPs with a waitlist, and "+1" guest counts.
+- **Why deferred:** Hack nights don't sell out. Adding a cap would also need a waitlist promotion email and a "spot opened" flow; the shape is obvious when a venue imposes a limit.
+
+### Event cover images
+
+- **What:** A banner image per event on cards and the detail page, as Meetup shows.
+- **Why deferred:** Needs the general attachment-upload path; cards read fine with the date block. Add `imageKey` on `Event` when wanted, served like `featuredImageKey`.
+
+### Event announcements to Slack
+
+- **What:** Post to `#announcements` (or a configured channel) when an event is published, and a reminder when it's a day out.
+- **Why deferred:** Depends on the Slack posting integration that [#195](https://github.com/CodeForPhilly/codeforphilly-ng/issues/195) is re-evaluating. The publish and reminder hooks in [behaviors/events.md](behaviors/events.md) are the obvious attachment points.
+
+### Calendar grid view and event search
+
+- **What:** A month-grid rendering of `/events`; events in the header typeahead.
+- **Why deferred:** With roughly one event a month, the grouped list is denser and clearer, and the `webcal://` feed puts events in the member's own calendar. Promote if the list outgrows a screen.
 
 ### Project comments
 

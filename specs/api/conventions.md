@@ -11,6 +11,7 @@ All endpoints are mounted under `/api`. There is no API version segment in v1 â€
 - Requests: `application/json` for bodies; `multipart/form-data` only for file uploads (avatar, buzz image).
 - Responses: `application/json` always.
 - `Accept` headers are honored only insofar as `application/json` is the default; we don't negotiate CSV/RSS in v1 (see [deferred.md](../deferred.md)).
+- The one non-JSON success response: the iCalendar routes in [events.md](events.md) (`GET /api/events/feed.ics`, `GET /api/events/:slug/ics`) respond `text/calendar`. They are dedicated paths, not content negotiation, and their errors still use the JSON envelope.
 
 ## Response envelope
 

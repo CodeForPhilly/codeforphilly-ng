@@ -30,6 +30,10 @@ Person ──*── ProjectMembership ──*── Project
 
 BlogPost ──── authored-by ──── Person      (0:1; staff-authored long-form posts)
 
+Event ──*── EventRsvp ──*── Person         (staff-created gatherings; member RSVPs)
+                │ projectId (optional)
+                └── Project                 ("working on" at the event)
+
 Tag ──── TagAssignment ──── (Project | Person | HelpWantedRole | BlogPost)
                               polymorphic via taggableType + taggableId
 
@@ -444,6 +448,81 @@ Used for the 30-day per-person-per-role rate cap on `POST /express-interest` (se
 
 **Uniqueness:** `(roleId, personId)` _within the trailing 30 days_ — enforced by the API (read the existing record if any, check `createdAt`, accept-or-reject).
 
+## Event _(new — replaces Meetup.com)_
+
+A single dated gathering: a hack night, a showcase, a workshop. Staff-authored; members RSVP. Rules in [behaviors/events.md](behaviors/events.md). Laddr's `Emergence\Events\Event` + `EventSegment` pair (programs with a schedule of sessions) is intentionally collapsed to one flat record for v1 — see [deferred.md](deferred.md#event-programs-with-sessions).
+
+**Sheet:** `events`
+**Path template:** `events/${slug}.toml`
+
+The default slug is date-first (`2026-11-03-hack-night`) so the sheet directory lists chronologically when browsed in the data repo.
+
+| Field | Type | Notes |
+| ------- | ------ | ------- |
+| id | uuid | Also the stable iCalendar `UID` (`<id>@codeforphilly.org`). |
+| legacyId | int nullable | laddr `events.ID` for the four backfilled historical events. |
+| slug | string | unique. URL: `/events/<slug>`. See [behaviors/slug-handles.md](behaviors/slug-handles.md). |
+| title | string | required, 1–200 chars |
+| description | string nullable | markdown, ≤ 20,000 chars |
+| startsAt | iso8601 | required |
+| endsAt | iso8601 | required; strictly after `startsAt` |
+| venueName | string nullable | ≤ 120 chars |
+| venueAddress | string nullable | ≤ 300 chars; rendered as a Google Maps link |
+| onlineUrl | string nullable | HTTPS; video-call or stream link |
+| meetupUrl | string nullable | HTTPS on `meetup.com`; secondary link during the Meetup transition |
+| status | enum | `draft` \| `scheduled` \| `cancelled`. Default `scheduled`. Transitions via dedicated endpoints only. |
+| cancelledAt | iso8601 nullable | set by `cancel` |
+| cancellationNote | string nullable | ≤ 500 chars plain text; set by `cancel` |
+| icsSequence | int | default `0`. Incremented on every calendar-relevant change and on cancel — becomes iCalendar `SEQUENCE`. |
+| reminders | table | `{ weekSentAt?: iso8601, daySentAt?: iso8601 }` — at-most-once bookkeeping for the reminder sweep ([behaviors/events.md#reminders](behaviors/events.md#reminders)). |
+| createdById | uuid nullable | references people.id (staff) |
+| createdAt | iso8601 | |
+| updatedAt | iso8601 | |
+
+Times are UTC on disk like every timestamp; display is always `America/New_York`.
+
+**Validators:**
+
+- `slug` matches `^[a-z0-9][a-z0-9-_]{1,99}$`; not a reserved slug (`past`, `upcoming`, `feed`, `new`, …)
+- `endsAt > startsAt`
+- `onlineUrl`, `meetupUrl` are HTTPS URLs when present; `meetupUrl` host ends in `meetup.com`
+- `cancelledAt` present iff `status = cancelled`
+
+**Secondary in-memory indices:**
+
+- `eventIdBySlug: Map<slug, id>`
+- `eventIdByLegacyId: Map<int, id>` — importer idempotence only
+- `eventsByStartsAt: sorted Event[]` — upcoming/past slicing and the reminder sweep
+
+**Uniqueness:** `slug` (case-insensitive). `legacyId` unique-where-present.
+
+## EventRsvp _(new)_
+
+A member's public "I'm going" for an event. Existence means going; there is no status field. Optionally names the project the member plans to work on.
+
+**Sheet:** `event-rsvps`
+**Path template:** `event-rsvps/${eventSlug}/${personSlug}.toml`
+
+The composite path makes "who's going to event X" a directory scan and "has this person RSVP'd" a path-exists test. Renaming an event's slug moves its RSVP files in the same commit.
+
+| Field | Type | Notes |
+| ------- | ------ | ------- |
+| id | uuid | |
+| eventId | uuid | references events.id |
+| personId | uuid | references people.id |
+| projectId | uuid nullable | references projects.id — "working on" at the event |
+| createdAt | iso8601 | when the member RSVP'd; attendee list order |
+| updatedAt | iso8601 | |
+
+**Secondary in-memory indices:**
+
+- `rsvpsByEvent: Map<eventId, Set<rsvpId>>` — implicit in the path template; cached for counts
+- `rsvpsByPerson: Map<personId, Set<rsvpId>>` — person purge cascade and (future) "my events"
+
+**Uniqueness:** `(eventId, personId)`.
+
+RSVP records are **public** (they live in the public data repo and drive the attendee list). They are retained on cancel and when the event ends; they are removed on event hard-delete and on person purge.
+
 ## SlugHistory
 
 Records past slugs of an entity to power the 90-day redirect window. See [behaviors/slug-handles.md](behaviors/slug-handles.md).
@@ -454,7 +533,7 @@ Records past slugs of an entity to power the 90-day redirect window. See [behavi
 | Field | Type | Notes |
 | ------- | ------ | ------- |
 | id | uuid | |
-| entityType | enum | `project` \| `person` \| `tag` \| `buzz` |
+| entityType | enum | `project` \| `person` \| `tag` \| `buzz` \| `event` |
 | oldSlug | string | the previous slug, used as the filename |
 | newSlug | string | the current canonical slug |
 | entityId | uuid | the entity's id (so we can re-resolve even if the slug has moved again) |
@@ -487,8 +566,12 @@ See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log) for t
 | HelpWantedInterestExpression | Person | many-to-one | `personId` |
 | TagAssignment | Tag | many-to-one | `tagId` |
 | TagAssignment | Project \| Person \| HelpWantedRole \| BlogPost | polymorphic | `taggableType + taggableId` |
+| Event | Person | many-to-one (createdBy) | `Event.createdById` |
+| EventRsvp | Event | many-to-one | `EventRsvp.eventId` |
+| EventRsvp | Person | many-to-one | `EventRsvp.personId` |
+| EventRsvp | Project | many-to-one, optional | `EventRsvp.projectId` |
 
-Cascading deletes are not enforced by gitsheets; the API's mutation services delete dependent records as part of the same write-and-commit operation (see [behaviors/storage.md](behaviors/storage.md) for atomicity). For project delete this means: in one mutation, write the project's tombstone (`deletedAt`) and (for cascade-on-hard-delete) the dependent project-memberships, project-updates, project-buzz, help-wanted-roles, and tag-assignments are removed.
+Cascading deletes are not enforced by gitsheets; the API's mutation services delete dependent records as part of the same write-and-commit operation (see [behaviors/storage.md](behaviors/storage.md) for atomicity). For project delete this means: in one mutation, write the project's tombstone (`deletedAt`) and (for cascade-on-hard-delete) the dependent project-memberships, project-updates, project-buzz, help-wanted-roles, and tag-assignments are removed. Event hard-delete removes its event-rsvps; person purge removes the person's event-rsvps; a project hard-delete nulls `projectId` on any event-rsvps that pointed at it.
 
 ## Naming map: laddr → rewrite
 
@@ -519,5 +602,8 @@ Cascading deletes are not enforced by gitsheets; the API's mutation services del
 | Database tables | gitsheets sheets |
 | `INDEX`, `UNIQUE INDEX` | enforced in-process by the API under the write mutex; backed by in-memory indices built at boot |
 | `FOREIGN KEY ... ON DELETE CASCADE` | atomic multi-record gitsheets commit (see Storage spec) |
+| `events.Handle` / `Title` / `StartTime` / `EndTime` / `LocationName` / `LocationAddress` / `Description` / `Status` | `Event.slug` / `title` / `startsAt` / `endsAt` / `venueName` / `venueAddress` / `description` / `status` (`published` → `scheduled`, `deleted` → not imported) |
+| `event_segments` | _flattened into the parent event's `description` for the four backfilled events; see [deferred.md](deferred.md#event-programs-with-sessions)_ |
+| Meetup.com RSVPs (never in laddr's DB) | `event-rsvps` sheet |
 | `member_checkins` | _dropped — see [deferred.md](deferred.md)_ |
 | `Emergence\CMS\BlogPost` | _dropped — see [deferred.md](deferred.md)_ |

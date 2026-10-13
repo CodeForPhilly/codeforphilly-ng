@@ -112,6 +112,8 @@ Each entity lives in one sheet. The path template determines how records are sto
 | ProjectBuzz | `project-buzz` | `project-buzz/${projectSlug}/${slug}.toml` |
 | HelpWantedRole | `help-wanted-roles` | `help-wanted-roles/${projectSlug}/${id}.toml` |
 | HelpWantedInterestExpression | `help-wanted-interest` | `help-wanted-interest/${roleId}/${personSlug}.toml` |
+| Event | `events` | `events/${slug}.toml` |
+| EventRsvp | `event-rsvps` | `event-rsvps/${eventSlug}/${personSlug}.toml` |
 | Tag | `tags` | `tags/${namespace}/${slug}.toml` |
 | TagAssignment | `tag-assignments` | `tag-assignments/${tagId}/${taggableType}/${taggableId}.toml` |
 | SlugHistory | `slug-history` | `slug-history/${entityType}/${oldSlug}.toml` |
