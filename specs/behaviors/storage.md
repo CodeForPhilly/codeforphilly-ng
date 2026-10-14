@@ -133,7 +133,18 @@ The path template is the only "index" gitsheets provides natively. Choose it to 
 
 Every `${field}` in a path template must be a field every record of that sheet carries. A template naming a field the record lacks makes every upsert throw, aborting the whole transaction. Some fields exist only to render the path (`projectSlug`, `personSlug` on child records) and are added by the write services.
 
-The data repo's `empty` branch is the source of truth for the `.gitsheets/*.toml` configs. The API vendors a copy at `apps/api/gitsheets/`; tests seed every test data repo from it, and CI fails when a vendored file differs from `empty` or is missing there (a config only in `empty`, for a sheet the API doesn't open yet, is a warning, since sheets land in the data repo first) (given a deploy key that can read the private data repo; without one the check is skipped with a warning).
+The data repo's `empty` branch is the source of truth for the `.gitsheets/` directory: sheet configs (layout: root, path template, format) and the adopted schema contracts. The API vendors a byte-for-byte mirror at `apps/api/gitsheets/`, and tests seed every test data repo from it. CI fails when a mirrored file differs from `empty` or is missing there. A file only in `empty` is a warning, because sheets land in the data repo before the API opens them. CI reads the private data repo with a read-only deploy key; without the key the check is skipped with a warning.
+
+### Schema contracts
+
+Every public sheet's record shape is a versioned gitsheets schema contract, **published by this repo and adopted by the data repo**.
+
+- **Name and source.** Sheet `<sheet>` implements `codeforphilly.org/<sheet>/v<N>`. The documents live in this repo at `contracts/codeforphilly.org/<sheet>/v<N>.json`, generated from the Zod schemas in `@cfp/shared`. The Zod schema is the source of truth for record shape; the contract is its published, language-neutral form.
+- **Generation rules.** JSON Schema draft-07, open for extension (no `additionalProperties: false` anywhere), no null-bearing keywords (TOML has no null, so a `.nullable()` field becomes its non-null type and stays optional), `required` sorted, no Zod-emitted safe-integer bounds. `$id` is `https://codeforphilly.org/<sheet>/v<N>`.
+- **Immutability.** A published version never changes. CI regenerates every contract and fails if the result differs from a committed `v<N>`; a schema change that alters a contract adds `v<N+1>` beside it and moves the sheet to it.
+- **Adoption.** The data repo adopts each contract with `gitsheets contracts adopt` from this repo's raw URL pinned to the commit that published it, so `.gitsheets/contracts/sources.toml` records where it came from and `gitsheets contracts sync` reports drift. Each sheet config declares `implements = ["codeforphilly.org/<sheet>/v<N>"]`, which makes gitsheets enforce the contract on every write, whoever the writer is (the API, importer, operator scripts, the spam pipeline, hand edits).
+- **Verification.** At boot the API opens every public sheet against the contract version it was built with. A sheet that declares the identical contract is verified without reading records; otherwise every record is validated. A mismatch fails the boot.
+- **Order of a change.** Merge the new contract version (it is published once it's on `develop`), adopt it on the data repo's branches (adoption validates every existing record against it), then release and deploy the API that verifies against it.
 
 ### Record format
 
