@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { openRepo, type Repository } from 'gitsheets';
+import { writeSheetConfigs } from './sheet-configs.js';
 
 const exec = promisify(execFile);
 
@@ -52,14 +53,7 @@ export async function createTestRepo(
   await seedGit('commit', '--allow-empty', '-m', 'initial');
 
   if (sheetNames.length > 0) {
-    await mkdir(join(seedDir, '.gitsheets'), { recursive: true });
-    for (const name of sheetNames) {
-      const config =
-        `[gitsheet]\n` +
-        `root = '${name}'\n` +
-        `path = '\${{ slug }}'\n`;
-      await writeFile(join(seedDir, '.gitsheets', `${name}.toml`), config);
-    }
+    await writeSheetConfigs(seedDir, sheetNames);
     await seedGit('add', '.gitsheets');
     await seedGit('commit', '-m', `chore: add sheet configs (${sheetNames.join(', ')})`);
   }
