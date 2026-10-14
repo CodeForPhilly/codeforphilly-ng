@@ -21,6 +21,7 @@ import {
   type EventAgendaItem,
   type EventRsvp,
   type EventRsvpPlan,
+  type EventSeries,
   type Project,
 } from '@cfp/shared/schemas';
 
@@ -59,6 +60,7 @@ export interface EventInput {
   venueAddress?: string | null;
   onlineUrl?: string | null;
   meetupUrl?: string | null;
+  seriesSlug?: string | null;
   agenda?: EventAgendaItem[] | null;
   status?: string;
 }
@@ -139,12 +141,14 @@ export class EventWriteService {
     }
 
     const slug = this.#resolveSlug(input.slug ?? null, base.title, base.startsAt, undefined);
+    const seriesId = input.seriesSlug ? this.#seriesOrThrow(input.seriesSlug).id : null;
 
     const now = nowIso();
     const event: Event = EventSchema.parse({
       id: uuidv7(),
       slug,
       ...base,
+      seriesId,
       status,
       icsSequence: 0,
       createdById: session.person?.id ?? null,
@@ -197,10 +201,18 @@ export class EventWriteService {
       (f) => (existing[f] ?? null) !== (base[f] ?? null),
     ).map((f) => ({ field: f, from: existing[f] ?? null, to: base[f] ?? null }));
 
+    const seriesId =
+      input.seriesSlug === undefined
+        ? (existing.seriesId ?? null)
+        : input.seriesSlug === null
+          ? null
+          : this.#seriesOrThrow(input.seriesSlug).id;
+
     const updated: Event = EventSchema.parse({
       ...existing,
       ...base,
       slug: newSlug,
+      seriesId,
       icsSequence: (existing.icsSequence ?? 0) + (calendarChanged ? 1 : 0),
       updatedAt: nowIso(),
     });
@@ -447,6 +459,13 @@ export class EventWriteService {
       if (level !== 'staff' && level !== 'administrator') throw new ApiNotFoundError(`Event '${slug}' not found`);
     }
     return event;
+  }
+
+  #seriesOrThrow(slug: string): EventSeries {
+    const id = this.#state.eventSeriesIdBySlug.get(slug);
+    const s = id ? this.#state.eventSeries.get(id) : undefined;
+    if (!s) throw new ApiNotFoundError(`Event series '${slug}' not found`);
+    return s;
   }
 
   #projectOrThrow(slug: string): Project {

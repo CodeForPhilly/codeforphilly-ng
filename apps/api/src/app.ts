@@ -58,6 +58,7 @@ import { projectBuzzRoutes } from './routes/projects-buzz.js';
 import { blogPostRoutes } from './routes/blog-posts.js';
 import { helpWantedRoutes } from './routes/projects-help-wanted.js';
 import { eventRoutes } from './routes/events.js';
+import { eventSeriesRoutes } from './routes/event-series.js';
 import { projectMembershipRoutes } from './routes/projects-members.js';
 import { previewRoutes } from './routes/preview.js';
 import { attachmentRoutes } from './routes/attachments.js';
@@ -203,6 +204,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(blogPostRoutes);
   await fastify.register(helpWantedRoutes);
   await fastify.register(eventRoutes);
+  await fastify.register(eventSeriesRoutes);
   await fastify.register(projectMembershipRoutes);
   await fastify.register(previewRoutes);
   await fastify.register(attachmentRoutes);

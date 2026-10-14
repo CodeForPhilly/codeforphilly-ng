@@ -58,6 +58,7 @@ const eventBodyProperties = {
   venueAddress: { type: ['string', 'null'] },
   onlineUrl: { type: ['string', 'null'] },
   meetupUrl: { type: ['string', 'null'] },
+  seriesSlug: { type: ['string', 'null'] },
   agenda: { type: ['array', 'null'], items: agendaItemSchema },
   status: { type: 'string', enum: ['draft', 'scheduled'] },
 } as const;

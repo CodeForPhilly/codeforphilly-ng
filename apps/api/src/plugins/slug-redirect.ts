@@ -79,6 +79,13 @@ const patterns: readonly RoutePattern[] = [
     rebuild: (m, resolved) => `/members/${resolved}${m[2] ?? ''}`,
   },
   {
+    entityType: 'event_series',
+    // Before the event pattern so `/events/series/<slug>` resolves as a series.
+    match: /^\/events\/series\/([^/]+)(\/.*)?$/,
+    liveIndex: (state, slug) => state.eventSeriesIdBySlug.has(slug),
+    rebuild: (m, resolved) => `/events/series/${resolved}${m[2] ?? ''}`,
+  },
+  {
     entityType: 'event',
     // `/events/past`, `/events/new`, `/events/series/…` fall through: they're
     // never live event slugs and never in slug-history.
