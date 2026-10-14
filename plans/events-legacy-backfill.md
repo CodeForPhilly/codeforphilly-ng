@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [events-storage-layout]
 specs:
   - specs/behaviors/events.md
