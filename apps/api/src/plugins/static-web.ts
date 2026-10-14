@@ -54,6 +54,19 @@ async function staticWebPlugin(fastify: FastifyInstance): Promise<void> {
     cacheControl: true,
     maxAge: '1y',
     immutable: true,
+    // Never let the entry HTML carry those headers: with the default index
+    // option `/` was served as index.html marked immutable for a year, so a
+    // browser that had visited before a release kept the old SPA on every
+    // plain navigation (specs/architecture.md → "Deployment"). `/` now falls
+    // through to the handler below; a direct /index.html gets no-cache too.
+    index: false,
+  });
+
+  // A direct /index.html is served by the static plugin above; override the
+  // immutable header it would stamp on it (the plugin's own setHeaders runs
+  // before send writes Cache-Control, so a hook after the handler is needed).
+  fastify.addHook('onSend', async (request, reply) => {
+    if (request.url.split('?')[0] === '/index.html') reply.header('cache-control', 'no-cache');
   });
 
   // Read index.html once at boot — it's small and avoids per-request disk IO.

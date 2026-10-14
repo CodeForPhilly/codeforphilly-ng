@@ -101,10 +101,21 @@ describe('static-web plugin', () => {
     expect(spaRes.body).toContain('<title>cfp</title>');
     expect(spaRes.headers['cache-control']).toContain('no-cache');
 
+    // The entry HTML is never cached — `/` and /index.html included. A
+    // year-long immutable `/` kept old visitors on the pre-release SPA.
+    for (const url of ['/', '/index.html']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers['content-type'], url).toMatch(/text\/html/);
+      expect(res.body, url).toContain('<title>cfp</title>');
+      expect(res.headers['cache-control'], url).toBe('no-cache');
+    }
+
     // Hashed asset served directly with long cache
     const assetRes = await app.inject({ method: 'GET', url: '/assets/app-deadbeef.js' });
     expect(assetRes.statusCode).toBe(200);
     expect(assetRes.body).toContain('console.log');
+    expect(assetRes.headers['cache-control']).toContain('immutable');
 
     // /api/* unknown route still returns JSON 404, not HTML
     const apiRes = await app.inject({ method: 'GET', url: '/api/does-not-exist' });

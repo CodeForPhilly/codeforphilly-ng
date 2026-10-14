@@ -166,6 +166,8 @@ npm run type-check       # tsc --noEmit across workspaces
 
 A single Docker image bundles the built API and serves the static `apps/web/dist` from the same Fastify instance via `@fastify/static`. One container, one ingress.
 
+Caching: the hashed files under `/assets/` are immutable for a year; the entry HTML (`/`, `/index.html`, and every SPA fallthrough path) is `no-cache`, so a browser revalidates it on every navigation and picks up a release as soon as it lands. The HTML is the only file that decides which assets load next; caching it caches the old site.
+
 Runtime configuration (sealed-secrets in our cluster):
 
 | Env var | Purpose |
