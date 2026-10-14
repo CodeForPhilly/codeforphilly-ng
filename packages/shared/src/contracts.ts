@@ -20,6 +20,7 @@ import {
   BlogPostSchema,
   EventRsvpSchema,
   EventSchema,
+  EventSeriesSchema,
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
   PersonEvaluationSchema,
@@ -62,6 +63,7 @@ export const SHEET_CONTRACTS = {
   revocations: { schema: RevocationSchema, version: 1, title: 'Session revocation' },
   events: { schema: EventSchema, version: 1, title: 'Event' },
   'event-rsvps': { schema: EventRsvpSchema, version: 1, title: 'Event RSVP' },
+  'event-series': { schema: EventSeriesSchema, version: 1, title: 'Event series' },
   // v1 was hand-authored before contracts were generated; v2 is the first
   // generated version (it adds the evaluatedAt datetime pattern).
   'person-evaluations': { schema: PersonEvaluationSchema, version: 2, title: 'Person evaluation' },
