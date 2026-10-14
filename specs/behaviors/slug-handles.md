@@ -53,6 +53,7 @@ Uniqueness violation on create or rename → `409 conflict`.
 Slugs **can** change. When they do:
 
 - The entity record's `slug` field is updated.
+- The entity's attachments (avatar, featured image) move with the record, and any on-record attachment key (`avatarKey`, `featuredImageKey`) is rewritten to the new path. A rename changes the handle and nothing else about the entity.
 - A `SlugHistory` record is written to the `slug-history` sheet (see [data-model.md](../data-model.md#slughistory)) with `oldSlug`, `newSlug`, `entityType`, `entityId`, `changedAt`, and `expiresAt = changedAt + 90 days`.
 - On any request to a URL using an `oldSlug` that is *not yet* expired, the web layer serves a **301 redirect** to the current canonical URL.
 - After `expiresAt`, the redirect is no longer served. The record is retained as part of the commit history but is removed from the sheet by a periodic sweeper task.

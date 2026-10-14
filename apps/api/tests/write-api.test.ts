@@ -12,7 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { mintSessionFor } from '../src/auth/issue.js';
 import { createFullDataRepo, createPrivateStorageDir } from './helpers/test-full-repo.js';
-import { seedFixtures, type SeededFixtures } from './helpers/seed-fixtures.js';
+import { seedFixtures, seedRawBlob, type SeededFixtures } from './helpers/seed-fixtures.js';
 
 // ---------------------------------------------------------------------------
 // Test setup
@@ -201,6 +201,45 @@ describe('PATCH /api/projects/:slug', () => {
       payload: { slug: 'newer-slug' },
     });
     expect(res.statusCode).toBe(422);
+  });
+
+  it('staff rename carries project attachments and featuredImageKey to the new slug', async () => {
+    const hero = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01, 0x02, 0x03]);
+    await seedRawBlob(
+      dataRepo.path,
+      `projects/${fixtures.projectSlug}/hero.png`,
+      hero,
+      'seed project hero image',
+    );
+    const cookie = await userCookie(fixtures.personId, 'staff');
+
+    const setKey = await app!.inject({
+      method: 'PATCH',
+      url: `/api/projects/${fixtures.projectSlug}`,
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { featuredImageKey: `projects/${fixtures.projectSlug}/hero.png` },
+    });
+    expect(setKey.statusCode).toBe(200);
+
+    const rename = await app!.inject({
+      method: 'PATCH',
+      url: `/api/projects/${fixtures.projectSlug}`,
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { slug: 'hero-renamed' },
+    });
+    expect(rename.statusCode).toBe(200);
+
+    const project = app!.inMemoryState.projects.get(fixtures.projectId);
+    expect(project?.featuredImageKey).toBe('projects/hero-renamed/hero.png');
+
+    const moved = await app!.inject({ method: 'GET', url: '/api/attachments/projects/hero-renamed/hero.png' });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.rawPayload.equals(hero)).toBe(true);
+    const old = await app!.inject({
+      method: 'GET',
+      url: `/api/attachments/projects/${fixtures.projectSlug}/hero.png`,
+    });
+    expect(old.statusCode).toBe(404);
   });
 
   it('staff can rename slug; old slug becomes 404 and slug-history exists', async () => {

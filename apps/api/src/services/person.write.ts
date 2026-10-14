@@ -34,6 +34,7 @@ import { requireAuth } from '../auth/require.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from './tag.write.js';
 import type { PrivateStore } from '../store/private/index.js';
+import { rekeyAttachment, restoreAttachments, takeAttachments } from './slug-rename.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -109,12 +110,15 @@ export class PersonWriteService {
       slackHandle:
         input.slackHandle === undefined ? (existing.slackHandle ?? null) : input.slackHandle,
       slug: newSlug,
+      avatarKey: rekeyAttachment(existing.avatarKey, 'people', existing.slug, newSlug),
       updatedAt: now,
     });
 
     const stateApply = new StateApply();
 
+    let attachments: Awaited<ReturnType<typeof takeAttachments>> = null;
     if (newSlug !== existing.slug) {
+      attachments = await takeAttachments(tx.public.people, existing);
       await tx.public.people.delete(existing);
       const history = {
         id: uuidv7(),
@@ -131,6 +135,7 @@ export class PersonWriteService {
     }
 
     await tx.public.people.upsert(updated);
+    await restoreAttachments(tx.public.people, updated, attachments);
     stateApply.upsertPerson(updated);
 
     // Email change → private profile update (no public diff)
