@@ -1,11 +1,12 @@
 ---
-status: in-progress
+status: done
 depends: [events-core]
 specs:
   - specs/screens/event-detail.md
   - specs/behaviors/storage.md
   - specs/api/projects.md
 issues: [194]
+pr: 223
 ---
 
 # Plan: find-as-you-type project picker in the RSVP follow-up
@@ -54,15 +55,15 @@ projects, a different and short list).
 
 ## Validation
 
-- [ ] Opening the picker on an event where nobody has named a project
+- [x] Opening the picker on an event where nobody has named a project
   shows only "Type a project name"; on one where attendees have, it lists
   their projects newest-first and nothing else.
-- [ ] Typing `hack` lists projects whose title or text has a word starting
+- [x] Typing `hack` lists projects whose title or text has a word starting
   with "hack", at most eight, in relevance order.
-- [ ] Choosing saves the RSVP with that project and the follow-up shows
+- [x] Choosing saves the RSVP with that project and the follow-up shows
   "I'm coming to work on <title>" with "Change".
-- [ ] The catalog is never listed unfiltered.
-- [ ] `npm run type-check && npm run lint && npm test` clean; checked in
+- [x] The catalog is never listed unfiltered.
+- [x] `npm run type-check && npm run lint && npm test` clean; checked in
   the browser against the devbox test instance.
 
 ## Risks / unknowns
@@ -74,8 +75,19 @@ projects, a different and short list).
 
 ## Notes
 
-(Populated at closeout.)
+- Shipped in #223. Two search fixes came out of it: `ProjectService.list`
+  used the full-text index only as a filter and then re-sorted by
+  `-updatedAt`, so relevance never reached callers; and bm25 ranked a
+  word in a project's overview level with the same word in its title.
+  Now a search with no explicit sort keeps relevance order, and bm25
+  weights title 10 / summary 3 / body 1 (people and help-wanted likewise).
+- The empty picker shows nothing but the input's placeholder when there
+  are no suggestions; a popover repeating the hint looked like a bug.
+- Kept the hand-rolled combobox (same shape as `SeriesPicker`) rather than
+  adopting shadcn's Popover + Command; decided with Chris for launch.
 
 ## Follow-ups
 
-(Populated at closeout.)
+- **Deferred:** move `ProjectPicker` and `SeriesPicker` onto shadcn's
+  Combobox (`cmdk`) together when a third picker appears; two hand-rolled
+  comboboxes is the ceiling.
