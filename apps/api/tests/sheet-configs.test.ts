@@ -11,8 +11,11 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { canonicalContractHash } from 'gitsheets';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
+
+import { PERSON_EVALUATIONS_CONTRACT_NAME, PERSON_EVALUATIONS_CONTRACT_V1 } from '@cfp/shared';
 
 import { PUBLIC_SHEET_SCHEMAS } from '../src/store/public.js';
 import { SHEET_CONFIG_DIR } from './helpers/sheet-configs.js';
@@ -64,4 +67,17 @@ describe('sheet configs', () => {
       expect(missing, `template fields ${sheet}'s records may lack`).toEqual([]);
     });
   }
+
+  it('vendors the person-evaluations contract byte-identical to the shared document', async () => {
+    const vendored = await readFile(
+      join(SHEET_CONFIG_DIR, 'contracts', `${PERSON_EVALUATIONS_CONTRACT_NAME}.toml`),
+      'utf8',
+    );
+    expect(canonicalContractHash(vendored, { format: 'toml' })).toBe(
+      canonicalContractHash(PERSON_EVALUATIONS_CONTRACT_V1),
+    );
+    const config = await readFile(join(SHEET_CONFIG_DIR, 'person-evaluations.toml'), 'utf8');
+    expect(config).toContain(`implements = ["${PERSON_EVALUATIONS_CONTRACT_NAME}"]`);
+  });
 });
+

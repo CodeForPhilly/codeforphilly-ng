@@ -5,44 +5,8 @@ root = "person-evaluations"
 # One spam verdict per (person, evaluator). On this repo's branches the only
 # writer is the site: staff votes with evaluator = "human-<voterSlug>" (see
 # codeforphilly-ng specs/api/moderation.md). Machine evaluators (heuristic,
-# LLM) live in the private codeforphilly-spam-detection repo and share this
-# schema so records are interchangeable at prune time.
-[gitsheet.schema]
-required = ["evaluatedAt", "evaluator", "flags", "personSlug", "verdict"]
-type = "object"
-
-[gitsheet.schema.properties.personSlug]
-type = "string"
-minLength = 1
-
-[gitsheet.schema.properties.evaluator]
-type = "string"
-minLength = 1
-
-[gitsheet.schema.properties.verdict]
-type = "string"
-enum = ["spam", "legit", "uncertain"]
-
-# LLM evaluators only (scripts/evaluate-llm.ts ResultSchema: 0..1)
-[gitsheet.schema.properties.confidence]
-type = "number"
-minimum = 0
-maximum = 1
-
-# Heuristic evaluators only (scripts/lib/heuristic.ts rule points, unbounded)
-[gitsheet.schema.properties.score]
-type = "integer"
-
-[gitsheet.schema.properties.flags]
-type = "array"
-
-[gitsheet.schema.properties.flags.items]
-type = "string"
-
-# LLM evaluators only
-[gitsheet.schema.properties.reasoning]
-type = "string"
-
-[gitsheet.schema.properties.evaluatedAt]
-type = "string"
-format = "date-time"
+# LLM) live in the private codeforphilly-spam-detection repo. The record
+# shape is the versioned contract below, which both repos and the site open
+# the sheet against; change it by adopting a new version (…/v2), never by
+# editing v1.
+implements = ["codeforphilly.org/person-evaluations/v1"]
