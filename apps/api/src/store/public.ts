@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { openRepo, openStore } from 'gitsheets';
 import type { Repository, Store, StoreTx, ValidatorMap } from 'gitsheets';
-import { PERSON_EVALUATIONS_CONTRACT_V1 } from '@cfp/shared';
+import { buildContract, type ContractSheet } from '@cfp/shared';
 import {
   BlogPostSchema,
   EventRsvpSchema,
@@ -89,14 +89,17 @@ export async function openPublicStore(
 
   const store = await openStore(repo, { validators: PUBLIC_SHEET_SCHEMAS });
 
-  // person-evaluations is shared with the private spam pipeline through a
-  // versioned schema contract (specs/behaviors/spam-exclusion.md). Refuse to
-  // boot against a data repo whose sheet doesn't satisfy it: gitsheets
-  // checks the declared contract's identity first, falling back to
-  // validating every record.
-  await repo.openSheet('person-evaluations', {
-    contract: { schema: PERSON_EVALUATIONS_CONTRACT_V1 },
-  });
+  // Every sheet's record shape is a published schema contract
+  // (specs/behaviors/storage.md → "Schema contracts"). The data repo adopts
+  // each version in lockstep with the release that publishes it, so every
+  // sheet must declare exactly the version this build publishes: gitsheets
+  // checks the declared contract's identity (no records read) and a miss
+  // fails the boot. No structural fallback.
+  for (const sheet of Object.keys(PUBLIC_SHEET_SCHEMAS) as ContractSheet[]) {
+    await repo.openSheet(sheet, {
+      contract: { schema: buildContract(sheet), mode: 'declared' },
+    });
+  }
 
   return { store, repo };
 }

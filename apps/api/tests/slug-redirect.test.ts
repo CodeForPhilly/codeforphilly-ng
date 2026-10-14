@@ -98,7 +98,8 @@ async function seedSlugHistory(
   entityId: string,
   expiresAt: string = FUTURE,
 ): Promise<void> {
-  const id = `01951a3c-0000-7000-8000-${Math.random().toString(36).slice(2, 10).padStart(12, '0')}`;
+  // A valid UUID (hex only): the slug-history contract checks the format.
+  const id = `01951a3c-0000-7000-8000-${Math.floor(Math.random() * 2 ** 48).toString(16).padStart(12, '0')}`;
   await seedRawToml(
     dataRepo.path,
     `slug-history/${entityType}/${oldSlug}.toml`,
