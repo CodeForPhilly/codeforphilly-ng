@@ -58,6 +58,14 @@ function render(slug = '2099-11-03-hack-night') {
 describe('EventDetail', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it('renders an event with no description and omits the About section', async () => {
+    mockFetch({ event: makeEvent({ description: null, descriptionHtml: '' }) });
+    render();
+
+    expect(await screen.findByRole('heading', { name: 'Code for Philly Hack Night', level: 1 })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'About' })).not.toBeInTheDocument();
+  });
+
   it('renders header, breadcrumb, and "Sign in to RSVP" for anonymous', async () => {
     mockFetch({ event: makeEvent({ meetupUrl: 'https://www.meetup.com/x/events/1/' }) });
     render();

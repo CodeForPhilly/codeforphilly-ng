@@ -570,7 +570,7 @@ export function EventDetail() {
             )}
 
             {/* About */}
-            {event.description.trim() !== '' && (
+            {(event.description ?? '').trim() !== '' && (
               <section>
                 <h2 className="mb-3 text-xl font-semibold">About</h2>
                 <MarkdownView html={event.descriptionHtml} />

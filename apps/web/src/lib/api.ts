@@ -396,7 +396,7 @@ export interface EventSummary {
 
 /** The full `Event` shape (named EventDetail to avoid the DOM `Event` global). */
 export interface EventDetail extends EventSummary {
-  readonly description: string;
+  readonly description: string | null;
   readonly descriptionHtml: string;
   readonly cancellationNote: string | null;
   readonly agenda?: EventAgendaItem[];
