@@ -1,11 +1,12 @@
 ---
-status: in-progress
+status: done
 depends: [events-series-agenda]
 specs:
   - specs/behaviors/events.md
   - specs/behaviors/legacy-id-mapping.md
   - specs/data-model.md
 issues: [194]
+pr: 213
 ---
 
 # Plan: Backfill the four laddr events
@@ -62,11 +63,11 @@ any Meetup check-in history (dropped).
   `/events/datahack2020`, `/events/launchpad-2018` render on production
   with the Schedule sidebar listing every laddr segment under its day with
   time range and venue.
-- [ ] `/events/series/launchpad` lists the three Launchpads under Past.
-- [ ] No description references `codeforphilly.org/thumbnail/…`.
-- [ ] `/events/launchpad-2023/segments/friday_night_kickoff-2023` 301s to
+- [x] `/events/series/launchpad` lists the three Launchpads under Past.
+- [x] No description references `codeforphilly.org/thumbnail/…`.
+- [x] `/events/launchpad-2023/segments/friday_night_kickoff-2023` 301s to
   the event's schedule anchor.
-- [ ] `/events/past` shows the four events in reverse start order.
+- [x] `/events/past` shows the four events in reverse start order.
 
 ## Risks / unknowns
 
@@ -77,8 +78,37 @@ any Meetup check-in history (dropped).
 
 ## Notes
 
-(Populated at closeout.)
+- **The production check stays open on purpose.** Everything above was
+  verified by booting the API locally on the branch the script produced;
+  the first criterion closes when codeforphilly-data #12 is merged into
+  `published` *after* the app release that opens the `events` and
+  `event-series` sheets is on production (the running v0.6.x reads
+  neither, so merging earlier is harmless but proves nothing).
+- **Two events needed their end stretched** to cover a segment: laddr's
+  `launchpad-2018` listed a `work_day` after its own EndTime, and
+  `datahack2020`'s last session ran past its EndTime by half an hour. The
+  script logs each stretch as a warning rather than dropping the item.
+- **laddr's segment `workshops` on 2018** had an end before its start; it
+  is carried with `endsAt` dropped, so it renders as a start time only.
+- **laddr text was CRLF and used `###Heading` with no space**, which its
+  own renderer accepted and GFM shows literally. The script normalizes
+  both; the sponsor logos in 2019's description are full-width images in
+  the source and render that way.
+- **Twenty attachments** (`events/<slug>/media-<id>.<ext>`) came from
+  `/media/<id>/original` on the legacy host; the `/thumbnail/…` and
+  absolute `codeforphilly.org/…` forms are both rewritten to
+  `/api/attachments/events/<slug>/…`.
+- **The branch is created with raw `git update-ref`** from `--parent`
+  (default `refs/remotes/origin/published`, `refs/heads/published` on a
+  bare clone), exactly like the importer, because gitsheets 2.7's
+  `transact({ branch })` only advances an existing ref. Existing records
+  are read back through a no-op transaction parented on the branch tip so
+  reruns update in place; an unchanged rerun returns `commitHash: null`.
+- **Step 4 was already done by `events-core`**; the redirect test there
+  covers it.
 
 ## Follow-ups
 
-(Populated at closeout.)
+- Tracked as: merge codeforphilly-data #12 into `published` once the
+  release containing #207/#209/#211 is live, then tick the production
+  criterion above.
