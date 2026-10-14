@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [slug-history-config]
 specs:
   - specs/behaviors/slug-handles.md
@@ -48,16 +48,21 @@ later commit once the move API ships.
 
 ## Validation
 
-- [ ] Test: rename a person with an avatar; the avatar is served at the new
+- [x] Test: rename a person with an avatar; the avatar is served at the new
       key and `avatarKey` matches
-- [ ] Test: rename a project; no attachments are orphaned
+- [x] Test: rename a project; no attachments are orphaned
 - [ ] (after upstream) no delete-then-upsert left in the rename paths
-- [ ] `type-check` + `lint` + full api suite green
+- [x] `type-check` + `lint` + full api suite green
 
 ## Risks / unknowns
 
 - Attachment-copy cost for records with many attachments; avatars are small.
 
 ## Notes
+
+- Interim fix landed in PR #201 (`services/slug-rename.ts`): attachments are
+  read before the delete and re-attached by blob hash, and `avatarKey` /
+  `featuredImageKey` are rewritten. What's left is swapping this for a native
+  gitsheets move once one exists (see `awaits`).
 
 ## Follow-ups
