@@ -1,3 +1,4 @@
 [gitsheet]
 root = 'revocations'
 path = '${{ jti }}'
+implements = ["codeforphilly.org/revocations/v1"]

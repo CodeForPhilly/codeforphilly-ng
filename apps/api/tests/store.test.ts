@@ -20,8 +20,7 @@ import { Store } from '../src/store/store.js';
 import { openPublicStore } from '../src/store/public.js';
 import { createTestRepo } from './helpers/test-repo.js';
 import { createFullDataRepo } from './helpers/test-full-repo.js';
-import { seedRawBlob, seedRawToml } from './helpers/seed-fixtures.js';
-import { PERSON_EVALUATIONS_CONTRACT_NAME } from '@cfp/shared';
+import { seedFixtures, seedRawBlob } from './helpers/seed-fixtures.js';
 
 const exec = promisify(execFile);
 
@@ -166,33 +165,17 @@ describe('public store (gitsheets)', () => {
 // Tests: Store (dual-store coordination)
 // -------------------------------------------------------------------------
 
-describe('person-evaluations contract at boot', () => {
-  it('refuses to open a data repo whose evaluations break the contract', async () => {
+describe('schema contracts at boot', () => {
+  it('refuses to open a data repo whose sheet does not declare its contract', async () => {
     const repo = await createFullDataRepo();
     try {
-      // A namesake contract with different bytes misses rung 1 (identity),
-      // so gitsheets validates every record (rung 2) — and this one has a
-      // verdict the contract doesn't allow.
-      const contractPath = `.gitsheets/contracts/${PERSON_EVALUATIONS_CONTRACT_NAME}.toml`;
-      const vendored = (await exec('git', ['show', `HEAD:${contractPath}`], { cwd: repo.path }))
+      const config = (await exec('git', ['show', 'HEAD:.gitsheets/people.toml'], { cwd: repo.path }))
         .stdout;
       await seedRawBlob(
         repo.path,
-        contractPath,
-        Buffer.from(vendored.replace('title = "Person evaluation"', 'title = "Drifted"')),
-        'test: drift the vendored contract',
-      );
-      await seedRawToml(
-        repo.path,
-        'person-evaluations/jane/human-boss.toml',
-        [
-          `personSlug = "jane"`,
-          `evaluator = "human-boss"`,
-          `verdict = "maybe"`,
-          `flags = []`,
-          `evaluatedAt = "2026-05-20T00:00:00Z"`,
-        ].join('\n'),
-        'test: an evaluation outside the contract',
+        '.gitsheets/people.toml',
+        Buffer.from(config.replace(/^implements\s*=.*\n/m, '')),
+        'test: drop the people contract declaration',
       );
 
       await expect(openPublicStore(repo.path)).rejects.toThrow(/contract/i);
@@ -201,9 +184,10 @@ describe('person-evaluations contract at boot', () => {
     }
   });
 
-  it('opens a data repo that declares the identical contract', async () => {
+  it('opens a data repo that declares every contract this build publishes', async () => {
     const repo = await createFullDataRepo();
     try {
+      await seedFixtures(repo.path);
       await expect(openPublicStore(repo.path)).resolves.toBeDefined();
     } finally {
       await repo.cleanup();

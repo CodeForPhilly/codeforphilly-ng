@@ -1,3 +1,4 @@
 [gitsheet]
 root = 'people'
 path = '${{ slug }}'
+implements = ["codeforphilly.org/people/v1"]

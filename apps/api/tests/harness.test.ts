@@ -11,7 +11,15 @@ describe('test harness — api', () => {
   it('createTestRepo: create, upsert, queryFirst, cleanup', async () => {
     const { repo, cleanup } = await createTestRepo(['people']);
     try {
-      await seed(repo, 'people', [{ slug: 'jane', name: 'Jane Doe' }]);
+      await seed(repo, 'people', [
+        {
+          id: '01951a3c-0000-7000-8000-000000000001',
+          slug: 'jane',
+          fullName: 'Jane Doe',
+          createdAt: '2026-05-01T00:00:00Z',
+          updatedAt: '2026-05-01T00:00:00Z',
+        },
+      ]);
       const sheet = await repo.openSheet('people');
       const found = await sheet.queryFirst({ slug: 'jane' });
       expect(found).toBeDefined();

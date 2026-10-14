@@ -1,3 +1,4 @@
 [gitsheet]
 root = 'project-updates'
 path = '${{ projectSlug }}/${{ number }}'
+implements = ["codeforphilly.org/project-updates/v1"]

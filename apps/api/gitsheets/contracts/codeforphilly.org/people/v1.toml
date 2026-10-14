@@ -1,0 +1,76 @@
+"$id" = "https://codeforphilly.org/people/v1"
+"$schema" = "http://json-schema.org/draft-07/schema#"
+required = ["createdAt", "fullName", "id", "slug", "updatedAt"]
+title = "Person"
+type = "object"
+
+[properties.accountLevel]
+default = "user"
+enum = ["user", "staff", "administrator"]
+type = "string"
+
+[properties.avatarKey]
+type = "string"
+
+[properties.bio]
+maxLength = 10000
+type = "string"
+
+[properties.createdAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.deletedAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.firstName]
+type = "string"
+
+[properties.fullName]
+maxLength = 120
+minLength = 1
+type = "string"
+
+[properties.githubLinkedAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.githubLogin]
+pattern = "^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$"
+type = "string"
+
+[properties.githubUserId]
+minimum = 1
+type = "integer"
+
+[properties.id]
+format = "uuid"
+pattern = "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+type = "string"
+
+[properties.lastName]
+type = "string"
+
+[properties.legacyId]
+type = "integer"
+
+[properties.slackHandle]
+pattern = "^[a-z0-9][a-z0-9._-]{0,80}$"
+type = "string"
+
+[properties.slackSamlNameId]
+pattern = "^[a-z0-9][a-z0-9-]{1,49}$"
+type = "string"
+
+[properties.slug]
+pattern = "^[a-z0-9][a-z0-9-]{1,49}$"
+type = "string"
+
+[properties.updatedAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"

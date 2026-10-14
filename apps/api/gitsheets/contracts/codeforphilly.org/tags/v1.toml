@@ -1,0 +1,35 @@
+"$id" = "https://codeforphilly.org/tags/v1"
+"$schema" = "http://json-schema.org/draft-07/schema#"
+required = ["createdAt", "id", "namespace", "slug", "title", "updatedAt"]
+title = "Tag"
+type = "object"
+
+[properties.createdAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.id]
+format = "uuid"
+pattern = "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+type = "string"
+
+[properties.legacyId]
+type = "integer"
+
+[properties.namespace]
+enum = ["topic", "tech", "event"]
+type = "string"
+
+[properties.slug]
+minLength = 1
+type = "string"
+
+[properties.title]
+minLength = 1
+type = "string"
+
+[properties.updatedAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"

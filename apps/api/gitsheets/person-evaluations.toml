@@ -9,4 +9,4 @@ root = "person-evaluations"
 # shape is the versioned contract below, which both repos and the site open
 # the sheet against; change it by adopting a new version (…/v2), never by
 # editing v1.
-implements = ["codeforphilly.org/person-evaluations/v1"]
+implements = ["codeforphilly.org/person-evaluations/v2"]

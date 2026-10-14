@@ -1,3 +1,4 @@
 [gitsheet]
 root = 'tags'
 path = '${{ namespace }}/${{ slug }}'
+implements = ["codeforphilly.org/tags/v1"]

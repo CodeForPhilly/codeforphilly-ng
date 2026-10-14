@@ -1,0 +1,138 @@
+"$id" = "https://codeforphilly.org/events/v1"
+"$schema" = "http://json-schema.org/draft-07/schema#"
+required = ["createdAt", "endsAt", "id", "slug", "startsAt", "status", "title", "updatedAt"]
+title = "Event"
+type = "object"
+
+[properties.agenda]
+maxItems = 50
+type = "array"
+
+[properties.agenda.items]
+required = ["startsAt", "title"]
+type = "object"
+
+[properties.agenda.items.properties.description]
+maxLength = 2000
+type = "string"
+
+[properties.agenda.items.properties.endsAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.agenda.items.properties.startsAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.agenda.items.properties.title]
+maxLength = 120
+minLength = 1
+type = "string"
+
+[properties.agenda.items.properties.venueAddress]
+maxLength = 300
+type = "string"
+
+[properties.agenda.items.properties.venueName]
+maxLength = 120
+type = "string"
+
+[properties.cancellationNote]
+maxLength = 500
+type = "string"
+
+[properties.cancelledAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.createdAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.createdById]
+format = "uuid"
+pattern = "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+type = "string"
+
+[properties.description]
+maxLength = 20000
+type = "string"
+
+[properties.endsAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.icsSequence]
+default = 0
+minimum = 0
+type = "integer"
+
+[properties.id]
+format = "uuid"
+pattern = "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+type = "string"
+
+[properties.legacyId]
+type = "integer"
+
+[properties.meetupUrl]
+format = "uri"
+type = "string"
+
+[properties.onlineUrl]
+format = "uri"
+type = "string"
+
+[properties.reminders]
+type = "object"
+
+[properties.reminders.properties.daySentAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.reminders.properties.weekSentAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.seriesId]
+format = "uuid"
+pattern = "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+type = "string"
+
+[properties.slug]
+minLength = 1
+type = "string"
+
+[properties.startsAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.status]
+enum = ["draft", "scheduled", "cancelled"]
+type = "string"
+
+[properties.title]
+maxLength = 200
+minLength = 1
+type = "string"
+
+[properties.updatedAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.venueAddress]
+maxLength = 300
+type = "string"
+
+[properties.venueName]
+maxLength = 120
+type = "string"

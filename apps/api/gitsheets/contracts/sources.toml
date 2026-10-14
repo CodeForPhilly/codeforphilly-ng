@@ -1,0 +1,59 @@
+["codeforphilly.org/blog-posts/v1"]
+adopted = 2026-10-14T03:31:18.13Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/blog-posts/v1.json"
+
+["codeforphilly.org/event-rsvps/v1"]
+adopted = 2026-10-14T03:31:19.303Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/event-rsvps/v1.json"
+
+["codeforphilly.org/events/v1"]
+adopted = 2026-10-14T03:31:20.527Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/events/v1.json"
+
+["codeforphilly.org/help-wanted-interest/v1"]
+adopted = 2026-10-14T03:31:21.704Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/help-wanted-interest/v1.json"
+
+["codeforphilly.org/help-wanted-roles/v1"]
+adopted = 2026-10-14T03:31:23.02Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/help-wanted-roles/v1.json"
+
+["codeforphilly.org/people/v1"]
+adopted = 2026-10-14T03:31:24.46Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/people/v1.json"
+
+["codeforphilly.org/person-evaluations/v2"]
+adopted = 2026-10-14T03:31:25.875Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/person-evaluations/v2.json"
+
+["codeforphilly.org/project-buzz/v1"]
+adopted = 2026-10-14T03:31:27.13Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/project-buzz/v1.json"
+
+["codeforphilly.org/project-memberships/v1"]
+adopted = 2026-10-14T03:31:28.4Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/project-memberships/v1.json"
+
+["codeforphilly.org/project-updates/v1"]
+adopted = 2026-10-14T03:31:31.221Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/project-updates/v1.json"
+
+["codeforphilly.org/projects/v1"]
+adopted = 2026-10-14T03:31:29.88Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/projects/v1.json"
+
+["codeforphilly.org/revocations/v1"]
+adopted = 2026-10-14T03:31:32.497Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/revocations/v1.json"
+
+["codeforphilly.org/slug-history/v1"]
+adopted = 2026-10-14T03:31:33.684Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/slug-history/v1.json"
+
+["codeforphilly.org/tag-assignments/v1"]
+adopted = 2026-10-14T03:31:35.046Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/tag-assignments/v1.json"
+
+["codeforphilly.org/tags/v1"]
+adopted = 2026-10-14T03:31:36.137Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/tags/v1.json"
