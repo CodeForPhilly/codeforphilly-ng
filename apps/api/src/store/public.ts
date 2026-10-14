@@ -105,6 +105,26 @@ function asValidator<T extends Record<string, unknown>>(schema: unknown): Standa
   };
 }
 
+/**
+ * The Zod schema backing each public sheet. One list for the store and for
+ * the test that checks every sheet config's path template against its schema.
+ */
+export const PUBLIC_SHEET_SCHEMAS = {
+  people: PersonSchema,
+  projects: ProjectSchema,
+  'project-memberships': ProjectMembershipSchema,
+  'project-updates': ProjectUpdateSchema,
+  'project-buzz': ProjectBuzzSchema,
+  'blog-posts': BlogPostSchema,
+  'help-wanted-roles': HelpWantedRoleSchema,
+  'help-wanted-interest': HelpWantedInterestExpressionSchema,
+  tags: TagSchema,
+  'tag-assignments': TagAssignmentSchema,
+  'slug-history': SlugHistorySchema,
+  revocations: RevocationSchema,
+  'person-evaluations': PersonEvaluationSchema,
+} as const;
+
 /** Typed validator map for openStore. */
 type PublicValidators = {
   readonly people: StandardSchemaV1<unknown, Person>;
@@ -157,20 +177,21 @@ export async function openPublicStore(
   const repo = await openRepo({ gitDir: repoPath });
   repo.requireExplicitTransactions();
 
+  const v = PUBLIC_SHEET_SCHEMAS;
   const validators: PublicValidators = {
-    people: asValidator<Person>(PersonSchema),
-    projects: asValidator<Project>(ProjectSchema),
-    'project-memberships': asValidator<ProjectMembership>(ProjectMembershipSchema),
-    'project-updates': asValidator<ProjectUpdate>(ProjectUpdateSchema),
-    'project-buzz': asValidator<ProjectBuzz>(ProjectBuzzSchema),
-    'blog-posts': asValidator<BlogPost>(BlogPostSchema),
-    'help-wanted-roles': asValidator<HelpWantedRole>(HelpWantedRoleSchema),
-    'help-wanted-interest': asValidator<HelpWantedInterestExpression>(HelpWantedInterestExpressionSchema),
-    tags: asValidator<Tag>(TagSchema),
-    'tag-assignments': asValidator<TagAssignment>(TagAssignmentSchema),
-    'slug-history': asValidator<SlugHistory>(SlugHistorySchema),
-    revocations: asValidator<Revocation>(RevocationSchema),
-    'person-evaluations': asValidator<PersonEvaluation>(PersonEvaluationSchema),
+    people: asValidator<Person>(v.people),
+    projects: asValidator<Project>(v.projects),
+    'project-memberships': asValidator<ProjectMembership>(v['project-memberships']),
+    'project-updates': asValidator<ProjectUpdate>(v['project-updates']),
+    'project-buzz': asValidator<ProjectBuzz>(v['project-buzz']),
+    'blog-posts': asValidator<BlogPost>(v['blog-posts']),
+    'help-wanted-roles': asValidator<HelpWantedRole>(v['help-wanted-roles']),
+    'help-wanted-interest': asValidator<HelpWantedInterestExpression>(v['help-wanted-interest']),
+    tags: asValidator<Tag>(v.tags),
+    'tag-assignments': asValidator<TagAssignment>(v['tag-assignments']),
+    'slug-history': asValidator<SlugHistory>(v['slug-history']),
+    revocations: asValidator<Revocation>(v.revocations),
+    'person-evaluations': asValidator<PersonEvaluation>(v['person-evaluations']),
   };
 
   const store = (await openStore(repo, { validators })) as PublicStore;

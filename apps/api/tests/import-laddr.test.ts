@@ -7,7 +7,7 @@
  * dev (see plans/laddr-import-via-json.md).
  */
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -33,6 +33,7 @@ import {
   type TranslateCtx,
 } from '../scripts/import-laddr/translators.js';
 import type { RawBlogPost } from '../scripts/import-laddr/json-fetcher.js';
+import { writeSheetConfigs } from './helpers/sheet-configs.js';
 
 const exec = promisify(execFile);
 
@@ -721,40 +722,7 @@ async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> 
   // importer opens the gitsheets store at boot, which requires every sheet
   // declared on the validator map (PublicValidators) to have a corresponding
   // .gitsheets/<name>.toml. Mirrors the upstream codeforphilly-data repo.
-  await mkdir(join(seedDir, '.gitsheets'), { recursive: true });
-  const sheets: Array<[string, string]> = [
-    ['people', "root = 'people'\npath = '${{ slug }}'\n"],
-    ['projects', "root = 'projects'\npath = '${{ slug }}'\n"],
-    ['tags', "root = 'tags'\npath = '${{ namespace }}/${{ slug }}'\n"],
-    [
-      'project-memberships',
-      "root = 'project-memberships'\npath = '${{ projectSlug }}/${{ personSlug }}'\n",
-    ],
-    [
-      'project-updates',
-      "root = 'project-updates'\npath = '${{ projectSlug }}/${{ number }}'\n",
-    ],
-    ['project-buzz', "root = 'project-buzz'\npath = '${{ projectSlug }}/${{ slug }}'\n"],
-    [
-      'blog-posts',
-      "root = 'blog-posts'\npath = '${{ slug }}'\n\n[gitsheet.format]\ntype = 'markdown'\nbody = 'body'\n",
-    ],
-    [
-      'tag-assignments',
-      "root = 'tag-assignments'\npath = '${{ taggableType }}/${{ taggableId }}/${{ tagId }}'\n",
-    ],
-    ['help-wanted-roles', "root = 'help-wanted-roles'\npath = '${{ projectSlug }}/${{ slug }}'\n"],
-    [
-      'help-wanted-interest',
-      "root = 'help-wanted-interest'\npath = '${{ roleId }}/${{ personId }}'\n",
-    ],
-    ['slug-history', "root = 'slug-history'\npath = '${{ entityType }}/${{ slug }}'\n"],
-    ['revocations', "root = 'revocations'\npath = '${{ jti }}'\n"],
-    ['person-evaluations', "root = 'person-evaluations'\npath = '${{ personSlug }}/${{ evaluator }}'\n"],
-  ];
-  for (const [name, body] of sheets) {
-    await writeFile(join(seedDir, '.gitsheets', `${name}.toml`), `[gitsheet]\n${body}`);
-  }
+  await writeSheetConfigs(seedDir);
   await run('add', '.gitsheets');
   await run('commit', '-m', 'initial empty branch');
   await run('branch', '-M', 'empty'); // rename initial branch

@@ -1,0 +1,7 @@
+[gitsheet]
+root = 'blog-posts'
+path = '${{ slug }}'
+
+[gitsheet.format]
+type = 'markdown'
+body = 'body'

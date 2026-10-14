@@ -33,6 +33,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { buildApp } from '../src/app.js';
 import { createPrivateStorageDir } from './helpers/test-full-repo.js';
+import { writeSheetConfigs } from './helpers/sheet-configs.js';
 
 const exec = promisify(execFile);
 
@@ -41,21 +42,6 @@ const VALID_SECRET = 'test-reload-secret-at-least-32-chars-long!!';
 
 // Sheet configs — mirrors test-full-repo.ts. Inlined so we can drop them
 // into the bare remote + into the local clone at controlled commits.
-const SHEET_CONFIGS: Record<string, string> = {
-  'people': `[gitsheet]\nroot = 'people'\npath = '\${{ slug }}'\n`,
-  'projects': `[gitsheet]\nroot = 'projects'\npath = '\${{ slug }}'\n`,
-  'project-memberships': `[gitsheet]\nroot = 'project-memberships'\npath = '\${{ projectSlug }}/\${{ personSlug }}'\n`,
-  'project-updates': `[gitsheet]\nroot = 'project-updates'\npath = '\${{ projectSlug }}/\${{ number }}'\n`,
-  'project-buzz': `[gitsheet]\nroot = 'project-buzz'\npath = '\${{ projectSlug }}/\${{ slug }}'\n`,
-  'blog-posts': `[gitsheet]\nroot = 'blog-posts'\npath = '\${{ slug }}'\n\n[gitsheet.format]\ntype = 'markdown'\nbody = 'body'\n`,
-  'help-wanted-roles': `[gitsheet]\nroot = 'help-wanted-roles'\npath = '\${{ projectSlug }}/\${{ id }}'\n`,
-  'help-wanted-interest': `[gitsheet]\nroot = 'help-wanted-interest'\npath = '\${{ roleId }}/\${{ personSlug }}'\n`,
-  'tags': `[gitsheet]\nroot = 'tags'\npath = '\${{ namespace }}/\${{ slug }}'\n`,
-  'tag-assignments': `[gitsheet]\nroot = 'tag-assignments'\npath = '\${{ tagId }}/\${{ taggableType }}/\${{ taggableId }}'\n`,
-  'slug-history': `[gitsheet]\nroot = 'slug-history'\npath = '\${{ entityType }}/\${{ oldSlug }}'\n`,
-  'revocations': `[gitsheet]\nroot = 'revocations'\npath = '\${{ jti }}'\n`,
-  'person-evaluations': `[gitsheet]\nroot = 'person-evaluations'\npath = '\${{ personSlug }}/\${{ evaluator }}'\n`,
-};
 
 interface Rig {
   /** Path to the local working tree (CFP_DATA_REPO_PATH). */
@@ -93,10 +79,7 @@ async function createRig(): Promise<Rig> {
   await git(seed, 'config', 'commit.gpgsign', 'false');
   await git(seed, 'config', 'core.hooksPath', '/dev/null');
 
-  await exec('mkdir', ['-p', join(seed, '.gitsheets')]);
-  for (const [name, contents] of Object.entries(SHEET_CONFIGS)) {
-    await writeFile(join(seed, '.gitsheets', `${name}.toml`), contents);
-  }
+  await writeSheetConfigs(seed);
   await git(seed, 'add', '.gitsheets');
   await git(seed, 'commit', '-m', 'initial: gitsheets sheet configs');
 

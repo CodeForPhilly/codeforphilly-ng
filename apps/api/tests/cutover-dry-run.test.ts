@@ -12,7 +12,7 @@
  * api-skeleton.test.ts and read-api.test.ts).
  */
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -24,13 +24,10 @@ import {
   runDryRun,
   runSmokeChecks,
 } from '../scripts/cutover-dry-run.js';
+import { writeSheetConfigs } from './helpers/sheet-configs.js';
 
 const exec = promisify(execFile);
 
-const SHEET_CONFIGS: ReadonlyArray<{ name: string; path: string }> = [
-  { name: 'people', path: '${{ slug }}' },
-  { name: 'projects', path: '${{ slug }}' },
-];
 
 async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), 'cfp-dryrun-'));
@@ -41,11 +38,7 @@ async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> 
   await git('config', 'commit.gpgsign', 'false');
   await git('commit', '--allow-empty', '-m', 'initial');
 
-  await mkdir(join(dir, '.gitsheets'), { recursive: true });
-  for (const { name, path } of SHEET_CONFIGS) {
-    const cfg = `[gitsheet]\nroot = '${name}'\npath = '${path}'\n`;
-    await writeFile(join(dir, '.gitsheets', `${name}.toml`), cfg);
-  }
+  await writeSheetConfigs(dir, ['people', 'projects']);
   await git('add', '.gitsheets');
   await git('commit', '-m', 'configs');
 
