@@ -20,6 +20,7 @@ import { toJSONSchema } from 'zod';
 import {
   EventRsvpSchema,
   EventSchema,
+  EventSeriesSchema,
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
   PersonSchema,
@@ -51,6 +52,7 @@ const schemas = [
   { name: 'Revocation', schema: RevocationSchema },
   { name: 'Event', schema: EventSchema },
   { name: 'EventRsvp', schema: EventRsvpSchema },
+  { name: 'EventSeries', schema: EventSeriesSchema },
 ] as const;
 
 await mkdir(outDir, { recursive: true });
