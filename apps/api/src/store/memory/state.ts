@@ -9,6 +9,8 @@
  */
 import type {
   BlogPost,
+  Event,
+  EventRsvp,
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
@@ -37,6 +39,8 @@ export interface InMemoryState {
   blogPosts: Map<string, BlogPost>;
   helpWantedRoles: Map<string, HelpWantedRole>;
   helpWantedInterest: Map<string, HelpWantedInterestExpression>;
+  events: Map<string, Event>;
+  eventRsvps: Map<string, EventRsvp>;
 
   // ---------------------------------------------------------------------------
   // Secondary indices
@@ -124,6 +128,22 @@ export interface InMemoryState {
   personEvaluations: Map<string, PersonEvaluation>;
   /** personSlug → Set<evaluation key> */
   evaluationsByPerson: Map<string, Set<string>>;
+
+  /** event.slug → event.id. Per specs/data-model.md#event. */
+  eventIdBySlug: Map<string, string>;
+  /** event.legacyId → event.id — backfill idempotence only. */
+  eventIdByLegacyId: Map<number, string>;
+  /** eventId → Set<rsvpId> */
+  rsvpsByEvent: Map<string, Set<string>>;
+  /** personId → Set<rsvpId> — purge cascade. */
+  rsvpsByPerson: Map<string, Set<string>>;
+  /** eventId + personId → rsvpId — the "has this person RSVP'd" test. */
+  rsvpIdByEventAndPerson: Map<string, string>;
+}
+
+/** Compose the event+person RSVP key. Kept here so call sites stay consistent. */
+export function rsvpKey(eventId: string, personId: string): string {
+  return `${eventId}:${personId}`;
 }
 
 /** Compose the slug-history map key. Kept here so call sites stay consistent. */
@@ -143,6 +163,8 @@ export function createEmptyState(): InMemoryState {
     blogPosts: new Map(),
     helpWantedRoles: new Map(),
     helpWantedInterest: new Map(),
+    events: new Map(),
+    eventRsvps: new Map(),
 
     projectSlugById: new Map(),
     projectIdBySlug: new Map(),
@@ -167,7 +189,39 @@ export function createEmptyState(): InMemoryState {
     slugHistory: new Map(),
     personEvaluations: new Map(),
     evaluationsByPerson: new Map(),
+    eventIdBySlug: new Map(),
+    eventIdByLegacyId: new Map(),
+    rsvpsByEvent: new Map(),
+    rsvpsByPerson: new Map(),
+    rsvpIdByEventAndPerson: new Map(),
   };
+}
+
+/** Add or replace one event and update its secondary indices. */
+export function indexEvent(state: InMemoryState, event: Event): void {
+  const old = state.events.get(event.id);
+  if (old) {
+    state.eventIdBySlug.delete(old.slug);
+    if (typeof old.legacyId === 'number') state.eventIdByLegacyId.delete(old.legacyId);
+  }
+  state.events.set(event.id, event);
+  state.eventIdBySlug.set(event.slug, event.id);
+  if (typeof event.legacyId === 'number') state.eventIdByLegacyId.set(event.legacyId, event.id);
+}
+
+/** Add or replace one event RSVP and update its secondary indices. */
+export function indexEventRsvp(state: InMemoryState, rsvp: EventRsvp): void {
+  state.eventRsvps.set(rsvp.id, rsvp);
+
+  let byEvent = state.rsvpsByEvent.get(rsvp.eventId);
+  if (!byEvent) { byEvent = new Set(); state.rsvpsByEvent.set(rsvp.eventId, byEvent); }
+  byEvent.add(rsvp.id);
+
+  let byPerson = state.rsvpsByPerson.get(rsvp.personId);
+  if (!byPerson) { byPerson = new Set(); state.rsvpsByPerson.set(rsvp.personId, byPerson); }
+  byPerson.add(rsvp.id);
+
+  state.rsvpIdByEventAndPerson.set(rsvpKey(rsvp.eventId, rsvp.personId), rsvp.id);
 }
 
 /**

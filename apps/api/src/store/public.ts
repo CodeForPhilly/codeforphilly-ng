@@ -6,6 +6,8 @@ import type { Repository, Store, StoreTx, ValidatorMap } from 'gitsheets';
 import { PERSON_EVALUATIONS_CONTRACT_V1 } from '@cfp/shared';
 import {
   BlogPostSchema,
+  EventRsvpSchema,
+  EventSchema,
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
   PersonSchema,
@@ -38,6 +40,8 @@ export const PUBLIC_SHEET_SCHEMAS = {
   'slug-history': SlugHistorySchema,
   revocations: RevocationSchema,
   'person-evaluations': PersonEvaluationSchema,
+  events: EventSchema,
+  'event-rsvps': EventRsvpSchema,
 } as const satisfies ValidatorMap;
 
 /**

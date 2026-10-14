@@ -9,6 +9,8 @@
  */
 import type {
   BlogPost,
+  Event,
+  EventRsvp,
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
@@ -24,6 +26,8 @@ import type {
 import type { FtsEngine } from './fts.js';
 import { invalidateFacets } from './memory/facets.js';
 import {
+  indexEvent,
+  indexEventRsvp,
   indexHelpWantedInterest,
   indexHelpWantedRole,
   indexMembership,
@@ -35,6 +39,7 @@ import {
   indexSlugHistory,
   indexTag,
   indexTagAssignment,
+  rsvpKey,
   type InMemoryState,
 } from './memory/state.js';
 
@@ -271,6 +276,43 @@ export class StateApply {
 
   upsertPersonEvaluation(record: PersonEvaluation): this {
     this.#ops.push((state) => indexPersonEvaluation(state, record));
+    return this;
+  }
+
+  upsertEvent(event: Event): this {
+    this.#ops.push((state) => indexEvent(state, event));
+    return this;
+  }
+
+  removeEvent(event: Event): this {
+    this.#ops.push((state) => {
+      state.events.delete(event.id);
+      state.eventIdBySlug.delete(event.slug);
+      if (typeof event.legacyId === 'number') state.eventIdByLegacyId.delete(event.legacyId);
+    });
+    return this;
+  }
+
+  /** Drop the old slug's index entry on rename; `upsertEvent` adds the new one. */
+  renameEventSlug(oldSlug: string): this {
+    this.#ops.push((state) => {
+      state.eventIdBySlug.delete(oldSlug);
+    });
+    return this;
+  }
+
+  upsertEventRsvp(rsvp: EventRsvp): this {
+    this.#ops.push((state) => indexEventRsvp(state, rsvp));
+    return this;
+  }
+
+  removeEventRsvp(rsvp: EventRsvp): this {
+    this.#ops.push((state) => {
+      state.eventRsvps.delete(rsvp.id);
+      state.rsvpsByEvent.get(rsvp.eventId)?.delete(rsvp.id);
+      state.rsvpsByPerson.get(rsvp.personId)?.delete(rsvp.id);
+      state.rsvpIdByEventAndPerson.delete(rsvpKey(rsvp.eventId, rsvp.personId));
+    });
     return this;
   }
 

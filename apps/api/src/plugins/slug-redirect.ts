@@ -80,6 +80,14 @@ const patterns: readonly RoutePattern[] = [
     rebuild: (m, resolved) => `/members/${resolved}${m[2] ?? ''}`,
   },
   {
+    entityType: 'event',
+    // `/events/past`, `/events/new`, `/events/series/…` fall through: they're
+    // never live event slugs and never in slug-history.
+    match: /^\/events\/([^/]+)(\/.*)?$/,
+    liveIndex: (state, slug) => state.eventIdBySlug.has(slug),
+    rebuild: (m, resolved) => `/events/${resolved}${m[2] ?? ''}`,
+  },
+  {
     entityType: 'tag',
     // Capture namespace + slug; namespace stays unchanged in the rebuild.
     match: /^\/tags\/([^/]+)\/([^/]+)(\/.*)?$/,

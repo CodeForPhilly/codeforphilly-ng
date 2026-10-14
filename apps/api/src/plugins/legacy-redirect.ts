@@ -94,6 +94,27 @@ async function legacyRedirectPlugin(fastify: FastifyInstance): Promise<void> {
       return;
     }
 
+    // /calendar → /events (alias the issue asked for) --------------------------
+    if (path === '/calendar' || path === '/calendar/') {
+      await sendRedirect(reply, `/events${query}`);
+      return;
+    }
+
+    // laddr list views: /events/*past → /events/past; *upcoming, *all → /events
+    const starMatch = /^\/events\/\*(past|upcoming|all)\/?$/.exec(path);
+    if (starMatch) {
+      await sendRedirect(reply, starMatch[1] === 'past' ? `/events/past${query}` : `/events${query}`);
+      return;
+    }
+
+    // /events/<handle>/segments/<seg> → /events/<handle>#schedule ------------
+    // Segments became agenda items on the event (specs/behaviors/events.md#agenda).
+    const segmentMatch = /^\/events\/([^/*]+)\/segments(\/.*)?$/.exec(path);
+    if (segmentMatch) {
+      await sendRedirect(reply, `/events/${segmentMatch[1]}${query}#schedule`);
+      return;
+    }
+
     // /projects?ID=<n> → /projects/<slug> -------------------------------------
     if (path === '/projects' && query) {
       const id = legacyIdFromQuery(query, 'ID');

@@ -57,11 +57,55 @@ export interface PasswordResetNotification {
   readonly expiresAt: string;
 }
 
+/**
+ * The event facts every event email shows. `when` is pre-formatted in
+ * Philadelphia time (specs/behaviors/events.md#time); `url` is canonical.
+ */
+export interface EventEmailFacts {
+  readonly slug: string;
+  readonly title: string;
+  readonly when: string;
+  readonly venueName: string | null;
+  readonly venueAddress: string | null;
+  readonly onlineUrl: string | null;
+  readonly url: string;
+}
+
+/** RSVP confirmation — carries the `.ics` as an attachment plus the Google link. */
+export interface EventRsvpNotification {
+  readonly email: string;
+  readonly fullName: string;
+  readonly event: EventEmailFacts;
+  readonly ics: string;
+  readonly googleCalendarUrl: string;
+}
+
+/** "Event updated" — time or place changed after people RSVP'd. */
+export interface EventUpdatedNotification {
+  readonly email: string;
+  readonly fullName: string;
+  readonly event: EventEmailFacts;
+  readonly changes: ReadonlyArray<{ readonly field: string; readonly from: string | null; readonly to: string | null }>;
+  readonly ics: string;
+}
+
+/** "Cancelled" — with the staff note, if any. */
+export interface EventCancelledNotification {
+  readonly email: string;
+  readonly fullName: string;
+  readonly event: EventEmailFacts;
+  readonly note: string | null;
+  readonly ics: string;
+}
+
 export interface Notifier {
   notifyHelpWantedInterest(n: HelpWantedInterestNotification): Promise<{ delivered: boolean }>;
   notifyHelpWantedFilled(n: HelpWantedFillNotification): Promise<{ delivered: boolean }>;
   notifyWelcomeOnSignup(n: WelcomeNotification): Promise<{ delivered: boolean }>;
   notifyPasswordReset(n: PasswordResetNotification): Promise<{ delivered: boolean }>;
+  notifyEventRsvp(n: EventRsvpNotification): Promise<{ delivered: boolean }>;
+  notifyEventUpdated(n: EventUpdatedNotification): Promise<{ delivered: boolean }>;
+  notifyEventCancelled(n: EventCancelledNotification): Promise<{ delivered: boolean }>;
 }
 
 /**
@@ -99,6 +143,24 @@ export class LoggingNotifier implements Notifier {
       { kind: 'auth.password-reset', email: n.email, slug: n.slug, expiresAt: n.expiresAt },
       'password-reset notification (token redacted)',
     );
+    return { delivered: true };
+  }
+
+  async notifyEventRsvp(n: EventRsvpNotification): Promise<{ delivered: boolean }> {
+    this.#log.info({ kind: 'event.rsvp', email: n.email, event: n.event.slug }, 'event RSVP confirmation');
+    return { delivered: true };
+  }
+
+  async notifyEventUpdated(n: EventUpdatedNotification): Promise<{ delivered: boolean }> {
+    this.#log.info(
+      { kind: 'event.updated', email: n.email, event: n.event.slug, changes: n.changes },
+      'event updated notification',
+    );
+    return { delivered: true };
+  }
+
+  async notifyEventCancelled(n: EventCancelledNotification): Promise<{ delivered: boolean }> {
+    this.#log.info({ kind: 'event.cancelled', email: n.email, event: n.event.slug }, 'event cancelled notification');
     return { delivered: true };
   }
 }

@@ -15,6 +15,9 @@
 import type { FastifyBaseLogger } from 'fastify';
 
 import type {
+  EventCancelledNotification,
+  EventRsvpNotification,
+  EventUpdatedNotification,
   HelpWantedFillNotification,
   HelpWantedInterestNotification,
   Notifier,
@@ -22,18 +25,24 @@ import type {
   WelcomeNotification,
 } from './index.js';
 import {
+  renderEventCancelledEmail,
+  renderEventRsvpEmail,
+  renderEventUpdatedEmail,
+} from './event-templates.js';
+import {
   renderFilledEmail,
   renderInterestEmail,
   renderPasswordResetEmail,
   renderWelcomeEmail,
 } from './templates.js';
-import type { EmailTransport } from './transport.js';
+import type { EmailAttachment, EmailTransport } from './transport.js';
 
 /** Common shape of every template renderer's output. */
-interface RenderedEmail {
+export interface RenderedEmail {
   readonly subject: string;
   readonly text: string;
   readonly html: string;
+  readonly attachments?: ReadonlyArray<EmailAttachment>;
 }
 
 export interface EmailNotifierOptions {
@@ -115,6 +124,33 @@ export class EmailNotifier implements Notifier {
     );
   }
 
+  async notifyEventRsvp(n: EventRsvpNotification): Promise<{ delivered: boolean }> {
+    const ctx = { kind: 'event.rsvp', event: n.event.slug };
+    if (!n.email) {
+      this.#log.warn(ctx, 'event rsvp: no email address; skipped');
+      return { delivered: false };
+    }
+    return this.#deliver('event rsvp', ctx, n.email, renderEventRsvpEmail(n, this.#siteHost));
+  }
+
+  async notifyEventUpdated(n: EventUpdatedNotification): Promise<{ delivered: boolean }> {
+    const ctx = { kind: 'event.updated', event: n.event.slug };
+    if (!n.email) {
+      this.#log.warn(ctx, 'event updated: no email address; skipped');
+      return { delivered: false };
+    }
+    return this.#deliver('event updated', ctx, n.email, renderEventUpdatedEmail(n, this.#siteHost));
+  }
+
+  async notifyEventCancelled(n: EventCancelledNotification): Promise<{ delivered: boolean }> {
+    const ctx = { kind: 'event.cancelled', event: n.event.slug };
+    if (!n.email) {
+      this.#log.warn(ctx, 'event cancelled: no email address; skipped');
+      return { delivered: false };
+    }
+    return this.#deliver('event cancelled', ctx, n.email, renderEventCancelledEmail(n, this.#siteHost));
+  }
+
   /**
    * Shared send path. The transport's only failure shape is a throw (the
    * Postmark SDK raises on every non-2xx), so one catch covers network
@@ -134,6 +170,7 @@ export class EmailNotifier implements Notifier {
         subject: tpl.subject,
         text: tpl.text,
         html: tpl.html,
+        ...(tpl.attachments ? { attachments: tpl.attachments } : {}),
       });
       this.#log.info({ ...ctx, messageId }, `${label}: email queued for delivery`);
       return { delivered: true };
