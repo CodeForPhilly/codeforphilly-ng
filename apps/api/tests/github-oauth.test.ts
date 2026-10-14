@@ -198,6 +198,28 @@ describe('GET /api/auth/github/start', () => {
     expect(state).toBeTruthy();
   });
 
+  it('derives redirect_uri from the request host, port included, or from X-Forwarded-* behind a proxy', async () => {
+    const direct = await app.inject({
+      method: 'GET',
+      url: '/api/auth/github/start',
+      headers: { host: 'devbox:3100' },
+      remoteAddress: nextTestIp(),
+    });
+    expect(new URL(String(direct.headers['location'])).searchParams.get('redirect_uri')).toBe(
+      'http://devbox:3100/api/auth/github/callback',
+    );
+
+    const proxied = await app.inject({
+      method: 'GET',
+      url: '/api/auth/github/start',
+      headers: { host: '10.0.0.5:3001', 'x-forwarded-host': 'codeforphilly.org', 'x-forwarded-proto': 'https' },
+      remoteAddress: nextTestIp(),
+    });
+    expect(new URL(String(proxied.headers['location'])).searchParams.get('redirect_uri')).toBe(
+      'https://codeforphilly.org/api/auth/github/callback',
+    );
+  });
+
   it('sets cfp_oauth_state and cfp_oauth_session cookies with HttpOnly + SameSite=Lax', async () => {
     const res = await app.inject({
       method: 'GET',

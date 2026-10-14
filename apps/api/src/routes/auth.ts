@@ -65,9 +65,12 @@ function callbackRedirectUri(request: FastifyRequest): string {
   const protocol = request.headers['x-forwarded-proto']
     ? String(request.headers['x-forwarded-proto']).split(',')[0]?.trim() ?? 'http'
     : request.protocol;
+  // `request.host` keeps the port (`request.hostname` strips it), which the
+  // registered callback carries whenever the app isn't on 80/443 — local dev
+  // on :3001, a test instance on :3100.
   const host = request.headers['x-forwarded-host']
-    ? String(request.headers['x-forwarded-host']).split(',')[0]?.trim() ?? request.hostname
-    : request.hostname;
+    ? String(request.headers['x-forwarded-host']).split(',')[0]?.trim() ?? request.host
+    : request.host;
   return `${protocol}://${host}/api/auth/github/callback`;
 }
 
