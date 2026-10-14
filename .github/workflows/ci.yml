@@ -26,6 +26,11 @@ jobs:
       - name: Build @cfp/shared
         run: npm run -w packages/shared build
 
+      # Published schema contracts must match the Zod schemas; a change under
+      # a published version needs a version bump (specs/behaviors/storage.md).
+      - name: Check schema contracts
+        run: npm run -w packages/shared check-contracts
+
       - name: Type check
         run: npm run type-check
 

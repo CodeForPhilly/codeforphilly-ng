@@ -17,13 +17,16 @@
       "default": "./dist/schemas/index.js"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "generate-schemas": "tsx scripts/generate-json-schemas.ts",
-    "check-schemas": "npm run generate-schemas && git diff --exit-code ../../.gitsheets/schemas/"
+    "generate-contracts": "tsx scripts/generate-contracts.ts",
+    "check-contracts": "tsx scripts/generate-contracts.ts --check"
   },
   "dependencies": {
     "rehype-sanitize": "^6.0.0",
