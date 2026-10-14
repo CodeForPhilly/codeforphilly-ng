@@ -33,8 +33,9 @@
 
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { faker } from '@faker-js/faker';
@@ -398,7 +399,10 @@ async function writeConfigRootCommit(
   targetPath: string,
   configs: ReadonlyArray<{ name: string; content: Buffer }>,
 ): Promise<string> {
-  const entries: string[] = [];
+  // A throwaway index builds the nested `.gitsheets/` tree (configs plus
+  // `contracts/<host>/<path>.toml`) without touching any real index.
+  const indexFile = join(await mkdtemp(join(tmpdir(), 'cfp-scrub-index-')), 'index');
+  const indexEnv = { ...process.env, GIT_INDEX_FILE: indexFile };
   for (const { name, content } of configs) {
     const hash = await new Promise<string>((resolvePromise, reject) => {
       const child = execFile(
@@ -409,22 +413,18 @@ async function writeConfigRootCommit(
       );
       child.stdin?.end(content);
     });
-    entries.push(`100644 blob ${hash}\t${name}`);
+    await exec('git', ['update-index', '--add', '--cacheinfo', `100644,${hash},.gitsheets/${name}`], {
+      cwd: targetPath,
+      env: indexEnv,
+    });
   }
-  const configTree = (await gitWithInput(targetPath, ['mktree'], entries.join('\n') + '\n')).trim();
-  const rootTree = (await gitWithInput(targetPath, ['mktree'], `040000 tree ${configTree}\t.gitsheets\n`)).trim();
+  const rootTree = (await exec('git', ['write-tree'], { cwd: targetPath, env: indexEnv })).stdout.trim();
+  await rm(dirname(indexFile), { recursive: true, force: true });
   const { stdout } = await exec('git', ['commit-tree', rootTree, '-m', 'scrub-data: sheet configs'], {
     cwd: targetPath,
     env: { ...process.env, ...gitIdentityEnv(new Date().toISOString()) },
   });
   return stdout.trim();
-}
-
-function gitWithInput(cwd: string, args: string[], input: string): Promise<string> {
-  return new Promise((resolvePromise, reject) => {
-    const child = execFile('git', args, { cwd }, (err, stdout) => (err ? reject(err) : resolvePromise(stdout)));
-    child.stdin?.end(input);
-  });
 }
 
 function gitIdentityEnv(timestamp: string): Record<string, string> {
@@ -536,10 +536,18 @@ export async function scrubRepo(opts: ScrubOptions): Promise<ScrubResult> {
   const targetGitDir = (await git('rev-parse', '--absolute-git-dir')).stdout.trim();
   const targetRepo = await openRepo({ gitDir: targetGitDir });
 
+  // Everything under the source's `.gitsheets/`: sheet configs plus the
+  // vendored schema contracts (`contracts/…`) that configs may declare.
+  const sourceRef = sourceHeadHash ?? 'HEAD';
+  const configPaths = (
+    await exec('git', ['ls-tree', '-r', '--name-only', sourceRef, '.gitsheets/'], { cwd: source })
+  ).stdout
+    .split('\n')
+    .filter((p) => p.length > 0);
   const configs = await Promise.all(
-    Object.values(sheets).map(async (sheet) => ({
-      name: `${sheet.name}.toml`,
-      content: await streamToBuffer(await sourceRepo.readBlobStream(sourceHeadHash ?? 'HEAD', sheet.configPath)),
+    configPaths.map(async (path) => ({
+      name: path.slice('.gitsheets/'.length),
+      content: await streamToBuffer(await sourceRepo.readBlobStream(sourceRef, path)),
     })),
   );
   const configRoot = await writeConfigRootCommit(target, configs);
