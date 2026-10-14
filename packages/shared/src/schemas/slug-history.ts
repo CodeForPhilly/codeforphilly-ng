@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const SlugHistorySchema = z.object({
   id: z.string().uuid(),
-  entityType: z.enum(['project', 'person', 'tag', 'buzz']),
+  entityType: z.enum(['project', 'person', 'tag', 'buzz', 'event', 'event_series']),
   oldSlug: z.string().min(1),
   newSlug: z.string().min(1),
   entityId: z.string().uuid(),

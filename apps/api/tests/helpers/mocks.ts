@@ -30,6 +30,12 @@ export interface CapturedEmail {
   readonly HtmlBody?: string;
   readonly TextBody?: string;
   readonly MessageStream?: string;
+  readonly Attachments?: ReadonlyArray<{
+    readonly Name: string;
+    readonly Content: string;
+    readonly ContentType: string;
+    readonly ContentID: string | null;
+  }>;
 }
 
 /**

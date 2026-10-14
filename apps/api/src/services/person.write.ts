@@ -297,6 +297,16 @@ export class PersonWriteService {
       }
     }
 
+    // 3b. Cascade-delete event RSVPs (path: eventSlug/personSlug).
+    for (const rsvpId of this.#state.rsvpsByPerson.get(personId) ?? new Set<string>()) {
+      const rsvp = this.#state.eventRsvps.get(rsvpId);
+      const eventSlug = rsvp ? this.#state.events.get(rsvp.eventId)?.slug : undefined;
+      if (rsvp && eventSlug) {
+        await tx.public['event-rsvps'].delete({ ...rsvp, eventSlug, personSlug: existing.slug } as typeof rsvp);
+        stateApply.removeEventRsvp(rsvp);
+      }
+    }
+
     // 4. Cascade-delete person tag-assignments.
     const taIds = this.#state.tagAssignmentsByTaggable.get(personId) ?? new Set<string>();
     for (const taId of taIds) {

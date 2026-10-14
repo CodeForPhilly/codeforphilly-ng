@@ -39,8 +39,7 @@
     },
     "url": {
       "type": "string",
-      "format": "uri",
-      "pattern": "^https:\\/\\/.*"
+      "format": "uri"
     },
     "publishedAt": {
       "type": "string",

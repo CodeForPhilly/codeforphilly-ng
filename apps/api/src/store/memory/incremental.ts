@@ -13,6 +13,8 @@ import type { FtsEngine } from '../fts.js';
 import type { PublicStore } from '../public.js';
 import {
   indexBlogPost,
+  indexEvent,
+  indexEventRsvp,
   indexHelpWantedInterest,
   indexHelpWantedRole,
   indexMembership,
@@ -25,6 +27,8 @@ import {
   indexTag,
   indexTagAssignment,
   unindexBlogPost,
+  unindexEvent,
+  unindexEventRsvp,
   unindexHelpWantedInterest,
   unindexHelpWantedRole,
   unindexMembership,
@@ -107,6 +111,8 @@ const HANDLERS = [
     unindex: unindexPersonEvaluation,
     index: indexPersonEvaluation,
   }),
+  handler({ sheet: 'events', unindex: unindexEvent, index: indexEvent }),
+  handler({ sheet: 'event-rsvps', unindex: unindexEventRsvp, index: indexEventRsvp }),
 ] as const;
 
 interface CollectedChanges {

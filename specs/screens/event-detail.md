@@ -34,7 +34,7 @@ Across the top of the content area, before the title:
   - `venueName` in bold, then `venueAddress` on the next line, the address linked to `https://maps.google.com/?q=<url-encoded venueName, venueAddress>` opening in a new tab
   - `onlineUrl` as "Join online" link when set (shown alongside the venue for hybrid events)
   - "Location to be announced" when neither is set
-- Staff controls, right-aligned: "Edit" → `/events/<slug>/edit`; "Duplicate" → `/events/new?from=<slug>`; "Cancel event…" (confirm dialog with the optional note) when `permissions.canCancel`; "Delete" when `permissions.canDelete`
+- Staff controls, right-aligned: "Edit" → `/events/<slug>/edit`; "Duplicate" → `/events/new?from=<slug>`; "Cancel event…" (confirm dialog with the optional note) when `permissions.canCancel`; "Delete" always shown to staff, disabled with the tooltip "Cancel instead — people have RSVP'd" when `permissions.canDelete` is false
 
 ### Main column (two-thirds at lg, full below)
 
@@ -69,7 +69,7 @@ Across the top of the content area, before the title:
 
 2. **Share**
    - "Copy link" (copies `https://<host>/events/<slug>`)
-   - "Share to Slack" — same mechanism as the project page
+   - "Share to Slack" — same mechanism as the project page; the copied message is `<title> — <when>: <canonical URL>`
 
 3. **Details**
    - "Added" relative time with absolute tooltip

@@ -15,6 +15,9 @@ import { PersonDetail } from '@/screens/PersonDetail';
 import { ProfileEdit } from '@/screens/ProfileEdit';
 import { Account } from '@/screens/Account';
 import { HelpWantedIndex } from '@/screens/HelpWantedIndex';
+import { EventsIndex } from '@/screens/EventsIndex';
+import { EventDetail } from '@/screens/EventDetail';
+import { EventEdit } from '@/screens/EventEdit';
 import { ProjectUpdatesFeed } from '@/screens/ProjectUpdatesFeed';
 import { ProjectBuzzFeed } from '@/screens/ProjectBuzzFeed';
 import { BlogIndex } from '@/screens/BlogIndex';
@@ -50,6 +53,12 @@ const router = createBrowserRouter([
       { path: '/projects/:slug/buzz/:buzzSlug', element: <ProjectDetail anchor="buzz" /> },
       { path: '/projects/:slug/buzz/new', element: <ProjectBuzzNew /> },
       { path: '/help-wanted', element: <HelpWantedIndex /> },
+      { path: '/events', element: <EventsIndex /> },
+      { path: '/events/past', element: <EventsIndex /> },
+      { path: '/events/new', element: <EventEdit mode="create" /> },
+      { path: '/events/:slug', element: <EventDetail /> },
+      { path: '/events/:slug/edit', element: <EventEdit mode="edit" /> },
+      { path: '/calendar', element: <Navigate to="/events" replace /> },
       { path: '/people', element: <Navigate to="/members" replace /> },
       { path: '/members', element: <PeopleIndex /> },
       { path: '/members/:slug', element: <PersonDetail /> },

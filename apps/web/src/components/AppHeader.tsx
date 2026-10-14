@@ -254,6 +254,11 @@ export function AppHeader() {
               </NavLink>
             </li>
             <li>
+              <NavLink to="/events" className={navLinkClass}>
+                Events
+              </NavLink>
+            </li>
+            <li>
               <NavLink to="/help-wanted" className={navLinkClass}>
                 Help Wanted
               </NavLink>
@@ -325,6 +330,11 @@ export function AppHeader() {
                   <li>
                     <NavLink to="/projects" className={navLinkClass}>
                       Projects
+                    </NavLink>
+                  </li>
+                  <li>
+                    <NavLink to="/events" className={navLinkClass}>
+                      Events
                     </NavLink>
                   </li>
                   <li>

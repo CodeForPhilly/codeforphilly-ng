@@ -110,6 +110,11 @@ export function AppFooter() {
                 </Link>
               </li>
               <li>
+                <Link to="/events" className="hover:text-foreground transition-colors">
+                  Events
+                </Link>
+              </li>
+              <li>
                 <Link to="/pages/hackathons" className="hover:text-foreground transition-colors">
                   Hackathons
                 </Link>

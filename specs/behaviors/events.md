@@ -23,6 +23,7 @@ This is the scope [issue #194](https://github.com/CodeForPhilly/codeforphilly-ng
 - Display format, used everywhere an event's time appears (cards, detail, emails, ICS `SUMMARY` is excluded):
   - Same-day event: `Tue, Nov 3 · 6:00–8:30 PM EST`
   - Multi-day event: `Fri, Mar 31, 6:00 PM – Wed, May 10, 9:00 PM EDT`
+  - A multi-day event that crosses a DST change labels both ends: `Sat, Nov 1, 6:00 PM EDT – Sun, Nov 2, 9:00 AM EST`.
   - Year is appended (`Nov 3, 2025`) only when the event is not in the current calendar year.
 
 ## Upcoming vs past
@@ -153,7 +154,7 @@ Attendees get two reminder emails per event: **one week before** and **one day b
 
 ## Duplicating
 
-Monthly events are the whole point and there is **no recurrence engine**. Instead the event form accepts `?from=<slug>`: it opens prefilled with every field of the source event — including its series and agenda — except `slug`, `status` (always `scheduled`), RSVPs, and reminder bookkeeping, with `startsAt`/`endsAt` (and each agenda item) shifted forward one month in `America/New_York`. Staff adjust the date and save. One explicit record per occurrence means every event can be edited, cancelled, and RSVP'd independently, and the data repo shows exactly what was announced.
+Monthly events are the whole point and there is **no recurrence engine**. Instead the event form accepts `?from=<slug>`: it opens prefilled with every field of the source event — including its series and agenda — except `slug`, `status` (always `scheduled`), RSVPs, and reminder bookkeeping, with `startsAt`/`endsAt` (and each agenda item) shifted forward one month in `America/New_York`. "One month" keeps the day-of-month and wall-clock time; a day the next month lacks (Jan 31 → Feb) clamps to that month's last day. Staff adjust the date and save. One explicit record per occurrence means every event can be edited, cancelled, and RSVP'd independently, and the data repo shows exactly what was announced.
 
 The form is a convenience, not the only door. `POST /api/events` is the same write, so a script or an agent can create next month's hack night with one call; and because the data repo is the store, a record committed directly to `published` (the way blog posts are authored) arrives through hot reload like any other data change. Whichever path creates the record, reminders, RSVPs, and the feed treat it identically.
 

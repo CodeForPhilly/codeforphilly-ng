@@ -9,6 +9,14 @@
  * means tests exercise the notifier with a `vi.fn()` and the provider
  * adapter (`postmark-transport.ts`) is the only file that knows a vendor.
  */
+/** A file attached to an outbound email (the `.ics` on event mail). */
+export interface EmailAttachment {
+  readonly name: string;
+  readonly contentType: string;
+  /** Base64-encoded bytes. */
+  readonly content: string;
+}
+
 export interface OutboundEmail {
   /** RFC 5322 sender, e.g. `"Code for Philly <notifications@…>"`. */
   readonly from: string;
@@ -17,6 +25,7 @@ export interface OutboundEmail {
   readonly subject: string;
   readonly text: string;
   readonly html: string;
+  readonly attachments?: ReadonlyArray<EmailAttachment>;
 }
 
 export interface EmailTransport {
