@@ -165,7 +165,7 @@ The form is a convenience, not the only door. `POST /api/events` is the same wri
 
 ## Legacy URLs
 
-Laddr served `/events`, `/events/*past`, `/events/*upcoming`, `/events/*all`, `/events/<handle>`, and `/events/<handle>/segments/<segHandle>`. A laddr "event" was a whole program, so each of the four becomes a **series** whose slug is the laddr handle, with one event per day of segments and that day's segments as its agenda. The rewrite answers the old URLs per [legacy-id-mapping.md](legacy-id-mapping.md#legacy-url-forms-we-accept): the starred list views 301 to `/events/past` or `/events`; `/events/<handle>` and its segment URLs 301 to `/events/series/<handle>`.
+Laddr served `/events`, `/events/*past`, `/events/*upcoming`, `/events/*all`, `/events/<handle>`, and `/events/<handle>/segments/<segHandle>`. A laddr "event" was a whole program, so each of the four becomes a **series** whose slug is the laddr handle in slug form — `launchpad-2018`, `launchpad-2019`, `data-hack-2020`, `launchpad-2023` — with one event per day of segments and that day's segments as its agenda. The rewrite answers the old URLs per [legacy-id-mapping.md](legacy-id-mapping.md#legacy-url-forms-we-accept): the starred list views 301 to `/events/past` or `/events`; `/events/<handle>` and its segment URLs 301 to the series page. The four handles are a closed set, so they map statically rather than through [legacy handle normalization](slug-handles.md#legacy-handle-normalization), which would keep laddr's underscores: `launchpad-2018` → `launchpad-2018`, `launchpad_2019` → `launchpad-2019`, `datahack2020` → `data-hack-2020`, `launchpad-2023` → `launchpad-2023`.
 
 ## Principles
 

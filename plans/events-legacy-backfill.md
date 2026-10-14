@@ -18,8 +18,8 @@ of schedule segments. Under the data model each is a **series** whose days
 are events: carry them into the `event-series` and `events` sheets so
 `/events/past` has history and the old URLs keep resolving.
 
-**In:** one `event-series` record per laddr event (slug = laddr handle,
-title and description from the program), one `events` record per calendar
+**In:** one `event-series` record per laddr event (slug = laddr handle in
+slug form, title and description from the program), one `events` record per calendar
 day of segments (slug `<YYYY-MM-DD>-<a few words of the day's title>`,
 venue from the day's first segment, span from the day's first start to its
 last end, the day's segments as `agenda` items — except a first segment
