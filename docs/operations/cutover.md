@@ -229,6 +229,10 @@ the production pod's private-storage PVC — full procedure in
    the laddr pod (Habitat mysql client) to a quoted CSV.
 2. Run `script:import-laddr-credentials` against the bare clone's
    `published` branch to produce `profiles.jsonl` + `legacy-passwords.jsonl`.
+   It reads the clone's `HEAD`, and neither the importer nor prune-spam
+   moves `HEAD` any more, so use a `--branch published` bare clone as
+   [legacy-credentials-import.md](./legacy-credentials-import.md) shows
+   (or `git symbolic-ref HEAD refs/heads/published` in the scratch clone).
 3. `kubectl -n codeforphilly-ng cp` both files into the pod's
    `/app/private-storage/`, then `kubectl -n codeforphilly-ng rollout
    restart deploy/codeforphilly`. **Hot reload does not cover the private
