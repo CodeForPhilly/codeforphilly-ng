@@ -29,14 +29,21 @@
  *   --threshold        Spam confidence threshold (default: 0.8).
  *   --dry-run          Report without writing.
  *   --verbose          Increase logging verbosity.
+ *
+ * All reads and the prune commit go through gitsheets: evaluations are read
+ * at their refs through read-only transactions, and the prune commits onto
+ * `refs/heads/<branch>` via `transact({ parent, branch })`. The data repo's
+ * HEAD is never moved.
  */
 import { execFile } from 'node:child_process';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-const exec = promisify(execFile);
+import { ConfigError, openRepo, type Repository } from 'gitsheets';
 
 import { openPublicStore } from '../src/store/public.js';
+import { HUMAN_EVALUATOR_PREFIX } from '@cfp/shared/schemas';
 import type {
   HelpWantedInterestExpression,
   ProjectMembership,
@@ -44,11 +51,13 @@ import type {
   TagAssignment,
 } from '@cfp/shared/schemas';
 
+const exec = promisify(execFile);
+
 // ---------------------------------------------------------------------------
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
-interface CliArgs {
+export interface CliArgs {
   readonly dataRepo: string;
   /** Repo holding the machine evaluations (the private spam-detection clone). Defaults to dataRepo. */
   readonly evaluationsRepo: string;
@@ -111,7 +120,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
 // Verdict aggregation
 // ---------------------------------------------------------------------------
 
-interface PersonVerdict {
+export interface PersonVerdict {
   /** Whether any machine evaluator gave spam confidence >= threshold. */
   hasConfidentSpam: boolean;
   /** Whether any machine evaluator gave a legit verdict at any confidence. */
@@ -125,205 +134,97 @@ interface PersonVerdict {
   humanEvaluatedAt: string | null;
 }
 
+/** Author stamped on the read-only transactions; they never commit. */
+const READ_AUTHOR = { name: 'prune-spam (read-only)', email: 'api@users.noreply.codeforphilly.org' };
+
 /**
- * Parse verdict, confidence, and evaluatedAt from TOML content using
- * line-regex (tolerant, avoids pulling in a full TOML parser for three fields).
+ * Open a gitsheets Repository on a bare or non-bare clone. The evaluations
+ * repo (the private spam-detection clone) is usually a working-tree clone.
  */
-function parseEvaluationRecord(tomlContent: string): {
-  verdict: string | null;
-  confidence: number | null;
-  evaluatedAt: string | null;
-} {
-  let verdict: string | null = null;
-  let confidence: number | null = null;
-  let evaluatedAt: string | null = null;
-
-  for (const line of tomlContent.split('\n')) {
-    const trimmed = line.trim();
-    const verdictMatch = trimmed.match(/^verdict\s*=\s*"([^"]+)"/);
-    if (verdictMatch) {
-      verdict = verdictMatch[1] ?? null;
-      continue;
-    }
-    const confidenceMatch = trimmed.match(/^confidence\s*=\s*([0-9.]+)/);
-    if (confidenceMatch) {
-      const parsed = Number.parseFloat(confidenceMatch[1] ?? '');
-      if (Number.isFinite(parsed)) confidence = parsed;
-      continue;
-    }
-    const atMatch = trimmed.match(/^evaluatedAt\s*=\s*"([^"]+)"/);
-    if (atMatch) evaluatedAt = atMatch[1] ?? null;
-  }
-
-  return { verdict, confidence, evaluatedAt };
+async function openAnyRepo(path: string): Promise<Repository> {
+  const dotGit = join(path, '.git');
+  return openRepo({ gitDir: existsSync(dotGit) ? dotGit : path });
 }
 
-const HUMAN_EVALUATOR_PREFIX = 'human-';
+/**
+ * Fold one person-evaluation record into the per-person verdict map. A
+ * record missing `verdict` (or, for machine records, `confidence`) does not
+ * contribute — heuristic records carry `score`, never `confidence`.
+ */
+export function foldEvaluation(
+  verdictMap: Map<string, PersonVerdict>,
+  record: Readonly<Record<string, unknown>>,
+  threshold: number,
+): void {
+  const personSlug = record['personSlug'];
+  const evaluator = record['evaluator'];
+  if (typeof personSlug !== 'string' || personSlug === '' || typeof evaluator !== 'string') return;
+
+  const verdict = typeof record['verdict'] === 'string' && record['verdict'] !== '' ? record['verdict'] : null;
+  const confidence =
+    typeof record['confidence'] === 'number' && Number.isFinite(record['confidence'])
+      ? record['confidence']
+      : null;
+  const rawAt = record['evaluatedAt'];
+  const evaluatedAt =
+    typeof rawAt === 'string' ? rawAt : rawAt instanceof Date ? rawAt.toISOString() : null;
+
+  let entry = verdictMap.get(personSlug);
+  if (!entry) {
+    entry = { hasConfidentSpam: false, hasAnyLegit: false, humanVerdict: null, humanEvaluatedAt: null };
+    verdictMap.set(personSlug, entry);
+  }
+  if (evaluator.startsWith(HUMAN_EVALUATOR_PREFIX)) {
+    // Latest human vote wins; ties resolve to whichever is read last.
+    if (verdict !== null && (entry.humanEvaluatedAt === null || (evaluatedAt ?? '') >= entry.humanEvaluatedAt)) {
+      entry.humanVerdict = verdict;
+      entry.humanEvaluatedAt = evaluatedAt ?? '';
+    }
+  } else if (verdict !== null && confidence !== null) {
+    // Heuristic records carry `score`, not `confidence`, and never
+    // reach here — they must be LLM-confirmed before they can prune.
+    if (verdict === 'spam' && confidence >= threshold) entry.hasConfidentSpam = true;
+    if (verdict === 'legit') entry.hasAnyLegit = true;
+  }
+}
 
 /**
- * Read all person-evaluations from the given ref via `git cat-file` bulk read.
- * Does NOT go through gitsheets — there are ~54k records and we want a
- * streaming git-native read. Returns a Map from personSlug → PersonVerdict.
+ * Read every person-evaluation at `ref` in `repo` and fold it into
+ * `verdictMap`.
+ *
+ * gitsheets 2.7 has no public "sheet at a ref" handle, so this opens a
+ * transaction parented on `ref` and only reads from it: a transaction with
+ * no mutations finalizes to `commitHash: null` and moves no ref. Swap for
+ * ref-scoped read-only sheets once gitsheets ships them (see the plan's
+ * `awaits`). A ref without a person-evaluations sheet config contributes
+ * nothing.
  */
-async function aggregateVerdicts(
-  repo: string,
-  evaluationsRef: string,
+export async function aggregateVerdicts(
+  repoPath: string,
+  ref: string,
   threshold: number,
   log: (msg: string) => void,
   verdictMap: Map<string, PersonVerdict> = new Map(),
 ): Promise<Map<string, PersonVerdict>> {
-  log(`[prune-spam] listing person-evaluations in ${repo} under ref=${evaluationsRef}`);
-
-  // List all blobs under person-evaluations/ in the evaluations ref.
-  const lsOutput = await exec(
-    'git',
-    ['ls-tree', '-r', '--format=%(objectname) %(path)', evaluationsRef, 'person-evaluations/'],
-    { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
+  log(`[prune-spam] reading person-evaluations in ${repoPath} at ref=${ref}`);
+  const repo = await openAnyRepo(repoPath);
+  // Parent on the resolved commit hash: the core takes branch names or
+  // hashes (not `HEAD`), and a hash parent never updates any ref.
+  const commit = await repo.resolveRef(ref);
+  if (commit === null) throw new Error(`[prune-spam] ref '${ref}' not found in ${repoPath}`);
+  const { value: records } = await repo.transact(
+    { parent: commit, message: 'prune-spam: read person-evaluations (never committed)', author: READ_AUTHOR },
+    async (tx) => {
+      try {
+        return await tx.sheet('person-evaluations').queryAll();
+      } catch (err) {
+        if (err instanceof ConfigError && err.code === 'config_missing') return [];
+        throw err;
+      }
+    },
   );
-
-  const lines = lsOutput.stdout.trim().split('\n').filter((l) => l.length > 0);
-  log(`[prune-spam] found ${lines.length} evaluation records`);
-
-  if (lines.length === 0) {
-    return verdictMap;
-  }
-
-  // Build a batch-check-mailbox input: one object hash per line.
-  // We'll use git cat-file --batch to stream all blob contents.
-  const hashPathPairs: Array<{ hash: string; path: string }> = [];
-  for (const line of lines) {
-    const spaceIdx = line.indexOf(' ');
-    if (spaceIdx === -1) continue;
-    const hash = line.slice(0, spaceIdx).trim();
-    const path = line.slice(spaceIdx + 1).trim();
-    if (hash && path.endsWith('.toml')) {
-      hashPathPairs.push({ hash, path });
-    }
-  }
-
-  log(`[prune-spam] streaming ${hashPathPairs.length} blobs via git cat-file`);
-
-  // Stream all blobs. We pass hashes on stdin, get "<hash> blob <size>\n<content>\n" back.
-  // Use child_process.spawn for streaming instead of execFile (fits in memory for this size).
-  const { spawn } = await import('node:child_process');
-
-  await new Promise<void>((resolvePromise, reject) => {
-    const catFile = spawn('git', ['cat-file', '--batch'], { cwd: repo });
-
-    let buffer = '';
-    let currentExpected: { hash: string; path: string; size: number } | null = null;
-    let contentAccum = '';
-    let contentRead = 0;
-    let inputIdx = 0;
-
-    // Write all hashes to stdin
-    const writeNext = (): void => {
-      if (inputIdx >= hashPathPairs.length) {
-        catFile.stdin.end();
-        return;
-      }
-      const pair = hashPathPairs[inputIdx++];
-      if (pair) {
-        catFile.stdin.write(pair.hash + '\n');
-      }
-    };
-
-    // Kick it off — write all at once (output is streamed back)
-    for (const pair of hashPathPairs) {
-      catFile.stdin.write(pair.hash + '\n');
-    }
-    catFile.stdin.end();
-
-    catFile.stdout.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString('utf8');
-
-      // Process as many complete records as possible from buffer.
-      while (buffer.length > 0) {
-        if (currentExpected === null) {
-          // Look for a header line: "<hash> blob <size>\n"
-          const nlIdx = buffer.indexOf('\n');
-          if (nlIdx === -1) break; // incomplete header
-          const header = buffer.slice(0, nlIdx);
-          buffer = buffer.slice(nlIdx + 1);
-
-          const parts = header.trim().split(' ');
-          if (parts.length < 3) continue;
-          const hash = parts[0]!;
-          const size = Number.parseInt(parts[2] ?? '0', 10);
-
-          // Find the corresponding path
-          const pairEntry = hashPathPairs.find((p) => p.hash === hash);
-          if (!pairEntry || !Number.isFinite(size)) continue;
-
-          currentExpected = { hash, path: pairEntry.path, size };
-          contentAccum = '';
-          contentRead = 0;
-        }
-
-        if (currentExpected !== null) {
-          // We need `size` bytes of content + 1 trailing newline
-          const needed = currentExpected.size + 1 - contentRead;
-          if (buffer.length < needed) {
-            // Not enough yet
-            contentAccum += buffer;
-            contentRead += buffer.length;
-            buffer = '';
-            break;
-          }
-          const chunk2 = buffer.slice(0, needed);
-          buffer = buffer.slice(needed);
-          contentAccum += chunk2;
-
-          // Parse the TOML
-          const tomlContent = contentAccum.slice(0, currentExpected.size);
-          const pathParts = currentExpected.path.split('/');
-          // path is like: person-evaluations/<personSlug>/<evaluator>.toml
-          const personSlug = pathParts[1];
-          const evaluator = (pathParts[2] ?? '').replace(/\.toml$/, '');
-          if (personSlug) {
-            const { verdict, confidence, evaluatedAt } = parseEvaluationRecord(tomlContent);
-            let entry = verdictMap.get(personSlug);
-            if (!entry) {
-              entry = { hasConfidentSpam: false, hasAnyLegit: false, humanVerdict: null, humanEvaluatedAt: null };
-              verdictMap.set(personSlug, entry);
-            }
-            if (evaluator.startsWith(HUMAN_EVALUATOR_PREFIX)) {
-              // Latest human vote wins; ties resolve to whichever is read last.
-              if (verdict !== null && (entry.humanEvaluatedAt === null || (evaluatedAt ?? '') >= entry.humanEvaluatedAt)) {
-                entry.humanVerdict = verdict;
-                entry.humanEvaluatedAt = evaluatedAt ?? '';
-              }
-            } else if (verdict !== null && confidence !== null) {
-              // Heuristic records carry `score`, not `confidence`, and never
-              // reach here — they must be LLM-confirmed before they can prune.
-              if (verdict === 'spam' && confidence >= threshold) entry.hasConfidentSpam = true;
-              if (verdict === 'legit') entry.hasAnyLegit = true;
-            }
-          }
-
-          currentExpected = null;
-          contentAccum = '';
-          contentRead = 0;
-        }
-      }
-    });
-
-    catFile.stderr.on('data', (d: Buffer) => {
-      process.stderr.write(`[git cat-file stderr] ${d.toString()}`);
-    });
-
-    catFile.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(`git cat-file exited with code ${code}`));
-      } else {
-        resolvePromise();
-      }
-    });
-
-    // Suppress unused variable warning — writeNext declared for clarity
-    void writeNext;
-  });
-
+  log(`[prune-spam] found ${records.length} evaluation records`);
+  for (const record of records) foldEvaluation(verdictMap, record, threshold);
   return verdictMap;
 }
 
@@ -417,30 +318,26 @@ export interface PruneSummary {
 }
 
 // ---------------------------------------------------------------------------
-// Git helpers (mirroring import-laddr/importer.ts)
+// Branch resolution
 // ---------------------------------------------------------------------------
 
-async function ensureBranchCheckedOut(repo: string, branch: string): Promise<void> {
-  // Ensure the local branch ref exists (it should for 'published' in a fresh clone)
-  try {
-    await exec('git', ['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repo });
-  } catch {
-    // Try to create from origin/<branch>
-    try {
-      const result = await exec(
-        'git',
-        ['rev-parse', '--verify', `refs/remotes/origin/${branch}`],
-        { cwd: repo },
-      );
-      const parentCommit = result.stdout.trim();
-      await exec('git', ['update-ref', `refs/heads/${branch}`, parentCommit], { cwd: repo });
-    } catch {
-      throw new Error(`[prune-spam] branch '${branch}' not found in ${repo}`);
-    }
-  }
-
-  // Point HEAD at the branch
-  await exec('git', ['symbolic-ref', 'HEAD', `refs/heads/${branch}`], { cwd: repo });
+/**
+ * Resolve the local branch the prune commits onto, creating it from
+ * `origin/<branch>` when a fresh clone lacks it. HEAD is not touched — the
+ * commit is aimed at the branch through `transact({ parent, branch })`.
+ *
+ * Creating the ref stays on raw git: gitsheets 2.7's `transact({ branch })`
+ * only advances an existing branch (compare-and-swap against `parent`), and
+ * exposes no public "create branch" call.
+ */
+async function resolveTargetBranch(repo: Repository, repoPath: string, branch: string): Promise<string> {
+  const ref = `refs/heads/${branch}`;
+  if ((await repo.resolveRef(ref)) !== null) return ref;
+  const origin = await repo.resolveRef(`refs/remotes/origin/${branch}`);
+  if (origin === null) throw new Error(`[prune-spam] branch '${branch}' not found in ${repoPath}`);
+  // Create-only (empty old value): fails rather than clobbering a racing writer.
+  await exec('git', ['update-ref', ref, origin, ''], { cwd: repoPath });
+  return ref;
 }
 
 // ---------------------------------------------------------------------------
@@ -450,13 +347,13 @@ async function ensureBranchCheckedOut(repo: string, branch: string): Promise<voi
 const AUTHOR_NAME = 'Code for Philly API';
 const AUTHOR_EMAIL = 'api@users.noreply.codeforphilly.org';
 
-async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
+export async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
   const log = args.verbose
     ? (msg: string) => console.log(msg)
     : (): void => {};
 
   // -------------------------------------------------------------------------
-  // 1. Read verdicts from evaluations ref (efficient git read)
+  // 1. Read verdicts: machine evaluations + staff human votes
   // -------------------------------------------------------------------------
   log(
     `[prune-spam] reading machine verdicts from ${args.evaluationsRepo}@${args.evaluationsRef}, ` +
@@ -477,53 +374,20 @@ async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
   );
 
   // -------------------------------------------------------------------------
-  // 2. Open the published store
+  // 2. Open the data store and resolve the target branch
   // -------------------------------------------------------------------------
-  log(`[prune-spam] switching ${args.dataRepo} HEAD → refs/heads/${args.branch}`);
-  await ensureBranchCheckedOut(args.dataRepo, args.branch);
-
-  const { store } = await openPublicStore(args.dataRepo);
-
-  // -------------------------------------------------------------------------
-  // 3. Count people before pruning
-  // -------------------------------------------------------------------------
-  let peopleBefore = 0;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  for await (const _p of store.people.query()) {
-    peopleBefore++;
-  }
-  log(`[prune-spam] peopleBefore=${peopleBefore}`);
-
-  if (args.dryRun) {
-    // Apply the same partition (verdict candidates minus project members)
-    // the real run uses, so the count is accurate.
-    const { prune, protectedByMembership } = await partitionCandidates(
-      store as unknown as Queryable,
-      pruneSet,
-      humanSpam,
-    );
-    console.log(
-      `[prune-spam] dry-run: would prune ${prune.length} (of ${pruneSet.size} verdict-flagged slugs); ${protectedByMembership} protected by project membership`,
-    );
-    return {
-      peopleBefore,
-      prunedPeople: prune.length,
-      peopleAfter: peopleBefore - prune.length,
-      protectedByMembership,
-      membershipsDeleted: 0,
-      helpWantedInterestDeleted: 0,
-      personTagAssignmentsDeleted: 0,
-      projectUpdatesAuthorNulled: 0,
-      commitHash: null,
-      noChanges: true,
-    };
-  }
+  const { store, repo } = await openPublicStore(args.dataRepo);
+  const branchRef = await resolveTargetBranch(repo, args.dataRepo, args.branch);
+  log(`[prune-spam] pruning ${args.dataRepo} ${branchRef}`);
 
   // -------------------------------------------------------------------------
-  // 4. One atomic transaction: delete people + cascade
+  // 3. One atomic transaction on the branch: count, partition, then (unless
+  //    dry-run) delete people + cascade. A dry-run mutates nothing, so the
+  //    transaction finalizes without a commit.
   // -------------------------------------------------------------------------
   const runAt = new Date().toISOString();
 
+  let peopleBefore = 0;
   let prunedPeople = 0;
   let protectedByMembership = 0;
   let membershipsDeleted = 0;
@@ -533,6 +397,8 @@ async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
 
   const result = await store.transact(
     {
+      parent: branchRef,
+      branch: branchRef,
       message: `prune: remove confident-spam people from published (${runAt})\n\nThreshold: ${args.threshold}, pruneSet: ${pruneSet.size} slugs evaluated.\n`,
       author: { name: AUTHOR_NAME, email: AUTHOR_EMAIL },
       trailers: {
@@ -543,6 +409,9 @@ async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
       },
     },
     async (tx) => {
+      peopleBefore = await tx.people.count();
+      log(`[prune-spam] peopleBefore=${peopleBefore}`);
+
       // --- Step A: Partition verdict candidates; protect project members ---
       // Real project involvement overrides a spam verdict, so candidates who
       // hold a project-membership are kept (see the spec).
@@ -553,6 +422,14 @@ async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
         humanSpam,
       );
       protectedByMembership = protectedCount;
+
+      if (args.dryRun) {
+        prunedPeople = prune.length;
+        console.log(
+          `[prune-spam] dry-run: would prune ${prune.length} (of ${pruneSet.size} verdict-flagged slugs); ${protectedByMembership} protected by project membership`,
+        );
+        return;
+      }
 
       const prunedIds = new Set<string>(prune.map((c) => c.id));
       for (const c of prune) {
@@ -620,6 +497,9 @@ async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
   );
 
   const peopleAfter = peopleBefore - prunedPeople;
+  if (args.dryRun && result.commitHash !== null) {
+    throw new Error('[prune-spam] internal: dry-run produced a commit');
+  }
 
   return {
     peopleBefore,
