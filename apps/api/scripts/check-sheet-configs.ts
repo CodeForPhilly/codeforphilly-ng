@@ -11,7 +11,8 @@
  * Usage:
  *   npm run -w apps/api check:sheet-configs [-- --remote=<url>] [-- --ref=<branch>]
  *
- * Exits 1 and prints each differing, missing, or extra config on drift.
+ * Exits 1 when a vendored config differs from upstream or is missing there.
+ * A config only upstream (a sheet the app doesn't open yet) is a warning.
  */
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
@@ -54,14 +55,23 @@ async function main(): Promise<number> {
       vendored.set(name, await readFile(join(VENDORED_DIR, name), 'utf8'));
     }
 
+    // A sheet lands in the data repo before the app opens it, so a config
+    // only upstream is expected mid-change: warn. Anything the app vendors
+    // must match upstream exactly.
     const problems: string[] = [];
+    const upstreamOnly: string[] = [];
     for (const [name, contents] of upstream) {
       const ours = vendored.get(name);
-      if (ours === undefined) problems.push(`missing locally: ${name}`);
+      if (ours === undefined) upstreamOnly.push(name);
       else if (ours !== contents) problems.push(`differs: ${name}`);
     }
     for (const name of vendored.keys()) {
       if (!upstream.has(name)) problems.push(`not in ${ref}: ${name}`);
+    }
+
+    for (const name of upstreamOnly) {
+      const msg = `${name} is in ${ref} but not vendored in apps/api/gitsheets/ (expected while a new sheet is landing)`;
+      console.warn(process.env.GITHUB_ACTIONS ? `::warning title=Sheet config not vendored::${msg}` : `warning: ${msg}`);
     }
 
     if (problems.length > 0) {
