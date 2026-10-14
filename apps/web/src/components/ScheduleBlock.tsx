@@ -74,7 +74,8 @@ export function ScheduleBlock({ agenda, eventVenue = null, id, className }: Sche
               {d.items.map(({ item, venue }, i) => (
                 <li key={`${item.startsAt}-${i}`} className="text-sm">
                   <div className="flex gap-3">
-                    <span className="w-20 shrink-0 text-muted-foreground">
+                    {/* Wide enough for the longest range ("11:30am–12:30pm") on one line. */}
+                    <span className="w-28 shrink-0 whitespace-nowrap tabular-nums text-muted-foreground">
                       {formatCompactRange(item.startsAt, item.endsAt)}
                     </span>
                     <div className="min-w-0">
