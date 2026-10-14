@@ -113,9 +113,9 @@ Each entity lives in one sheet. The path template determines how records are sto
 | BlogPost | `blog-posts` | `blog-posts/${slug}.md` (markdown format, body in `body`) |
 | HelpWantedRole | `help-wanted-roles` | `help-wanted-roles/${projectSlug}/${id}.toml` |
 | HelpWantedInterestExpression | `help-wanted-interest` | `help-wanted-interest/${roleId}/${personSlug}.toml` |
-| Event | `events` | `events/${slug}.toml` |
-| EventRsvp | `event-rsvps` | `event-rsvps/${eventSlug}/${personSlug}.toml` |
-| EventSeries | `event-series` | `event-series/${slug}.toml` |
+| Event | `events` | `events/${year}/${slug}.md` — markdown body `description`; `year` rendered from `startsAt` |
+| EventRsvp | `event-rsvps` | `event-rsvps/${year}/${eventSlug}/${personSlug}.toml` |
+| EventSeries | `event-series` | `event-series/${slug}.md` — markdown body `description` |
 | Tag | `tags` | `tags/${namespace}/${slug}.toml` |
 | TagAssignment | `tag-assignments` | `tag-assignments/${taggableType}/${taggableId}/${tagId}.toml` |
 | SlugHistory | `slug-history` | `slug-history/${entityType}/${oldSlug}.toml` |
