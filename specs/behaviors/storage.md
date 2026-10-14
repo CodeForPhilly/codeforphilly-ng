@@ -114,6 +114,7 @@ Each entity lives in one sheet. The path template determines how records are sto
 | HelpWantedInterestExpression | `help-wanted-interest` | `help-wanted-interest/${roleId}/${personSlug}.toml` |
 | Event | `events` | `events/${slug}.toml` |
 | EventRsvp | `event-rsvps` | `event-rsvps/${eventSlug}/${personSlug}.toml` |
+| EventSeries | `event-series` | `event-series/${slug}.toml` |
 | Tag | `tags` | `tags/${namespace}/${slug}.toml` |
 | TagAssignment | `tag-assignments` | `tag-assignments/${tagId}/${taggableType}/${taggableId}.toml` |
 | SlugHistory | `slug-history` | `slug-history/${entityType}/${oldSlug}.toml` |

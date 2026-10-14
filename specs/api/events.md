@@ -11,15 +11,20 @@ Events and RSVPs. Rules in [behaviors/events.md](../behaviors/events.md); record
 | `GET` | `/api/events/:slug` | public | Event detail with the caller's RSVP state. |
 | `GET` | `/api/events/:slug/ics` | public | One event as an `.ics` file. |
 | `GET` | `/api/events/:slug/rsvps` | public | Going attendees. |
-| `PUT` | `/api/events/:slug/rsvp` | user | RSVP, or update the caller's project choice. |
+| `PUT` | `/api/events/:slug/rsvp` | user | RSVP, or answer the follow-up. |
 | `DELETE` | `/api/events/:slug/rsvp` | user | Withdraw the caller's RSVP. |
 | `POST` | `/api/events` | staff | Create. |
 | `PATCH` | `/api/events/:slug` | staff | Edit. |
 | `POST` | `/api/events/:slug/publish` | staff | `draft` → `scheduled`. |
 | `POST` | `/api/events/:slug/cancel` | staff | `scheduled` → `cancelled`; notifies attendees. |
 | `DELETE` | `/api/events/:slug` | staff | Hard delete a draft or RSVP-less event. |
+| `GET` | `/api/event-series` | public | List series. |
+| `GET` | `/api/event-series/:slug` | public | Series detail with its events. |
+| `POST` | `/api/event-series` | staff | Create a series. |
+| `PATCH` | `/api/event-series/:slug` | staff | Edit a series. |
+| `DELETE` | `/api/event-series/:slug` | staff | Delete an empty series. |
 
-Events are keyed in URLs by `slug`. `feed.ics` is matched before `:slug` (and `feed` is a reserved slug).
+Events are keyed in URLs by `slug`. `feed.ics` is matched before `:slug` (and `feed` is a reserved slug). Series live under their own collection path so `/api/events/:slug` never has to disambiguate.
 
 The two `.ics` routes are the documented exception to [conventions.md#content-type](conventions.md#content-type): they respond `text/calendar; charset=utf-8` with a `Content-Disposition: attachment; filename="<slug>.ics"` (single event) or `inline` (feed), and on error fall back to the normal JSON envelope.
 
@@ -73,14 +78,12 @@ The event as a single-`VEVENT` `VCALENDAR`. Available for `scheduled` and `cance
 
 ### Response — 200
 
-Sorted by `createdAt` ascending (first to RSVP first). Clients group by project per [behaviors/events.md#rsvp-to-a-project](../behaviors/events.md#rsvp-to-a-project).
+Sorted by `createdAt` ascending (first to RSVP first). Clients group per [behaviors/events.md#the-follow-up-what-are-you-coming-to-do](../behaviors/events.md#the-follow-up-what-are-you-coming-to-do).
 
 ```json
 {
   "success": true,
-  "data": [
-    { "person": PersonAvatar, "project": { "slug": "squadquest", "title": "SquadQuest" } | null, "createdAt": "..." }
-  ]
+  "data": [ EventRsvp, ... ]
 }
 ```
 
@@ -88,17 +91,20 @@ Deactivated people appear as the [placeholder](people.md#deactivated-person-plac
 
 ## PUT /api/events/:slug/rsvp
 
-Idempotent "I'm going" for the caller. Creates the RSVP if absent; otherwise updates only the project choice.
+Idempotent "I'm going" for the caller. Creates the RSVP if absent; otherwise updates only the follow-up answer.
 
 ### Request
 
 ```json
-{ "projectSlug": "squadquest" }
+{ "plan": "project", "projectSlug": "squadquest" }
 ```
 
 | Field | Required | Notes |
 | ----- | -------- | ----- |
-| projectSlug | no | A non-deleted project's slug, or `null` to clear. Omitted = leave unchanged (on create: none). |
+| plan | no | `newcomer` \| `no_project` \| `project` \| `null` (clear the answer). Omitted = leave unchanged (on create: unanswered). |
+| projectSlug | with `plan = project` | A non-deleted project's slug. Ignored and cleared for any other `plan`. |
+
+An empty body `{}` is the plain one-click RSVP.
 
 ### Response — 200 (updated) / 201 (created)
 
@@ -119,6 +125,7 @@ Idempotent "I'm going" for the caller. Creates the RSVP if absent; otherwise upd
 
 - `409 conflict` with `error.code = "rsvp_closed"` — event is `draft`, `cancelled`, or `endsAt ≤ now`
 - `404 not_found` — unknown event, or `projectSlug` doesn't resolve
+- `422 validation_failed` — `plan = project` without a `projectSlug`
 - `401 unauthenticated`
 
 ## DELETE /api/events/:slug/rsvp
@@ -148,6 +155,11 @@ Also `204` when there was no RSVP to remove (idempotent).
   "venueAddress": "709 N 2nd St, 3rd Floor, Philadelphia, PA 19123",
   "onlineUrl": null,
   "meetupUrl": "https://www.meetup.com/code-for-philly/events/123456789/",
+  "seriesSlug": "monthly-hack-nights",
+  "agenda": [
+    { "startsAt": "2026-11-03T23:00:00Z", "endsAt": "2026-11-03T23:30:00Z", "title": "Welcome & project pitches" },
+    { "startsAt": "2026-11-03T23:30:00Z", "title": "Hack", "description": "Find your table." }
+  ],
   "status": "scheduled"
 }
 ```
@@ -155,6 +167,8 @@ Also `204` when there was no RSVP to remove (idempotent).
 | Field | Required | Notes |
 | ----- | -------- | ----- |
 | title | yes | 1–200 chars. |
+| seriesSlug | no | An existing series' slug, or `null`. To create a series inline, call `POST /api/event-series` first. |
+| agenda | no | Array of agenda items per [data-model.md#agenda-items](../data-model.md#agenda-items); ≤ 50; each `startsAt` within the event; sorted on write. Default `[]`. |
 | slug | no | Defaults to `<YYYY-MM-DD of startsAt in America/New_York>-<slugified title>`, de-duplicated with `-2`, `-3`, … Must match the event slug pattern in [slug-handles.md](../behaviors/slug-handles.md). |
 | description | no | Markdown, ≤ 20,000 chars. |
 | startsAt | yes | ISO 8601 UTC. |
@@ -178,7 +192,7 @@ Also `204` when there was no RSVP to remove (idempotent).
 
 ## PATCH /api/events/:slug
 
-Editable fields: `title`, `slug`, `description`, `startsAt`, `endsAt`, `venueName`, `venueAddress`, `onlineUrl`, `meetupUrl`. Partial body; omitted fields are unchanged; `null` clears a nullable field. `status` is not editable here.
+Editable fields: `title`, `slug`, `description`, `startsAt`, `endsAt`, `venueName`, `venueAddress`, `onlineUrl`, `meetupUrl`, `seriesSlug`, `agenda`. Partial body; omitted fields are unchanged; `null` clears a nullable field; `agenda` is replaced whole when present. `status` is not editable here.
 
 Side effects per [behaviors/events.md](../behaviors/events.md#changing-and-cancelling-after-people-rsvpd): calendar-relevant changes bump `icsSequence`; time/location changes on a `scheduled` event with RSVPs email every attendee. A `slug` change writes `SlugHistory` (`entityType = "event"`) and moves the event's RSVP records to the new path in the same commit.
 
@@ -256,11 +270,15 @@ Hard delete. Permitted only when `status = draft` or the event has no RSVPs. Rem
   "venueAddress": "709 N 2nd St…" | null,
   "onlineUrl": null,
   "meetupUrl": "https://www.meetup.com/…" | null,
+  "series": { "slug": "monthly-hack-nights", "title": "Monthly Hack Nights" } | null,
+  "agenda": [
+    { "startsAt": "...", "endsAt": "..." | null, "title": "...", "venueName": null, "venueAddress": null, "description": null, "descriptionHtml": null }
+  ],
   "status": "scheduled",
   "cancelledAt": null,
   "cancellationNote": null,
   "rsvpCount": 14,
-  "viewerRsvp": { "project": { "slug": "squadquest", "title": "SquadQuest" } | null, "createdAt": "..." } | null,
+  "viewerRsvp": { "plan": "project" | "newcomer" | "no_project" | null, "project": { "slug": "squadquest", "title": "SquadQuest" } | null, "createdAt": "..." } | null,
   "icsUrl": "/api/events/2026-11-03-hack-night/ics",
   "permissions": {
     "canRsvp": true,
@@ -280,15 +298,62 @@ Hard delete. Permitted only when `status = draft` or the event has no RSVPs. Rem
 - `permissions.canRsvp` is `true` exactly when a `PUT …/rsvp` from this caller would succeed (signed in, event `scheduled`, `endsAt > now`). Anonymous callers get `false`; the client renders "Sign in to RSVP" from the auth context.
 - `icsSequence`, `reminders`, and `createdById` are internal and not serialized.
 
-**EventSummary** is the same shape minus `description`, `descriptionHtml`, `cancellationNote`, and `permissions`.
+**EventSummary** is the same shape minus `description`, `descriptionHtml`, `cancellationNote`, `agenda`, and `permissions` (it keeps `series`).
 
 ## EventRsvp shape
 
 ```json
 {
   "person": PersonAvatar,
+  "plan": "project" | "newcomer" | "no_project" | null,
   "project": { "slug": "squadquest", "title": "SquadQuest" } | null,
   "createdAt": "...",
   "updatedAt": "..."
 }
 ```
+
+## Event series
+
+### GET /api/event-series
+
+Query: `page`, `perPage` (default 50). Sorted by `title`. Response `data: [EventSeries, ...]`. Series whose events are all drafts are omitted for non-staff.
+
+### GET /api/event-series/:slug
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "<uuid>",
+    "slug": "monthly-hack-nights",
+    "title": "Monthly Hack Nights",
+    "description": "…" | null,
+    "descriptionHtml": "…" | null,
+    "upcoming": [EventSummary, ...],
+    "past": [EventSummary, ...],
+    "permissions": { "canEdit": false, "canDelete": false },
+    "createdAt": "...",
+    "updatedAt": "..."
+  }
+}
+```
+
+`upcoming` sorts by `startsAt` ascending; `past` descending, capped at 50 (older events are reachable via `GET /api/events?when=past` — a series filter is not in v1). Drafts appear only for staff.
+
+### POST /api/event-series
+
+| Field | Required | Notes |
+| ----- | -------- | ----- |
+| title | yes | 1–120 chars. |
+| slug | no | Defaults to the slugified title. |
+| description | no | Markdown, ≤ 10,000 chars. |
+
+`201` with the series. `409 slug_taken` on collision.
+
+### PATCH /api/event-series/:slug
+
+Editable: `title`, `slug`, `description`. A slug change writes `SlugHistory` (`entityType = "event_series"`). `200` with the series.
+
+### DELETE /api/event-series/:slug
+
+`204`. `409 conflict` with `error.code = "has_events"` while any event references the series — reassign or clear those first.

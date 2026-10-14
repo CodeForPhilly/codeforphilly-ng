@@ -138,6 +138,7 @@ Optional row below the header. A screen opts in by declaring a `breadcrumbs` tra
 | `/events/:slug` | Events › `<title>` |
 | `/events/:slug/edit` | Events › `<title>` › Edit |
 | `/events/new` | Events › New event |
+| `/events/series/:slug` | Events › `<series title>` |
 | `/account` | Settings |
 
 Each segment except the last is a link to the parent route.

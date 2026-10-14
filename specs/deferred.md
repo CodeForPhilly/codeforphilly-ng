@@ -65,11 +65,17 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 
 ## Deferred
 
-### Event programs with sessions
+### Private RSVPs
 
-- **What:** Laddr's `Event` + `EventSegment` pair: a multi-week program (Launchpad, a hackathon) whose detail page carried a day-grouped "Schedule" sidebar of sessions, each with its own time, venue, and page. It held four records in twelve years.
-- **Why deferred:** The v1 goal ([behaviors/events.md](behaviors/events.md)) is displacing Meetup for the monthly hack night, which is a flat, single-session event with RSVPs. Programs are a different shape and not the current need.
-- **When promoted:** Add a nullable `parentId` on `Event`. A parent event (the program) spans its children's date range, renders them as the day-grouped schedule sidebar, and does **not** take RSVPs itself — RSVPs stay on the sessions, so "going to Showcase Night" stays one click. The flat v1 record needs no migration; the four backfilled laddr programs would regain their sessions by splitting their flattened descriptions back out.
+- **What:** A way to RSVP without appearing on the public attendee list.
+- **Why deferred:** RSVP records live in the public data repo, and the attendee list is the feature ([behaviors/events.md](behaviors/events.md#rsvps-are-public)). A "hide me" flag on the public record would be a promise the storage can't keep.
+- **When promoted:** Keep the public record as the only thing the attendee list reads, and add a *supplemental* private RSVP record in the private store ([behaviors/private-storage.md](behaviors/private-storage.md)) for members who choose "RSVP privately". Private RSVPs count toward `rsvpCount` only as an aggregate ("14 going · 2 private"), receive the same confirmation and reminder emails, and never produce a public file. The reminder sweep would read both stores.
+
+### Per-session RSVPs on multi-day events
+
+- **What:** RSVPing to one agenda item of a big event ("just the Showcase Night") rather than the whole thing.
+- **Why deferred:** Agenda items are embedded in the event record and carry no identity ([data-model.md](data-model.md#agenda-items)). The four historical Launchpads are the only events that ever had sessions, and they handled per-session tickets off-site.
+- **When promoted:** Make each session its own flat `Event` in the same `EventSeries`. The series page already renders them as a day-grouped schedule; nothing about the record shape changes.
 
 ### Event recurrence
 
