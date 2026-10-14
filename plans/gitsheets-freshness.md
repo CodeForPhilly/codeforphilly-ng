@@ -1,10 +1,11 @@
 ---
-status: planned
+status: done
 depends: [gitsheets-2x-bump, slug-history-config]
 specs:
   - specs/behaviors/storage.md
 issues:
   - 150
+pr: 200
 ---
 
 # Plan: gitsheets 2.7 — retire the stale-Sheet workarounds
@@ -109,24 +110,24 @@ Out (separate plans):
 
 ## Validation
 
-- [ ] `storage.md` updated in its own commit before the code changes
-- [ ] `gitsheets` resolves to ≥ 2.7.0; `@gitsheets/core-napi` loads in the
+- [x] `storage.md` updated in its own commit before the code changes
+- [x] `gitsheets` resolves to ≥ 2.7.0; `@gitsheets/core-napi` loads in the
       Alpine (`linux-x64-musl`) image
-- [ ] grep clean: `data-repo-lock`, `swapPublic`, `stripNullish`,
+- [x] grep clean: `data-repo-lock`, `swapPublic`, `stripNullish`,
       `asValidator`, `defineIndex`, `cat-file` in `routes/`, `git push` in
       `store/reconcile.ts`
-- [ ] New test: a write issued during a hot reload queues behind it and
+- [x] New test: a write issued during a hot reload queues behind it and
       survives (no clobber)
-- [ ] New test: hot reload picks up a revocation added upstream
-- [ ] New test: webhook rejects a non-default `branch` with 400
-- [ ] Attachments: 200 with `ETag` for an existing key, 304 on
+- [x] New test: hot reload picks up a revocation added upstream
+- [x] New test: webhook rejects a non-default `branch` with 400
+- [x] Attachments: 200 with `ETag` for an existing key, 304 on
       `If-None-Match`, 404 for a missing key, correct empty-blob handling
-- [ ] A write of a record with cleared optional fields still produces no
+- [x] A write of a record with cleared optional fields still produces no
       `null` keys on disk; no schema emits a `null` array element (2.3 throws
       on those)
 - [ ] After a hot-reload rebase, the push daemon status is healthy (not
       `non-fast-forward`)
-- [ ] `type-check` + `lint` + full api suite green
+- [x] `type-check` + `lint` + full api suite green
 - [ ] Sandbox: boot to ready and one hot-reload round trip succeed; record
       boot and reload timing vs. 2.2
 
@@ -145,4 +146,31 @@ Out (separate plans):
 
 ## Notes
 
+- **Unchecked: daemon health after a rebase.** Covered by a unit test that
+  reconcile hands rebased/ahead commits to the `push` option, and by reading
+  gitsheets' daemon: a non-fast-forward isn't sticky, so the next
+  `notifyCommit` gets a fresh attempt. A real post-rebase push wasn't
+  exercised end to end.
+- **Unchecked: sandbox boot + hot-reload round trip.** Needs a release. The
+  Alpine image builds and `@gitsheets/core-napi` 0.5.0 loads in it (checked
+  locally with `docker build`).
+- The spec commit landed after the generated dependency-bump commit but
+  before any code change.
+- Found while testing: boot reconcile moved the branch after the store had
+  opened its sheets, so a boot-time fast-forward served the old tree. Every
+  pod start does a fresh clone, so this was rarely hit. Fixed here by
+  refreshing whenever reconcile moves the branch; a test fails without it.
+- Fetch runs outside the lock (via the new `fetchRemoteBranch`), and
+  reconcile's ref moves stay CAS. Writes queue only for the rebuild.
+- The hot-reload response now reports `noChanges` for `pushed-ahead` and
+  `fetch-failed` too. Before, it rebuilt for any outcome other than `in-sync`.
+- Attachments use `sheet.getAttachment` + `read()`, not `readBlobStream`: the
+  in-core hash gives the ETag without a spawn, and a 304 reads no blob.
+  2.7's `BlobHandle` has no stream, so a 200 buffers the blob. That's fine
+  at avatar/hero-image sizes.
+
 ## Follow-ups
+
+- Tracked as: sandbox validation of the next release (see Notes).
+- Deferred to [`incremental-reload`](incremental-reload.md) — shrink the
+  write-blocking window during hot reload.
