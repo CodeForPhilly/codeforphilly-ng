@@ -1,11 +1,11 @@
 /**
- * The canonical `.gitsheets/*.toml` sheet configs, vendored from the data
- * repo's `empty` branch into `apps/api/gitsheets/`. Every test data repo is
+ * The canonical `.gitsheets/` sheet configs and schema contracts, vendored
+ * from the data repo's `empty` branch into `apps/api/gitsheets/`. Every test data repo is
  * seeded from these so tests run against the same path templates production
  * does. `npm run -w apps/api check:sheet-configs` verifies the vendored copy
  * still matches the data repo.
  */
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,10 +25,16 @@ export async function loadSheetConfigs(
   return Object.fromEntries(entries);
 }
 
-/** Write the canonical configs into `<dir>/.gitsheets/`. */
+/**
+ * Write the canonical configs into `<dir>/.gitsheets/`, plus the vendored
+ * schema contracts (`contracts/`) that sheet configs may declare.
+ */
 export async function writeSheetConfigs(dir: string, only?: readonly string[]): Promise<void> {
   await mkdir(join(dir, '.gitsheets'), { recursive: true });
   for (const [name, contents] of Object.entries(await loadSheetConfigs(only))) {
     await writeFile(join(dir, '.gitsheets', `${name}.toml`), contents);
   }
+  await cp(join(SHEET_CONFIG_DIR, 'contracts'), join(dir, '.gitsheets', 'contracts'), {
+    recursive: true,
+  });
 }

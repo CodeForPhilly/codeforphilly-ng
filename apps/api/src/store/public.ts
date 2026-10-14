@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { openRepo, openStore } from 'gitsheets';
 import type { Repository, Store, StoreTx, ValidatorMap } from 'gitsheets';
+import { PERSON_EVALUATIONS_CONTRACT_V1 } from '@cfp/shared';
 import {
   BlogPostSchema,
   HelpWantedInterestExpressionSchema,
@@ -83,5 +84,15 @@ export async function openPublicStore(
   repo.requireExplicitTransactions();
 
   const store = await openStore(repo, { validators: PUBLIC_SHEET_SCHEMAS });
+
+  // person-evaluations is shared with the private spam pipeline through a
+  // versioned schema contract (specs/behaviors/spam-exclusion.md). Refuse to
+  // boot against a data repo whose sheet doesn't satisfy it: gitsheets
+  // checks the declared contract's identity first, falling back to
+  // validating every record.
+  await repo.openSheet('person-evaluations', {
+    contract: { schema: PERSON_EVALUATIONS_CONTRACT_V1 },
+  });
+
   return { store, repo };
 }
