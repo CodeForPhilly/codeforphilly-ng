@@ -27,7 +27,8 @@ In:
 - `person-evaluations`: keep `v1` if the generated document is
   canonically identical to the hand-authored one; otherwise publish `v2`
   and move every adopter to it. `v1` is never edited.
-- The API opens every public sheet against its contract at boot.
+- The API opens every public sheet against its contract at boot in
+  `declared` mode (identity only, no structural fallback).
 - `apps/api/gitsheets/` mirrors the adopted contracts; a test checks each
   mirrored TOML hashes the same as its published JSON.
 - Data repo: adopt every contract on `empty`, `fixture`, `legacy-import`
@@ -82,9 +83,10 @@ each).
   (e.g. a legacy-import quirk). Adoption's validate-existing pass surfaces
   this before anything is committed. Fix the data or loosen the Zod
   schema, never the generated contract by hand.
-- Boot time: verifying a sheet that doesn't declare the identical contract
-  reads every record. That's the case only between an API release and
-  adoption.
+- No structural fallback (`declared` mode): an API and a `published`
+  branch on different contract versions won't boot together. The release
+  and the `published` adoption ship together; v0.6.0 (which still falls
+  back) bridges production from gitsheets 2.2 first.
 
 ## Notes
 
