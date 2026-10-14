@@ -1,11 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/behaviors/storage.md
 issues:
   - 150
-pr:
+pr: 151
 ---
 
 # Plan: upgrade gitsheets 1.4.1 → 2.x (Rust core)
@@ -126,3 +126,28 @@ API. Sites:
 - [x] type-check + lint clean
 - [x] full api suite green (no re-baseline test updates were needed — see below)
 - [x] byte-parity on `published` = lossless (only documented re-baselines)
+
+## Notes
+
+- Merged 2026-07-04 as PR #151; the closeout commit was missed at the time
+  and is recorded retroactively here (2026-10-13). Shipped at `^2.2.0`.
+- One test needed an assertion fix, not a re-baseline: a
+  `not.toContain('null')` false-matched the fixture's own "Nullish Person"
+  name. Suite was 423/423 under 2.x.
+- The null-marshal break was later fixed upstream (gitsheets #241, 2.3.1 —
+  null/undefined keys are dropped natively), making `stripNullish` removable.
+- `gitsheets#184` closed 2026-07-05 via gitsheets PR #239 (first on npm in
+  2.3.1), the day after this merged — unblocking the workaround retirement.
+- Data-repo re-normalization happened organically: as of 2026-10-13 only
+  two `published` records still carry integer underscores
+  (`people/chris.toml`, `people/itskatnotcat.toml`, both `githubUserId`).
+
+## Follow-ups
+
+- Deferred to [`gitsheets-freshness`](gitsheets-freshness.md) — retire
+  `swapPublic`, the attachments `git cat-file` path, and `data-repo-lock`
+  using gitsheets ≥ 2.3.1 `refresh()` / `readBlobStream()` / `withLock()`
+  (second half of #150).
+- Tracked as: two straggler records with integer underscores in
+  `codeforphilly-data` `published` — a one-off `git sheet normalize people`
+  on the data repo, or let them re-normalize on next write.
