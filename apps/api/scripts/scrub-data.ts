@@ -20,18 +20,25 @@
  *   - No real person slugs in any field
  *   - Record counts must match source
  *
- * If verification fails the script exits non-zero and the target repo is
- * left in a clean pre-commit state (no write has been finalized).
+ * Records are written through gitsheets sheet upserts in the target, so the
+ * snapshot gets each sheet's canonical serialization, path template and
+ * storage format (markdown for blog-posts). Attachments are copied, except
+ * on `people` (avatars are PII). A record that can't render its path — or
+ * would land on another record's path — fails the run instead of being
+ * silently collapsed.
+ *
+ * If verification fails the script exits non-zero and no target ref moves
+ * (the staged objects are left unreferenced).
  */
 
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { faker } from '@faker-js/faker';
-import { openRepo } from 'gitsheets';
+import { getFormat, openRepo, RECORD_PATH_KEY, type BlobHandle, type UpsertResult } from 'gitsheets';
 
 const exec = promisify(execFile);
 
@@ -166,7 +173,8 @@ export function scrubPersonRecord(
   // Clear SAML continuity field — not applicable to snapshot users
   delete scrubbed['slackSamlNameId'];
 
-  // Clear avatar — no attachment data follows the snapshot
+  // Clear avatar — person attachments (photos of real people) never follow
+  // the snapshot; see SHEETS_WITHOUT_ATTACHMENTS
   delete scrubbed['avatarKey'];
 
   return scrubbed;
@@ -174,7 +182,8 @@ export function scrubPersonRecord(
 
 /**
  * Scrub a Project record. Project content is public-by-design; we leave it
- * intact but rewrite any @slug mentions in text fields.
+ * intact (attachments and `featuredImageKey` included) but rewrite any
+ * @slug mentions in text fields.
  */
 export function scrubProjectRecord(
   record: Record<string, unknown>,
@@ -196,15 +205,12 @@ export function scrubProjectRecord(
     scrubbed['chatChannel'] = `chat-${projectSlug}`;
   }
 
-  // Clear featured image — no attachment data follows
-  delete scrubbed['featuredImageKey'];
-
   return scrubbed;
 }
 
 /**
  * Scrub a ProjectBuzz record. Headline and URL are public; summary may have
- * @mentions. Image attachments are omitted.
+ * @mentions. Image attachments follow the record, so `imageKey` stays.
  */
 export function scrubProjectBuzzRecord(
   record: Record<string, unknown>,
@@ -219,106 +225,7 @@ export function scrubProjectBuzzRecord(
     scrubbed['headline'] = rewriteMentions(scrubbed['headline'], slugMap);
   }
 
-  // Clear buzz images — no attachment data
-  delete scrubbed['imageKey'];
-
   return scrubbed;
-}
-
-// ---------------------------------------------------------------------------
-// TOML serialization
-// ---------------------------------------------------------------------------
-
-/**
- * Serialize a record to TOML. Handles flat gitsheets record shapes:
- * string, number, boolean values. Null/undefined values are omitted (TOML
- * has no null; absence is treated as null by gitsheets).
- */
-export function toToml(record: Record<string, unknown>): string {
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(record)) {
-    if (value === null || value === undefined) continue;
-    if (typeof value === 'string') {
-      if (value.includes('\n')) {
-        lines.push(`${key} = """\n${value}\n"""`);
-      } else {
-        const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        lines.push(`${key} = "${escaped}"`);
-      }
-    } else if (typeof value === 'number') {
-      lines.push(`${key} = ${value}`);
-    } else if (typeof value === 'boolean') {
-      lines.push(`${key} = ${value}`);
-    }
-  }
-  return lines.join('\n') + '\n';
-}
-
-// ---------------------------------------------------------------------------
-// Minimal TOML parser (for reading source records when needed)
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a flat TOML file into a plain object.
- * Handles: string, integer, float, boolean, multi-line strings.
- * Sufficient for flat gitsheets records.
- */
-export function parseFlatToml(toml: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const lines = toml.split('\n');
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i] ?? '';
-    i++;
-    const trimmed = line.trim();
-    if (trimmed === '' || trimmed.startsWith('#')) continue;
-
-    // Multi-line string: key = """
-    const mlMatch = trimmed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"""(.*)$/);
-    if (mlMatch) {
-      const key = mlMatch[1];
-      const firstRest = mlMatch[2] ?? '';
-      const parts: string[] = [];
-      if (firstRest.trim() !== '') parts.push(firstRest);
-      while (i < lines.length) {
-        const mlLine = lines[i] ?? '';
-        i++;
-        if (mlLine.includes('"""')) {
-          const closeIdx = mlLine.indexOf('"""');
-          const beforeClose = mlLine.slice(0, closeIdx);
-          if (beforeClose.trim() !== '') parts.push(beforeClose);
-          break;
-        }
-        parts.push(mlLine);
-      }
-      const value = parts.join('\n').replace(/^\n/, '');
-      if (key !== undefined) result[key] = value;
-      continue;
-    }
-
-    const kvMatch = trimmed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/);
-    if (!kvMatch) continue;
-    const key = kvMatch[1];
-    if (key === undefined) continue;
-    const rawVal = (kvMatch[2] ?? '').trim();
-
-    if (rawVal === 'true') { result[key] = true; continue; }
-    if (rawVal === 'false') { result[key] = false; continue; }
-
-    if (rawVal.startsWith('"') && rawVal.endsWith('"')) {
-      result[key] = rawVal.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-      continue;
-    }
-
-    const num = Number(rawVal);
-    if (!isNaN(num) && rawVal !== '') {
-      result[key] = num;
-      continue;
-    }
-
-    result[key] = rawVal;
-  }
-  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,16 +237,25 @@ export interface VerificationResult {
   errors: string[];
 }
 
-/** Walk a directory tree returning all .toml file paths. */
-async function walkToml(dir: string): Promise<string[]> {
+/** A serialized record file: repo-relative (or absolute) path + text. */
+export interface SnapshotFile {
+  readonly path: string;
+  readonly content: string;
+}
+
+/** Record file extensions: TOML records and markdown (content-typed) records. */
+const RECORD_FILE = /\.(toml|md)$/;
+
+/** Walk a directory tree returning all record file paths (.toml / .md). */
+async function walkRecordFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
   const files: string[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue;
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await walkToml(fullPath)));
-    } else if (entry.name.endsWith('.toml')) {
+      files.push(...(await walkRecordFiles(fullPath)));
+    } else if (RECORD_FILE.test(entry.name)) {
       files.push(fullPath);
     }
   }
@@ -351,19 +267,21 @@ function escapeRegex(s: string): string {
 }
 
 /**
- * Verify a snapshot directory contains no PII.
+ * Verify serialized record files contain no PII.
  * Checks for email patterns, real slugs, and sensitive identity fields.
  */
-export async function verifySnapshot(
-  targetPath: string,
+export function verifySnapshotFiles(
+  files: Iterable<SnapshotFile>,
   realSlugs: ReadonlySet<string>,
-): Promise<VerificationResult> {
+): VerificationResult {
   const errors: string[] = [];
-  const tomlFiles = await walkToml(targetPath);
+  const slugPatterns = [...realSlugs].map((realSlug) => ({
+    realSlug,
+    // Match slug as a standalone value (quoted string or unquoted)
+    pattern: new RegExp(`(?:^|[\\s='"\\[/])${escapeRegex(realSlug)}(?:[\\s'"\\]/]|$)`, 'm'),
+  }));
 
-  for (const filePath of tomlFiles) {
-    const content = await readFile(filePath, 'utf-8');
-
+  for (const { path: filePath, content } of files) {
     // Rule 1: No email addresses (catches user@example.com patterns)
     const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
     const emailMatches = content.match(emailPattern);
@@ -372,19 +290,14 @@ export async function verifySnapshot(
     }
 
     // Rule 2: No real person slugs in any file
-    for (const realSlug of realSlugs) {
-      // Match slug as a standalone value (quoted string or unquoted)
-      const slugPattern = new RegExp(
-        `(?:^|[\\s='"\\[/])${escapeRegex(realSlug)}(?:[\\s'"\\]/]|$)`,
-        'm',
-      );
-      if (slugPattern.test(content)) {
+    for (const { realSlug, pattern } of slugPatterns) {
+      if (pattern.test(content)) {
         errors.push(`Real slug "${realSlug}" found in ${filePath}`);
       }
     }
 
     // Rule 3: Person records must not contain github identity fields with values
-    if (filePath.includes('/people/')) {
+    if (`/${filePath}`.includes('/people/')) {
       const sensitiveFields = ['githubLogin', 'githubUserId', 'slackSamlNameId'];
       for (const field of sensitiveFields) {
         const fieldPattern = new RegExp(`^${field}\\s*=\\s*(?!null)[^\\n]+`, 'm');
@@ -398,30 +311,16 @@ export async function verifySnapshot(
   return { passed: errors.length === 0, errors };
 }
 
-// ---------------------------------------------------------------------------
-// Path template resolution
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve a gitsheets path template against a record.
- * e.g. template='${slug}' root='people' record={slug:'foo'} → 'people/foo.toml'
- * Handles both ${{ field }} and ${field} syntax.
- */
-export function resolvePathTemplate(
-  template: string,
-  record: Record<string, unknown>,
-  root: string,
-): string {
-  const expanded = template.replace(
-    /\$\{\{?\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}?\}/g,
-    (_m, key: string) => {
-      const val = record[key];
-      return val !== null && val !== undefined ? String(val) : '';
-    },
-  );
-
-  const fullPath = root !== '.' ? `${root}/${expanded}` : expanded;
-  return `${fullPath}.toml`;
+/** Verify a snapshot directory's record files (.toml / .md) contain no PII. */
+export async function verifySnapshot(
+  targetPath: string,
+  realSlugs: ReadonlySet<string>,
+): Promise<VerificationResult> {
+  const files: SnapshotFile[] = [];
+  for (const filePath of await walkRecordFiles(targetPath)) {
+    files.push({ path: filePath, content: await readFile(filePath, 'utf-8') });
+  }
+  return verifySnapshotFiles(files, realSlugs);
 }
 
 // ---------------------------------------------------------------------------
@@ -450,6 +349,21 @@ export interface ScrubResult {
 
 type GitRunner = (...args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
+const SNAPSHOT_AUTHOR = { name: 'Code for Philly', email: 'snapshot@users.noreply.codeforphilly.org' };
+
+/**
+ * Sheets whose attachments never follow a record into the snapshot. Person
+ * attachments are avatars — photos of real people — so they are PII.
+ */
+const SHEETS_WITHOUT_ATTACHMENTS: ReadonlySet<string> = new Set(['people']);
+
+interface ScrubbedRecord {
+  readonly sheetName: string;
+  readonly record: Record<string, unknown>;
+  /** Source attachments to copy, or null when the record has none / they're dropped. */
+  readonly attachments: Record<string, BlobHandle> | null;
+}
+
 async function initOrOpenTargetRepo(targetPath: string): Promise<GitRunner> {
   await mkdir(targetPath, { recursive: true });
   const git: GitRunner = (...args) => exec('git', args, { cwd: targetPath });
@@ -458,12 +372,70 @@ async function initOrOpenTargetRepo(targetPath: string): Promise<GitRunner> {
     await git('rev-parse', '--git-dir');
   } catch {
     await git('init', '-b', 'main');
-    await git('config', 'user.email', 'snapshot@users.noreply.codeforphilly.org');
-    await git('config', 'user.name', 'Code for Philly');
+    await git('config', 'user.email', SNAPSHOT_AUTHOR.email);
+    await git('config', 'user.name', SNAPSHOT_AUTHOR.name);
     await git('config', 'commit.gpgsign', 'false');
   }
 
   return git;
+}
+
+async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Write a parentless commit holding only the source's `.gitsheets/` configs,
+ * for the record transaction to build on.
+ *
+ * Stays on raw git plumbing (hash-object / mktree / commit-tree): gitsheets
+ * 2.7 has no public API for writing non-record files (`tx.writeFile` is
+ * internal) or for orphan commits. Swap once upstream exposes them.
+ */
+async function writeConfigRootCommit(
+  targetPath: string,
+  configs: ReadonlyArray<{ name: string; content: Buffer }>,
+): Promise<string> {
+  const entries: string[] = [];
+  for (const { name, content } of configs) {
+    const hash = await new Promise<string>((resolvePromise, reject) => {
+      const child = execFile(
+        'git',
+        ['hash-object', '-w', '--stdin'],
+        { cwd: targetPath },
+        (err, stdout) => (err ? reject(err) : resolvePromise(stdout.trim())),
+      );
+      child.stdin?.end(content);
+    });
+    entries.push(`100644 blob ${hash}\t${name}`);
+  }
+  const configTree = (await gitWithInput(targetPath, ['mktree'], entries.join('\n') + '\n')).trim();
+  const rootTree = (await gitWithInput(targetPath, ['mktree'], `040000 tree ${configTree}\t.gitsheets\n`)).trim();
+  const { stdout } = await exec('git', ['commit-tree', rootTree, '-m', 'scrub-data: sheet configs'], {
+    cwd: targetPath,
+    env: { ...process.env, ...gitIdentityEnv(new Date().toISOString()) },
+  });
+  return stdout.trim();
+}
+
+function gitWithInput(cwd: string, args: string[], input: string): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    const child = execFile('git', args, { cwd }, (err, stdout) => (err ? reject(err) : resolvePromise(stdout)));
+    child.stdin?.end(input);
+  });
+}
+
+function gitIdentityEnv(timestamp: string): Record<string, string> {
+  return {
+    GIT_AUTHOR_NAME: SNAPSHOT_AUTHOR.name,
+    GIT_AUTHOR_EMAIL: SNAPSHOT_AUTHOR.email,
+    GIT_COMMITTER_NAME: SNAPSHOT_AUTHOR.name,
+    GIT_COMMITTER_EMAIL: SNAPSHOT_AUTHOR.email,
+    GIT_AUTHOR_DATE: timestamp,
+    GIT_COMMITTER_DATE: timestamp,
+  };
 }
 
 /**
@@ -511,12 +483,10 @@ export async function scrubRepo(opts: ScrubOptions): Promise<ScrubResult> {
   // 5. Scrub all records
   // -------------------------------------------------------------------------
   const sourceCounts: Record<string, number> = {};
-  const scrubCounts: Record<string, number> = {};
-  const scrubbedFiles: Array<{ path: string; content: string }> = [];
+  const scrubbedRecords: ScrubbedRecord[] = [];
 
   for (const [sheetName, sheet] of Object.entries(sheets)) {
     let count = 0;
-    let scrubCount = 0;
 
     for await (const record of sheet.query()) {
       count++;
@@ -539,18 +509,92 @@ export async function scrubRepo(opts: ScrubOptions): Promise<ScrubResult> {
         }
       }
 
-      const sheetConfig = await sheet.getCachedConfig();
-      const outputPath = resolvePathTemplate(sheetConfig.path, scrubbed, sheetConfig.root);
-      scrubbedFiles.push({ path: outputPath, content: toToml(scrubbed) });
-      scrubCount++;
+      // Look attachments up by the record's source path (as read), not a
+      // re-render of its template.
+      const sourcePath = (record as Record<PropertyKey, unknown>)[RECORD_PATH_KEY];
+      const attachments = SHEETS_WITHOUT_ATTACHMENTS.has(sheetName)
+        ? null
+        : await sheet.getAttachments(typeof sourcePath === 'string' ? sourcePath : record);
+      scrubbedRecords.push({ sheetName, record: scrubbed, attachments });
     }
 
     sourceCounts[sheetName] = count;
-    scrubCounts[sheetName] = scrubCount;
+  }
+
+  if (dryRun) {
+    return { sourceCounts, commitHash: null, branchName: null };
   }
 
   // -------------------------------------------------------------------------
-  // 6. Count validation
+  // 6. Stage the snapshot tree through gitsheets: a transaction on top of a
+  //    config-only root commit upserts every scrubbed record (canonical
+  //    serialization, path templates, content-typed formats) and copies
+  //    attachments. The transaction commits on a bare hash parent, so no ref
+  //    moves; its tree is re-committed as the orphan snapshot in step 9.
+  // -------------------------------------------------------------------------
+  const git = await initOrOpenTargetRepo(target);
+  const targetGitDir = (await git('rev-parse', '--absolute-git-dir')).stdout.trim();
+  const targetRepo = await openRepo({ gitDir: targetGitDir });
+
+  const configs = await Promise.all(
+    Object.values(sheets).map(async (sheet) => ({
+      name: `${sheet.name}.toml`,
+      content: await streamToBuffer(await sourceRepo.readBlobStream(sourceHeadHash ?? 'HEAD', sheet.configPath)),
+    })),
+  );
+  const configRoot = await writeConfigRootCommit(target, configs);
+
+  const writtenFiles: SnapshotFile[] = [];
+  const scrubCounts: Record<string, number> = {};
+  const staged = await targetRepo.transact(
+    {
+      parent: configRoot,
+      message: 'scrub-data: staged snapshot tree (re-committed as an orphan)',
+      author: SNAPSHOT_AUTHOR,
+    },
+    async (tx) => {
+      const pathsBySheet = new Map<string, Map<string, unknown>>();
+      for (const { sheetName, record, attachments } of scrubbedRecords) {
+        const sheet = tx.sheet(sheetName);
+        let result: UpsertResult;
+        try {
+          result = await sheet.upsert(record, { allowMissingBody: true });
+        } catch (err) {
+          throw new Error(
+            `Sheet "${sheetName}": cannot write record ${describeRecord(record)}: ${err instanceof Error ? err.message : String(err)}`,
+            { cause: err },
+          );
+        }
+
+        let paths = pathsBySheet.get(sheetName);
+        if (!paths) pathsBySheet.set(sheetName, (paths = new Map()));
+        if (paths.has(result.path)) {
+          throw new Error(
+            `Sheet "${sheetName}": records ${describeRecord(paths.get(result.path))} and ${describeRecord(record)} both render to path "${result.path}"`,
+          );
+        }
+        paths.set(result.path, record);
+        scrubCounts[sheetName] = (scrubCounts[sheetName] ?? 0) + 1;
+        // UpsertResult.path is sheet-relative and extensionless; verification
+        // wants the repo path (e.g. people/<slug>.toml, blog-posts/<slug>.md).
+        const config = await sheet.getCachedConfig();
+        const repoPath = `${config.root === '.' ? '' : `${config.root}/`}${result.path}${getFormat(config.format.type).extension}`;
+        writtenFiles.push({ path: repoPath, content: (await result.blob.read()).toString('utf-8') });
+
+        if (attachments !== null && Object.keys(attachments).length > 0) {
+          const bytes: Record<string, Buffer> = {};
+          for (const [name, handle] of Object.entries(attachments)) bytes[name] = await handle.read();
+          await sheet.setAttachments(record, bytes);
+        }
+      }
+    },
+  );
+  const treeHash = staged.treeHash;
+  if (treeHash === null) throw new Error('scrub-data: internal: staging transaction produced no tree');
+
+  // -------------------------------------------------------------------------
+  // 7. Count validation — a record that collapsed onto another's path, or
+  //    failed to write, shows up here.
   // -------------------------------------------------------------------------
   const countMismatches: string[] = [];
   for (const [sheetName, sourceCount] of Object.entries(sourceCounts)) {
@@ -563,68 +607,30 @@ export async function scrubRepo(opts: ScrubOptions): Promise<ScrubResult> {
     throw new Error(`Record count mismatch:\n${countMismatches.join('\n')}`);
   }
 
-  if (dryRun) {
-    return { sourceCounts, commitHash: null, branchName: null };
-  }
-
   // -------------------------------------------------------------------------
-  // 7. Write files to target
+  // 8. Verification pass (before any ref moves)
   // -------------------------------------------------------------------------
-  const git = await initOrOpenTargetRepo(target);
-
-  // Wipe existing content (exclude .git)
-  const targetEntries = await readdir(target, { withFileTypes: true }).catch(() => []);
-  for (const entry of targetEntries) {
-    if (entry.name === '.git') continue;
-    await rm(join(target, entry.name), { recursive: true, force: true });
-  }
-
-  for (const { path: relPath, content } of scrubbedFiles) {
-    const fullPath = join(target, relPath);
-    await mkdir(join(fullPath, '..'), { recursive: true });
-    await writeFile(fullPath, content, 'utf-8');
-  }
-
-  // Copy .gitsheets configs from source's HEAD tree (source is a bare clone,
-  // per specs/behaviors/storage.md → "The data clone is bare", so the configs
-  // live as git blobs rather than working-tree files).
-  const targetGitsheetsDir = join(target, '.gitsheets');
-  await mkdir(targetGitsheetsDir, { recursive: true });
-  const lsTreeResult = await exec('git', [
-    '--git-dir', source,
-    'ls-tree', '--name-only', 'HEAD', '.gitsheets/',
-  ]);
-  const configFiles = lsTreeResult.stdout
-    .split('\n')
-    .filter((name) => name.endsWith('.toml'));
-  for (const path of configFiles) {
-    const blob = await exec('git', [
-      '--git-dir', source,
-      'show', `HEAD:${path}`,
-    ]);
-    await writeFile(join(target, path), blob.stdout, 'utf-8');
-  }
-
-  // -------------------------------------------------------------------------
-  // 8. Verification pass (before committing)
-  // -------------------------------------------------------------------------
-  const realSlugSet = new Set(allPersonSlugs);
-  const verification = await verifySnapshot(target, realSlugSet);
-
+  const verification = verifySnapshotFiles(writtenFiles, new Set(allPersonSlugs));
   if (!verification.passed) {
-    // Clean up written files before exiting
-    for (const entry of await readdir(target, { withFileTypes: true })) {
-      if (entry.name === '.git') continue;
-      await rm(join(target, entry.name), { recursive: true, force: true });
-    }
     throw new Error(`Verification failed:\n${verification.errors.join('\n')}`);
   }
 
   // -------------------------------------------------------------------------
-  // 9. Commit: orphan squashed commit
+  // 9. Commit: orphan squashed commit of the staged tree
+  //
+  //    Stays on raw git (commit-tree / update-ref / symbolic-ref / tag):
+  //    gitsheets 2.7 can't write a parentless commit. The snapshot workflow
+  //    pushes HEAD and tags it, so HEAD must point at the new branch.
   // -------------------------------------------------------------------------
   const timestamp = new Date().toISOString();
   const branchName = `snapshot-${seed.replace(/[^a-z0-9]/gi, '-')}-scrubbed`;
+
+  const currentTree = await git('rev-parse', '--verify', '--quiet', 'HEAD^{tree}')
+    .then((r) => r.stdout.trim())
+    .catch(() => null);
+  if (currentTree === treeHash) {
+    return { sourceCounts, commitHash: null, branchName };
+  }
 
   const commitMessage = `snapshot: anonymized data export from ${timestamp}
 
@@ -638,44 +644,33 @@ been pseudonymized via the documented scrubbing rules.
 
 See apps/api/scripts/scrub-data.ts and specs/behaviors/storage.md.`;
 
-  await git('add', '.');
-  const { stdout: porcelain } = await git('status', '--porcelain');
-  if (porcelain.trim() === '') {
-    return { sourceCounts, commitHash: null, branchName };
-  }
-
-  const { stdout: treeHashRaw } = await git('write-tree');
-  const treeHash = treeHashRaw.trim();
-
-  const commitEnv = {
-    ...process.env,
-    GIT_AUTHOR_NAME: 'Code for Philly',
-    GIT_AUTHOR_EMAIL: 'snapshot@users.noreply.codeforphilly.org',
-    GIT_COMMITTER_NAME: 'Code for Philly',
-    GIT_COMMITTER_EMAIL: 'snapshot@users.noreply.codeforphilly.org',
-    GIT_AUTHOR_DATE: timestamp,
-    GIT_COMMITTER_DATE: timestamp,
-  };
-
-  const messageFile = join(target, '.git', 'SNAPSHOT_MSG');
-  await writeFile(messageFile, commitMessage, 'utf-8');
-
-  const { stdout: commitHashRaw } = await exec(
-    'git',
-    ['commit-tree', treeHash, '-F', messageFile],
-    { cwd: target, env: commitEnv },
-  );
+  const commitEnv = { ...process.env, ...gitIdentityEnv(timestamp) };
+  const { stdout: commitHashRaw } = await exec('git', ['commit-tree', treeHash, '-m', commitMessage], {
+    cwd: target,
+    env: commitEnv,
+  });
   const commitHash = commitHashRaw.trim();
 
   await git('update-ref', `refs/heads/${branchName}`, commitHash);
   await git('symbolic-ref', 'HEAD', `refs/heads/${branchName}`);
+  await exec('git', ['tag', '-f', branchName, commitHash], { cwd: target, env: commitEnv });
 
-  await exec('git', ['tag', '-f', branchName, commitHash], {
-    cwd: target,
-    env: commitEnv,
-  });
+  // Bring a non-bare target's working tree in line with the new HEAD.
+  if ((await git('rev-parse', '--is-bare-repository')).stdout.trim() !== 'true') {
+    for (const entry of await readdir(target, { withFileTypes: true })) {
+      if (entry.name === '.git') continue;
+      await rm(join(target, entry.name), { recursive: true, force: true });
+    }
+    await git('reset', '--quiet', '--hard', 'HEAD');
+  }
 
   return { sourceCounts, commitHash, branchName };
+}
+
+function describeRecord(record: unknown): string {
+  const r = (record ?? {}) as Record<string, unknown>;
+  const key = r['id'] ?? r['slug'];
+  return typeof key === 'string' ? `"${key}"` : JSON.stringify(record);
 }
 
 // ---------------------------------------------------------------------------
