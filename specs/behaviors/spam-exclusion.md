@@ -45,6 +45,17 @@ Each record:
 | `reasoning` | free-text justification (optional on human votes) |
 | `evaluatedAt` | ISO 8601 UTC |
 
+The record shape is the versioned schema contract
+**`codeforphilly.org/person-evaluations/v1`** (gitsheets schema contracts). Its
+canonical document lives in the data repo's `empty` branch at
+`.gitsheets/contracts/codeforphilly.org/person-evaluations/v1.toml`, and the
+`person-evaluations` sheet declares `implements = ["codeforphilly.org/person-evaluations/v1"]`,
+so every write on every branch is validated against it. Both consumers hold a
+copy of the same document and open the sheet against it: the API at boot (a
+mismatch fails the boot), and the spam-detection pipeline in the private repo.
+A change to the record shape is a new contract version (`…/v2`), never an edit
+to `v1`.
+
 Machine evaluations stay in the private repo; the runtime never loads them. The
 pipeline reads machine records from its own repo and human votes from
 `published`, aggregates, and applies the result to `published`.
