@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: [events-core]
 specs:
   - specs/behaviors/events.md
   - specs/data-model.md
 issues: [194]
+pr: 209
 ---
 
 # Plan: Event reminder emails
@@ -53,15 +54,15 @@ reminders ([deferred.md](../specs/deferred.md#event-announcements-to-slack)).
 
 ## Validation
 
-- [ ] A scheduled event 6 days out with three RSVPs gets exactly three
+- [x] A scheduled event 6 days out with three RSVPs gets exactly three
   `week` reminder sends on the first sweep and none on the next.
-- [ ] An event created 3 days before start gets only the `day` reminder.
-- [ ] An event created 12 hours before start gets no reminders.
-- [ ] Cancelled and draft events never get reminders.
-- [ ] The bookkeeping commit lands even when the notifier throws on every
+- [x] An event created 3 days before start gets only the `day` reminder.
+- [x] An event created 12 hours before start gets no reminders.
+- [x] Cancelled and draft events never get reminders.
+- [x] The bookkeeping commit lands even when the notifier throws on every
   send (at-most-once holds).
-- [ ] Sweep runs every 5 minutes after boot and stops on close.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] Sweep runs every 5 minutes after boot and stops on close.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -75,8 +76,36 @@ reminders ([deferred.md](../specs/deferred.md#event-announcements-to-slack)).
 
 ## Notes
 
-(Populated at closeout.)
+- **The windows got narrower than first written.** The spec as merged in
+  #197 said "due from 7 days out until 1 day out", which would have sent a
+  "one week" note to an event created three days ahead — the opposite of
+  the sentence after it. #208 fixed the spec before this plan started:
+  week = `[start−7d, start−6d)`, day = `[start−24h, start−18h)`. Miss the
+  band (pod down, event created late) and that reminder is skipped, never
+  sent late.
+- **There is no `eventsByStartsAt` index.** The corpus is roughly one event
+  a month, so the sweep filters `state.events.values()` directly; the
+  approach text above predates that decision in `events-core`.
+- **The sweep awaits each send rather than fire-and-forget**, so `sent`
+  counts attempts and a throwing notifier is caught per attendee. The
+  bookkeeping commit still lands first, which is what at-most-once needs;
+  awaiting only keeps the tick's log lines in order.
+- **Marking an event with no RSVPs still writes the bookkeeping commit** so
+  the event isn't re-evaluated every tick for the rest of the band.
+- **The timer is skipped under `NODE_ENV=test`** (tests boot many apps and
+  would leak intervals); the test for the timer boots one app under
+  `development` and spies on `setInterval` / `clearInterval`.
+- **`services/event-notify.ts`** now owns the event-email facts, the
+  attendee fan-out, and the follow-up sentence; the RSVP / updated /
+  cancelled routes share it with the sweep.
+- **Bookkeeping commits are authored `cfp-api <api@codeforphilly.org>`**,
+  the same identity the revocation sweeper uses, with the message
+  `events: mark <kind> reminder sent for <slug>` rather than the `chore(…)`
+  form the approach guessed — commit messages in the data repo follow the
+  `<actor>: <what>` shape, not conventional commits.
 
 ## Follow-ups
 
-(Populated at closeout.)
+- Tracked as: watch the first real hack night's reminder commits and
+  Postmark activity on production; if a 100+ RSVP event ever appears,
+  switch the transport to Postmark's batch endpoint per the risk above.
