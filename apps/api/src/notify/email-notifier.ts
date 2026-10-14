@@ -16,6 +16,7 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import type {
   EventCancelledNotification,
+  EventReminderNotification,
   EventRsvpNotification,
   EventUpdatedNotification,
   HelpWantedFillNotification,
@@ -26,6 +27,7 @@ import type {
 } from './index.js';
 import {
   renderEventCancelledEmail,
+  renderEventReminderEmail,
   renderEventRsvpEmail,
   renderEventUpdatedEmail,
 } from './event-templates.js';
@@ -149,6 +151,15 @@ export class EmailNotifier implements Notifier {
       return { delivered: false };
     }
     return this.#deliver('event cancelled', ctx, n.email, renderEventCancelledEmail(n, this.#siteHost));
+  }
+
+  async notifyEventReminder(n: EventReminderNotification): Promise<{ delivered: boolean }> {
+    const ctx = { kind: `event.reminder.${n.kind}`, event: n.event.slug };
+    if (!n.email) {
+      this.#log.warn(ctx, 'event reminder: no email address; skipped');
+      return { delivered: false };
+    }
+    return this.#deliver('event reminder', ctx, n.email, renderEventReminderEmail(n, this.#siteHost));
   }
 
   /**
