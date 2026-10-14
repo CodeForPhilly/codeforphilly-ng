@@ -462,7 +462,7 @@ The sheet is partitioned by year because monthly events accrete forever; within 
 | Field | Type | Notes |
 | ------- | ------ | ------- |
 | id | uuid | Also the stable iCalendar `UID` (`<id>@codeforphilly.org`). |
-| legacyId | int nullable | laddr `events.ID` for the four backfilled historical events. |
+| legacyId | int nullable | Unused today. A laddr "event" was a whole program and backfills as a series matched by slug, with its days as events matched by `(seriesId, day)` ([behaviors/events.md](behaviors/events.md#legacy-urls)); no laddr row maps onto a single event. Reserved for a future import that does. |
 | slug | string | unique. URL: `/events/<slug>`. See [behaviors/slug-handles.md](behaviors/slug-handles.md). |
 | title | string | required, 1–200 chars |
 | description | string nullable | markdown, ≤ 20,000 chars — the file body |
