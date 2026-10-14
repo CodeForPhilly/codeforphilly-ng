@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [events-series-agenda]
 specs:
   - specs/behaviors/events.md
