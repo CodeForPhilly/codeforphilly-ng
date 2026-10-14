@@ -1,8 +1,9 @@
 ---
-status: planned
+status: in-progress
 depends: [gitsheets-freshness]
 specs:
   - specs/behaviors/spam-exclusion.md
+pr: 203
 ---
 
 # Plan: person-evaluations as a gitsheets schema contract
@@ -44,15 +45,29 @@ path templates, so they would not have caught the slug-history bug.
 
 - [ ] Contract present on all data-repo branches; `git sheet contracts
       verify` clean
-- [ ] cfp boot fails with a clear error against a deliberately drifted
+- [x] cfp boot fails with a clear error against a deliberately drifted
       config (test)
 - [ ] Spam pipeline opens against the contract
-- [ ] `type-check` + `lint` + full api suite green
+- [x] `type-check` + `lint` + full api suite green
 
 ## Risks / unknowns
 
 - Requires coordinated changes in the private pipeline repo.
 
 ## Notes
+
+- In progress until the data-repo commits are pushed. They're prepared
+  (contract plus `implements` on `empty`, `fixture`, `legacy-import` and
+  `published`), and `gitsheets contracts verify` passes on `published` (27
+  human votes).
+- The pipeline side is the sheet declaration
+  (CodeForPhilly/codeforphilly-spam-detection#1; `contracts verify` passes
+  over every machine record). The pipeline never reads the data repo's
+  human votes; cfp's `prune-spam` does. So the consumer-side `openSheet({
+  contract })` belongs in `prune-spam` once the `gitsheets-scripts`
+  refactor lands, not in the pipeline.
+- `legacy-import` had no `person-evaluations` config before; it gains one.
+- The contract keeps the old sheet-local schema's exact constraints, adding
+  only `$id`, `title` and `description` annotations.
 
 ## Follow-ups
