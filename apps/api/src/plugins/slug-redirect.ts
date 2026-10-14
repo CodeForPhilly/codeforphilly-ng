@@ -25,14 +25,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
-import { normalizeLegacyHandle } from '@cfp/shared';
-import type { SlugHistory } from '@cfp/shared/schemas';
+import { normalizeLegacyHandle, type LegacyHandleEntity } from '@cfp/shared';
 
 import { slugHistoryKey, type InMemoryState } from '../store/memory/state.js';
 
 const MAX_HOPS = 8;
 
-type EntityType = SlugHistory['entityType'];
+type EntityType = LegacyHandleEntity;
 
 /**
  * Pattern descriptor for a slug-bearing path. Each pattern declares the

@@ -470,6 +470,21 @@ export function unindexHelpWantedInterest(
   deleteIfOwned(state.interestByRoleAndPerson, `${expr.roleId}:${expr.personId}`, expr.id);
 }
 
+export function unindexEvent(state: InMemoryState, event: Event): void {
+  state.events.delete(event.id);
+  deleteIfOwned(state.eventIdBySlug, event.slug, event.id);
+  if (typeof event.legacyId === 'number') {
+    deleteIfOwned(state.eventIdByLegacyId, event.legacyId, event.id);
+  }
+}
+
+export function unindexEventRsvp(state: InMemoryState, rsvp: EventRsvp): void {
+  state.eventRsvps.delete(rsvp.id);
+  removeFromSet(state.rsvpsByEvent, rsvp.eventId, rsvp.id);
+  removeFromSet(state.rsvpsByPerson, rsvp.personId, rsvp.id);
+  deleteIfOwned(state.rsvpIdByEventAndPerson, rsvpKey(rsvp.eventId, rsvp.personId), rsvp.id);
+}
+
 export function unindexPersonEvaluation(state: InMemoryState, record: PersonEvaluation): void {
   const key = `${record.personSlug}/${record.evaluator}`;
   state.personEvaluations.delete(key);

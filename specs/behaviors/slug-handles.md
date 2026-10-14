@@ -69,7 +69,7 @@ laddr matched handles case-insensitively, and the import normalized handles that
 
 - On a web request for an entity URL whose slug is neither live nor in `slug-history`, apply the **legacy normalization** for that entity type and retry the lookup:
   - Lowercase
-  - Replace each run of characters outside the entity's allowed set (`[a-z0-9_-]` for projects, `[a-z0-9-]` otherwise) with a single hyphen
+  - Replace each run of characters outside the entity's allowed set (`[a-z0-9_-]` for projects and events, `[a-z0-9-]` otherwise) with a single hyphen
   - Trim leading and trailing `-` and `_`
   - Truncate to the entity's max length
   - If the result doesn't start with `[a-z0-9]`, prefix `s`
