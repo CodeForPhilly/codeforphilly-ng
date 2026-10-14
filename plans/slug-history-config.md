@@ -26,6 +26,14 @@ In:
 
 - Fix `slug-history.toml` on every data-repo branch (`empty`, `fixture`,
   `published`, `legacy-import`) to `${{ entityType }}/${{ oldSlug }}`.
+- Same bug, found by the new guard test: `help-wanted-roles.toml` templates
+  on `${{ slug }}`, which roles don't have, so **creating a help-wanted role
+  500s in production** too. Fix it to `${{ projectSlug }}/${{ id }}` per
+  `storage.md`. Also align `help-wanted-interest.toml` (`personId` →
+  `personSlug`, per spec). Both sheets have zero records, so there's
+  nothing to migrate.
+- `tag-assignments` differs from the spec, but production holds 7.7k
+  records in its layout. Amend the spec to match rather than migrate.
 - Tests load `.gitsheets/*.toml` from one canonical source — the data repo's
   `empty` branch, vendored or fetched — instead of inline copies.
 - Delete `apps/api/scripts/setup-dev-data.ts` (stale: non-bare `git init`,
@@ -62,6 +70,10 @@ Out: the attachment loss on rename — see
 ## Validation
 
 - [ ] `slug-history.toml` uses `oldSlug` on all four data-repo branches
+- [ ] `help-wanted-roles.toml` and `help-wanted-interest.toml` match
+      `storage.md` on all four branches; a role can be created in production
+- [ ] A test fails when any vendored config's template names a field that
+      isn't a required schema field or a declared write-injected path field
 - [ ] Production: a person slug rename succeeds and writes a slug-history
       record; the old slug redirects
 - [ ] No inline `.gitsheets` config copies remain in `apps/api/tests`
