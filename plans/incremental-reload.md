@@ -1,8 +1,9 @@
 ---
-status: planned
+status: done
 depends: [gitsheets-freshness]
 specs:
   - specs/behaviors/storage.md
+pr: 202
 ---
 
 # Plan: incremental hot reload via `sheet.diffFrom`
@@ -45,14 +46,14 @@ Out: the boot path stays a full load.
 
 ## Validation
 
-- [ ] Spec updated first
-- [ ] Equivalence test: for a series of upstream commits (add, modify,
+- [x] Spec updated first
+- [x] Equivalence test: for a series of upstream commits (add, modify,
       delete, rename in each sheet), state after the incremental apply deep-
       equals state after a full rebuild
-- [ ] Config change under `.gitsheets/` triggers the full-rebuild fallback
+- [x] Config change under `.gitsheets/` triggers the full-rebuild fallback
 - [ ] Sandbox: reload timing and peak heap for a one-record upstream change
       vs. a full rebuild
-- [ ] `type-check` + `lint` + full api suite green
+- [x] `type-check` + `lint` + full api suite green
 
 ## Risks / unknowns
 
@@ -62,4 +63,21 @@ Out: the boot path stays a full load.
 
 ## Notes
 
+- **Unchecked: sandbox timing and peak heap.** Needs a release on the
+  sandbox. The webhook response and log now carry `reloadMode`, so it can
+  be read off the first real reload.
+- Didn't reuse `StateApply`'s remove ops: several don't mirror `index*`
+  exactly (e.g. leaving empty Sets a full load never creates). Wrote
+  `unindex*` in `state.ts` as exact inverses instead, which is what makes a
+  plain deep-equal against a full load possible.
+- `diffFrom` records lack the `gitsheets-sheet` / `gitsheets-path` symbols
+  that `queryAll()` attaches, and gitsheets' delete/upsert rely on them, so
+  the apply step adds them. The test deletes an incrementally loaded record
+  through gitsheets to pin this.
+- The fallback threshold (5,000 changed records) is a judgment call.
+  Full-import merges exceed it by an order of magnitude; routine pushes are
+  a handful of records.
+
 ## Follow-ups
+
+- Tracked as: sandbox reload timing/heap after the next release (see Notes).
