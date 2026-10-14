@@ -5,8 +5,8 @@ specs:
   - specs/behaviors/storage.md
   - specs/behaviors/spam-exclusion.md
 awaits:
-  - "JarvusInnovations/gitsheets — ref-scoped read-only sheets (issue TBD) — cleaner than the no-op-transact read trick"
-  - "JarvusInnovations/gitsheets — public tx.writeFile / orphan commits (issue TBD) — needed for scrub-data's config writes"
+  - "https://github.com/JarvusInnovations/gitsheets/issues/303 — ref-scoped read-only sheets — cleaner than the no-op-transact read trick"
+  - "https://github.com/JarvusInnovations/gitsheets/issues/305 — public tx.writeFile / orphan commits — needed for scrub-data's config writes"
 pr: 204
 ---
 
