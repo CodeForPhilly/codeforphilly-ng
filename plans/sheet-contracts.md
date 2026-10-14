@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [person-evaluations-contract]
 specs:
   - specs/behaviors/storage.md
@@ -72,10 +72,10 @@ each).
       `contracts verify` in a test repo) and every fixture record conforms
 - [x] Boot verifies every sheet; a drifted contract plus an invalid record
       fails the boot (test)
-- [ ] `published` adopts every contract: `gitsheets contracts verify` passes
+- [x] `published` adopts every contract: `gitsheets contracts verify` passes
       over all records, and `sources.toml` records the pinned URLs
-- [ ] Spam pipeline re-adopted from the published URL
-- [ ] `type-check` + `lint` + full suite green; sandbox, then live, boot
+- [x] Spam pipeline re-adopted from the published URL
+- [x] `type-check` + `lint` + full suite green; sandbox, then live, boot
       after adoption
 
 ## Risks / unknowns
@@ -104,8 +104,20 @@ each).
 - No structural fallback (`declared` mode), per Chris: the data repo moves
   in lockstep with the app.
 - Contracts caught three invalid test fixtures on their first run.
-- Remaining before `done`: adopt on `published` together with the release
-  carrying #212, boot sandbox and live, and re-adopt v2 in the spam
-  pipeline (CodeForPhilly/codeforphilly-spam-detection#1).
+- `published` adopted every contract (`21966b8`, `.gitsheets/` identical to
+  `empty`, `contracts verify` over every record) in lockstep with v0.7.0,
+  then sandbox and production deployed back to back. Both booted in
+  declared mode with all 16 sheets verified and 0 restarts.
+- The events backfill (codeforphilly-data #20) merged afterwards as records
+  only. Both environments took the incremental hot-reload path.
+- The spam pipeline adopted the published `person-evaluations` v2
+  (CodeForPhilly/codeforphilly-spam-detection#1).
 
 ## Follow-ups
+
+- Tracked as: JarvusInnovations/gitsheets#304 (flag template fields the
+  schema doesn't require) would move part of `sheet-configs.test.ts`'s guard
+  into gitsheets itself.
+- Tracked as: a gitsheets change to contract canonicalization would break
+  declared-mode identity on the next bump. Re-adopt every contract in
+  lockstep if one ships.
