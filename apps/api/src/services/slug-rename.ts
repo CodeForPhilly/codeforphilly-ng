@@ -48,3 +48,21 @@ export function rekeyAttachment(
   const prefix = `${root}/${oldSlug}/`;
   return key?.startsWith(prefix) ? `${root}/${newSlug}/${key.slice(prefix.length)}` : key;
 }
+
+/**
+ * Rewrite attachment links inside markdown
+ * (`/api/attachments/<root>/<old record path>/<name>`) to the renamed
+ * record's path. Events and series carry their images in their description
+ * rather than in a key field.
+ */
+export function relinkAttachments<T extends string | null | undefined>(
+  text: T,
+  root: string,
+  oldPath: string,
+  newPath: string,
+): T {
+  if (!text) return text;
+  return text
+    .split(`/api/attachments/${root}/${oldPath}/`)
+    .join(`/api/attachments/${root}/${newPath}/`) as T;
+}

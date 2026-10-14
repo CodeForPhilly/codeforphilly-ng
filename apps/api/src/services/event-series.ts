@@ -17,6 +17,7 @@ import { StateApply } from '../store/state-apply.js';
 import type { DualStoreTx } from '../store/store.js';
 import { EventService, isUpcoming } from './event.js';
 import { MARKDOWN_UPSERT } from './event.write.js';
+import { relinkAttachments, restoreAttachments, takeAttachments } from './slug-rename.js';
 import { computeEventSeriesPermissions, type CallerSession, type EventSeriesPermissions } from './permissions.js';
 import { renderMarkdown } from './serializers/common.js';
 import type { EventSummaryResponse, SeriesRef } from './serializers/event.js';
@@ -172,15 +173,20 @@ export class EventSeriesWriteService {
         ? existing.slug
         : this.#resolveSlug(input.slug, title, existing.id);
 
+    const renamed = newSlug !== existing.slug;
     const updated: EventSeries = EventSeriesSchema.parse({
       ...existing,
       slug: newSlug,
       title,
-      description,
+      // A rename moves the record's attachment folder with it; the
+      // description's image links follow (specs/behaviors/slug-handles.md).
+      description: renamed ? relinkAttachments(description, 'event-series', existing.slug, newSlug) : description,
       updatedAt: new Date().toISOString(),
     });
     const stateApply = new StateApply();
-    if (newSlug !== existing.slug) {
+    let attachments: Awaited<ReturnType<typeof takeAttachments>> = null;
+    if (renamed) {
+      attachments = await takeAttachments(tx.public['event-series'], existing);
       await tx.public['event-series'].delete(existing);
       const changedAt = new Date();
       const history = {
@@ -196,6 +202,7 @@ export class EventSeriesWriteService {
       stateApply.renameEventSeriesSlug(existing.slug).upsertSlugHistory(history);
     }
     await tx.public['event-series'].upsert(updated, MARKDOWN_UPSERT);
+    await restoreAttachments(tx.public['event-series'], updated, attachments);
     stateApply.upsertEventSeries(updated);
     return { series: updated, stateApply };
   }
