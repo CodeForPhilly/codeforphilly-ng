@@ -332,6 +332,119 @@ export interface ProjectBuzzResponse {
   readonly updatedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Events — mirrors specs/api/events.md by hand.
+// ---------------------------------------------------------------------------
+
+export type EventStatus = 'draft' | 'scheduled' | 'cancelled';
+export type EventRsvpPlan = 'newcomer' | 'no_project' | 'project';
+
+export interface EventProjectRef {
+  readonly slug: string;
+  readonly title: string;
+}
+
+export interface EventSeriesRef {
+  readonly slug: string;
+  readonly title: string;
+}
+
+export interface EventAgendaItem {
+  readonly startsAt: string;
+  readonly endsAt: string | null;
+  readonly title: string;
+  readonly venueName: string | null;
+  readonly venueAddress: string | null;
+  readonly description: string | null;
+  readonly descriptionHtml: string | null;
+}
+
+export interface EventViewerRsvp {
+  readonly plan: EventRsvpPlan | null;
+  readonly project: EventProjectRef | null;
+  readonly createdAt: string;
+}
+
+export interface EventPermissions {
+  readonly canRsvp: boolean;
+  readonly canEdit: boolean;
+  readonly canPublish: boolean;
+  readonly canCancel: boolean;
+  readonly canDelete: boolean;
+}
+
+/** The list shape: Event minus description, descriptionHtml, cancellationNote, agenda, permissions. */
+export interface EventSummary {
+  readonly id: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly startsAt: string;
+  readonly endsAt: string;
+  readonly venueName: string | null;
+  readonly venueAddress: string | null;
+  readonly onlineUrl: string | null;
+  readonly meetupUrl: string | null;
+  readonly series: EventSeriesRef | null;
+  readonly status: EventStatus;
+  readonly cancelledAt: string | null;
+  readonly rsvpCount: number;
+  readonly viewerRsvp: EventViewerRsvp | null;
+  readonly icsUrl: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** The full `Event` shape (named EventDetail to avoid the DOM `Event` global). */
+export interface EventDetail extends EventSummary {
+  readonly description: string;
+  readonly descriptionHtml: string;
+  readonly cancellationNote: string | null;
+  readonly agenda?: EventAgendaItem[];
+  readonly permissions: EventPermissions;
+}
+
+export interface EventRsvp {
+  readonly person: PersonAvatar;
+  readonly plan: EventRsvpPlan | null;
+  readonly project: EventProjectRef | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface EventRsvpResult {
+  readonly rsvp: EventRsvp;
+  readonly rsvpCount: number;
+  readonly confirmationDelivered: boolean | null;
+}
+
+export interface EventRsvpInput {
+  plan?: EventRsvpPlan | null;
+  projectSlug?: string;
+}
+
+export interface EventListParams {
+  when?: 'upcoming' | 'past' | 'all';
+  sort?: string;
+  page?: number;
+  perPage?: number;
+}
+
+export interface CreateEventInput {
+  title: string;
+  slug?: string;
+  description?: string | null;
+  startsAt: string;
+  endsAt: string;
+  venueName?: string | null;
+  venueAddress?: string | null;
+  onlineUrl?: string | null;
+  meetupUrl?: string | null;
+  seriesSlug?: string | null;
+  status?: 'draft' | 'scheduled';
+}
+
+export type UpdateEventInput = Partial<Omit<CreateEventInput, 'status'>>;
+
 function buildQuery(params: object): string {
   const usp = new URLSearchParams();
   for (const [key, val] of Object.entries(params as Record<string, unknown>)) {
@@ -812,6 +925,37 @@ export const api = {
       }),
     delete: (handle: string): Promise<void> =>
       request(`/api/tags/${encodeURIComponent(handle)}`, { method: 'DELETE' }),
+  },
+  events: {
+    list: (params: EventListParams = {}): Promise<PaginatedEnvelope<EventSummary>> =>
+      request(`/api/events${buildQuery(params)}`),
+    get: (slug: string): Promise<SuccessEnvelope<EventDetail>> =>
+      request(`/api/events/${encodeURIComponent(slug)}`),
+    rsvps: (slug: string, params: { page?: number; perPage?: number } = {}): Promise<SuccessEnvelope<EventRsvp[]>> =>
+      request(`/api/events/${encodeURIComponent(slug)}/rsvps${buildQuery(params)}`),
+    rsvp: (slug: string, input: EventRsvpInput = {}): Promise<SuccessEnvelope<EventRsvpResult>> =>
+      request(`/api/events/${encodeURIComponent(slug)}/rsvp`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+    withdrawRsvp: (slug: string): Promise<void> =>
+      request(`/api/events/${encodeURIComponent(slug)}/rsvp`, { method: 'DELETE' }),
+    create: (input: CreateEventInput): Promise<SuccessEnvelope<EventDetail>> =>
+      request(`/api/events`, { method: 'POST', body: JSON.stringify(input) }),
+    update: (slug: string, input: UpdateEventInput): Promise<SuccessEnvelope<EventDetail>> =>
+      request(`/api/events/${encodeURIComponent(slug)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }),
+    publish: (slug: string): Promise<SuccessEnvelope<EventDetail>> =>
+      request(`/api/events/${encodeURIComponent(slug)}/publish`, { method: 'POST' }),
+    cancel: (slug: string, input: { note?: string | null } = {}): Promise<SuccessEnvelope<EventDetail>> =>
+      request(`/api/events/${encodeURIComponent(slug)}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    remove: (slug: string): Promise<void> =>
+      request(`/api/events/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
   },
   helpWanted: {
     list: (params: HelpWantedListParams = {}): Promise<PaginatedEnvelope<HelpWantedRoleResponse>> =>
