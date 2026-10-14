@@ -35,5 +35,10 @@ jobs:
       - name: Test
         run: npm test
 
+      # Tests seed from apps/api/gitsheets/; fail if that copy drifts from
+      # the data repo's `empty` branch, which production configs descend from.
+      - name: Check sheet configs against codeforphilly-data
+        run: npm run -w apps/api check:sheet-configs
+
       - name: Build
         run: npm run build
