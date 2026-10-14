@@ -107,14 +107,11 @@ describe('public store (gitsheets)', () => {
     }
   });
 
-  it('drops null/undefined-valued keys before writing (gitsheets 2.x marshal contract)', async () => {
-    // gitsheets 2.x (Rust core) throws when asked to marshal a null- or
-    // undefined-valued field to TOML; 1.4.1 silently dropped such keys. Our
-    // Zod schemas use `.nullable().optional()` and write services normalize
-    // cleared fields to `?? null`, so openPublicStore's validator wrapper must
-    // strip those keys — keeping the on-disk form byte-identical to 1.4.1
-    // (an absent optional field is simply an absent TOML key). See
-    // apps/api/src/store/public.ts → stripNullish / asValidator.
+  it('drops null/undefined-valued keys when writing (gitsheets marshal contract)', async () => {
+    // Our Zod schemas use `.nullable().optional()` and write services
+    // normalize cleared fields to `?? null`. gitsheets (≥ 2.3) drops
+    // null/undefined-valued keys when marshalling, so an absent optional
+    // field is simply an absent TOML key on disk. This pins that contract.
     const repo = await createFullDataRepo();
     try {
       const { store } = await openPublicStore(repo.path);

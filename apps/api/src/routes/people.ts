@@ -415,15 +415,11 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
         responseCode: 200,
       }),
       async (tx) => {
-        // Write the two attachment blobs into the gitsheets transaction
-        // tree. repo.writeBlob hashes the buffer into the git object DB;
-        // the tx-level setAttachments then wires the blob refs into the
-        // post-commit tree at the conventional path.
-        const originalBlob = await fastify.publicRepo.writeBlob(processed.original);
-        const thumbnailBlob = await fastify.publicRepo.writeBlob(processed.thumbnail);
+        // Write the two attachments into the transaction tree at the
+        // conventional path; gitsheets hashes the buffers itself.
         await tx.public.people.setAttachments(person, {
-          'avatar.jpg': originalBlob,
-          'avatar-128.jpg': thumbnailBlob,
+          'avatar.jpg': processed.original,
+          'avatar-128.jpg': processed.thumbnail,
         });
 
         updatedPerson = PersonSchema.parse({

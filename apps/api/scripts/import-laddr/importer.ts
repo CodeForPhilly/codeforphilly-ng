@@ -92,7 +92,6 @@ import {
   type TranslateCtx,
   type Warnings,
 } from './translators.js';
-import type { BlobHandle } from 'gitsheets';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -186,9 +185,6 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   //    against the last even when nothing changed upstream.
   // -------------------------------------------------------------------------
   let store: PublicStore | null = null;
-  // Gitsheets Repository — needed to write attachment blobs via
-  // repo.writeBlob into the underlying git object DB.
-  let publicRepo: Awaited<ReturnType<typeof openPublicStore>>['repo'] | null = null;
   let existingIds: ExistingIds;
 
   if (opts.dryRun) {
@@ -198,7 +194,6 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
     await ensureBranchCheckedOut(repo, branch, initialParent);
     const opened = await openPublicStore(repo);
     store = opened.store;
-    publicRepo = opened.repo;
     existingIds = await collectExistingIds(store, log);
   }
 
@@ -497,10 +492,6 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
       },
     },
     async (tx) => {
-      if (publicRepo === null) {
-        throw new Error('[import-laddr] internal: publicRepo not opened');
-      }
-
       log(`[import] clear + upsert tags (${tags.length})`);
       await tx.tags.clear();
       for (const t of tags) await tx.tags.upsert(t);
@@ -512,11 +503,9 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
         if (avatar) {
           // Mirror POST /api/people/:slug/avatar: store original + 128 thumb
           // as attachments and point avatarKey at the conventional path.
-          const originalBlob = await publicRepo.writeBlob(avatar.original);
-          const thumbnailBlob = await publicRepo.writeBlob(avatar.thumbnail);
           await tx.people.setAttachments(p, {
-            'avatar.jpg': originalBlob,
-            'avatar-128.jpg': thumbnailBlob,
+            'avatar.jpg': avatar.original,
+            'avatar-128.jpg': avatar.thumbnail,
           });
           await tx.people.upsert({ ...p, avatarKey: `people/${p.slug}/avatar.jpg` });
         } else {
@@ -579,12 +568,10 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
       for (const { record } of blogTranslations) {
         const artifacts = mediaArtifactsBySlug.get(record.slug) ?? [];
         if (artifacts.length > 0) {
-          const blobs: Record<string, BlobHandle> = {};
-          for (const a of artifacts) {
-            // repo.writeBlob hashes the Buffer into the git object DB.
-            blobs[a.filename] = await publicRepo.writeBlob(a.bytes);
-          }
-          await tx['blog-posts'].setAttachments(record, blobs);
+          await tx['blog-posts'].setAttachments(
+            record,
+            Object.fromEntries(artifacts.map((a) => [a.filename, a.bytes])),
+          );
         }
         await tx['blog-posts'].upsert(record);
       }
