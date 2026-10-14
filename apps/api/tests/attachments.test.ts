@@ -153,4 +153,37 @@ describe('GET /api/attachments/*', () => {
     expect(res.statusCode).toBe(200);
     expect(Buffer.from(res.rawPayload).equals(allBytes)).toBe(true);
   });
+
+  it('sends the blob hash as an ETag and answers a matching If-None-Match with 304', async () => {
+    await seedRawBlob(dataRepo.path, 'people/etag/avatar.png', TINY_PNG, 'seed etag avatar');
+    app = await bootApp();
+
+    const first = await app.inject({ method: 'GET', url: '/api/attachments/people/etag/avatar.png' });
+    expect(first.statusCode).toBe(200);
+    const etag = first.headers.etag as string;
+    expect(etag).toMatch(/^"[0-9a-f]{40,64}"$/);
+
+    const second = await app.inject({
+      method: 'GET',
+      url: '/api/attachments/people/etag/avatar.png',
+      headers: { 'if-none-match': etag },
+    });
+    expect(second.statusCode).toBe(304);
+    expect(second.body).toBe('');
+  });
+
+  it('serves an empty blob as 200 with an empty body', async () => {
+    await seedRawBlob(dataRepo.path, 'people/empty/blank.bin', Buffer.alloc(0), 'seed empty blob');
+    app = await bootApp();
+
+    const res = await app.inject({ method: 'GET', url: '/api/attachments/people/empty/blank.bin' });
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.length).toBe(0);
+  });
+
+  it('returns 404 for a key outside any sheet', async () => {
+    app = await bootApp();
+    const res = await app.inject({ method: 'GET', url: '/api/attachments/not-a-sheet/x/y.png' });
+    expect(res.statusCode).toBe(404);
+  });
 });
