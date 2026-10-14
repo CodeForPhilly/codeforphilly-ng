@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [events-core]
 specs:
   - specs/behaviors/events.md
@@ -11,6 +11,7 @@ specs:
   - specs/behaviors/app-shell.md
   - specs/behaviors/slug-handles.md
 issues: [194]
+pr: 211
 ---
 
 # Plan: Event series and agendas
@@ -80,20 +81,20 @@ a series filter on `GET /api/events`; listing series on the index.
 
 ## Validation
 
-- [ ] Creating an event with `seriesSlug` links it; `GET /api/event-series/:slug`
+- [x] Creating an event with `seriesSlug` links it; `GET /api/event-series/:slug`
   lists it under `upcoming`, and under `past` once `endsAt` passes.
-- [ ] An agenda item outside the event's range is rejected with a per-row
+- [x] An agenda item outside the event's range is rejected with a per-row
   `422`; items come back sorted by `startsAt` regardless of input order.
-- [ ] `DELETE /api/event-series/:slug` answers `409 has_events` while an
+- [x] `DELETE /api/event-series/:slug` answers `409 has_events` while an
   event references it and `204` after the event is reassigned.
-- [ ] Event detail shows "Part of <series>" and, for an event with agenda,
+- [x] Event detail shows "Part of <series>" and, for an event with agenda,
   the day-grouped Schedule with venue lines only where the venue changes.
-- [ ] Duplicating an event keeps its series and shifts each agenda item one
+- [x] Duplicating an event keeps its series and shifts each agenda item one
   month, with the rows visible in the editor before save (deferred from
   [`events-core`](events-core.md)).
-- [ ] `.ics` `DESCRIPTION` carries the schedule text for an agenda event and
+- [x] `.ics` `DESCRIPTION` carries the schedule text for an agenda event and
   nothing extra for a plain one.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -107,8 +108,41 @@ a series filter on `GET /api/events`; listing series on the index.
 
 ## Notes
 
-(Populated at closeout.)
+- **Agenda validation and ICS text already shipped in `events-core`**;
+  this plan added the series sheet, endpoints, and all of the UI. The
+  ICS schedule block was verified again here with venue overrides.
+- **No `Command` component exists in the repo**, so the series picker is
+  a hand-rolled accessible combobox (input + listbox, arrow keys, Enter,
+  Escape) rather than a shadcn add. Typing an existing series' title in
+  any case reuses it instead of creating a duplicate.
+- **Visibility rule as built:** a series is hidden from non-staff when it
+  has no event they may see — that covers "all drafts" and "no events
+  yet" alike, so a freshly created empty series is a staff-only page until
+  its first published event.
+- **`event_series` is a `LegacyHandleEntity`** (no underscores, 100 chars)
+  purely so the slug-redirect plugin's pattern list can carry it; the
+  series pattern is registered ahead of the event pattern so
+  `/events/series/<old>` resolves as a series rename rather than an event
+  named `series`.
+- **The venue line's "previous" venue** starts from the event venue each
+  day and treats an item without an override as being at the event venue;
+  the end-time field on a schedule row is a time on the row's start date and
+  an end at or before the start runs past midnight. Both written back to
+  the specs in this PR.
+- **The fixture series (step 2) was not added to the data repo's
+  `fixture` branch**; the dev seed used for the browser check was a
+  throwaway script. Tracked below with the fixture events from
+  `events-core`.
+- **Delete tooltip text is not asserted in web tests**: jsdom can't open
+  Radix tooltips (no `ResizeObserver`), so the test checks the disabled
+  state and the focusable wrapper.
+- **Browser check** on a seeded dev repo: an event with four agenda items
+  across three days (venue pin only on the two items away from City Hall),
+  the series page listing it under Upcoming, and the duplicate form with
+  the series preselected and all four rows shifted a month.
 
 ## Follow-ups
 
-(Populated at closeout.)
+- Tracked as: add a fixture series plus one upcoming and one past event
+  (with RSVPs) to codeforphilly-data `fixture`, together with the fixture
+  events `events-core` left open.
