@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [events-series-agenda]
 specs:
   - specs/data-model.md
@@ -7,6 +7,7 @@ specs:
   - specs/behaviors/events.md
   - specs/behaviors/legacy-id-mapping.md
 issues: [194]
+pr: 216
 ---
 
 # Plan: year-partitioned, content-oriented event records
@@ -77,17 +78,17 @@ which now depends on this plan).
 
 ## Validation
 
-- [ ] A created event lands at `events/<YYYY>/<slug>.md` with its
+- [x] A created event lands at `events/<YYYY>/<slug>.md` with its
   description as the markdown body; reading it back through the API is
   byte-for-byte the description that was sent.
-- [ ] An RSVP lands at `event-rsvps/<YYYY>/<eventSlug>/<personSlug>.toml`.
-- [ ] Moving an event's `startsAt` across a year boundary moves its file
+- [x] An RSVP lands at `event-rsvps/<YYYY>/<eventSlug>/<personSlug>.toml`.
+- [x] Moving an event's `startsAt` across a year boundary moves its file
   and its RSVP files in the same commit; renaming its slug still does.
-- [ ] A series' description is the body of `event-series/<slug>.md`.
-- [ ] `/events/launchpad-2023` 301s to `/events/series/launchpad-2023` when
+- [x] A series' description is the body of `event-series/<slug>.md`.
+- [x] `/events/launchpad-2023` 301s to `/events/series/launchpad-2023` when
   that series exists and no event has that slug.
-- [ ] `check:sheet-configs` matches `empty`; `check-contracts` unchanged.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] `check:sheet-configs` matches `empty`; `check-contracts` unchanged.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -102,8 +103,31 @@ which now depends on this plan).
 
 ## Notes
 
-(Populated at closeout.)
+- Shipped in #216 alongside codeforphilly-data #17 (empty), #18 (fixture),
+  #19 (legacy-import). No records existed in these sheets on any branch,
+  so the templates applied without a migration.
+- **gitsheets refuses a body-less markdown upsert** unless told the
+  omission is deliberate (`allowMissingBody`). Events and series without
+  a description are normal and our upserts always carry the full record,
+  so both write services opt in (`MARKDOWN_UPSERT`). A body-less file
+  reads back as `''`, not `null`; the serializers fold it to `null` so the
+  API contract is unchanged.
+- **Body normalization.** gitsheets trims the body's trailing newline on
+  write; everything before it round-trips byte-for-byte. The validation
+  criterion holds for descriptions as the editor sends them.
+- The partition year is computed once (`partitionYear`) and shared with
+  the purge cascade; it is the UTC year of `startsAt`, identical to the
+  native bucket because every stored timestamp is a `Z` string. A
+  Dec 31 → Jan 1 move is covered by a test.
+- The spec/plan wording moved from the slice expression to the native
+  `${{ startsAt: YYYY }}` bucket in the same PR — a syntax detail inside
+  the already-accepted decision, not a behavior change.
 
 ## Follow-ups
 
-(Populated at closeout.)
+- **Deferred to plan:** [`events-legacy-backfill`](events-legacy-backfill.md)
+  writes the first records into these sheets; it must pass
+  `MARKDOWN_UPSERT` (or use the write services) for series and events
+  without descriptions.
+- **None** for `published`: the release session adopts the configs there
+  in lockstep with the release that enables events.
