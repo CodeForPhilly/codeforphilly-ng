@@ -27,25 +27,31 @@ one click, every RSVP gets a confirmation email with an `.ics`, and the events
 show up on `/events`, on the home page, and in a subscribable calendar feed.
 
 **In:** `Event` and `EventRsvp` sheets, schemas, indices, and importer-free
-boot; the full [api/events.md](../specs/api/events.md) surface including the
-two `.ics` routes; RSVP confirmation, "event updated", and "cancelled" emails
-with calendar attachments; `/events`, `/events/past`, `/events/:slug`,
-`/events/new`, `/events/:slug/edit` screens; the home-page strip; header,
-footer, and breadcrumb entries; `/calendar` and the `/events/*past`-style
-legacy redirects; event-rsvp cascade on person purge.
+boot; the event and RSVP endpoints of [api/events.md](../specs/api/events.md)
+including the two `.ics` routes; the one-click RSVP and its three-way
+follow-up (`plan` + `projectId`) with the grouped attendee list; RSVP
+confirmation, "event updated", and "cancelled" emails with calendar
+attachments; `/events`, `/events/past`, `/events/:slug`, `/events/new`,
+`/events/:slug/edit` screens; the home-page strip; header, footer, and
+breadcrumb entries; `/calendar` and the `/events/*past`-style legacy
+redirects; event-rsvp cascade on person purge.
 
-**Out:** the reminder sweep ([`events-reminders`](events-reminders.md)); the
-four historical laddr events ([`events-legacy-backfill`](events-legacy-backfill.md));
-everything under "Deferred" in [deferred.md](../specs/deferred.md) — programs
-with sessions, recurrence, capacity, cover images, Slack announcements.
+**Out:** series and agendas ([`events-series-agenda`](events-series-agenda.md)
+— the `seriesId` and `agenda` fields ship in the schema here as optional and
+unused so no migration is needed later); the reminder sweep
+([`events-reminders`](events-reminders.md)); the four historical laddr events
+([`events-legacy-backfill`](events-legacy-backfill.md)); everything under
+"Deferred" in [deferred.md](../specs/deferred.md) — private RSVPs,
+recurrence, capacity, cover images, Slack announcements.
 
 ## Implements
 
 - [data-model.md](../specs/data-model.md) — `Event`, `EventRsvp`, the
   `event` SlugHistory type, cascade rules.
 - [behaviors/events.md](../specs/behaviors/events.md) — everything except
-  the Reminders section.
-- [api/events.md](../specs/api/events.md) — all twelve endpoints.
+  the Series, Agenda, and Reminders sections.
+- [api/events.md](../specs/api/events.md) — the twelve `/api/events` endpoints
+  (not the `/api/event-series` group).
 - [screens/events-index.md](../specs/screens/events-index.md),
   [screens/event-detail.md](../specs/screens/event-detail.md),
   [screens/event-edit.md](../specs/screens/event-edit.md).
@@ -79,8 +85,12 @@ with sessions, recurrence, capacity, cover images, Slack announcements.
 4. **Services.** `services/event.ts` (reads: list by `when`, detail with
    `viewerRsvp` + permissions, attendee list) and `services/event.write.ts`
    (create, patch with slug-rename + RSVP path move + `icsSequence` bump,
-   publish, cancel, delete, `putRsvp`, `deleteRsvp`). Reuse the existing
-   slug-history helper. Permissions live in `services/permissions.ts`.
+   publish, cancel, delete, `putRsvp`, `deleteRsvp`). `putRsvp` normalizes
+   the follow-up: `plan = project` requires a resolvable `projectSlug`; any
+   other plan clears `projectId`. The attendee-list serializer emits records
+   in `createdAt` order and the client groups by project, then newcomer /
+   no-project / unanswered. Reuse the existing slug-history helper.
+   Permissions live in `services/permissions.ts`.
 5. **iCalendar.** `lib/ics.ts` builds `VCALENDAR` text from an `Event` per
    the property table in the behavior spec; folded lines, escaped text,
    `METHOD:PUBLISH`. Pure function, unit-tested against fixed timestamps.
@@ -115,6 +125,10 @@ with sessions, recurrence, capacity, cover images, Slack announcements.
 - [ ] `PUT …/rsvp` creates (201) then updates (200) and never duplicates;
   `DELETE` withdraws; both answer `409 rsvp_closed` for draft, cancelled,
   and ended events.
+- [ ] The follow-up round-trips: `plan = project` + slug stores both,
+  `plan = newcomer` clears `projectId`, `plan = project` without a slug is
+  `422`; the detail page groups attendees by project, then "New to Code for
+  Philly", "Looking for a project", "Not sure yet".
 - [ ] Confirmation email carries a `text/calendar` attachment whose `UID` is
   `<id>@codeforphilly.org` and whose `SEQUENCE` matches the record.
 - [ ] Changing `startsAt` on a scheduled event with RSVPs bumps
