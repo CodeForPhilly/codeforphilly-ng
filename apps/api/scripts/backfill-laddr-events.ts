@@ -37,6 +37,7 @@ import {
 } from "@cfp/shared/schemas";
 
 import { nyDateString } from "../src/lib/event-time.js";
+import { ensureUniqueSlug, slugify } from "../src/lib/slug.js";
 import { MARKDOWN_UPSERT, partitionYear } from "../src/services/event.write.js";
 import { openPublicStore } from "../src/store/public.js";
 
@@ -179,6 +180,39 @@ function venueOf(
   return { venueName: s.LocationName, venueAddress: s.LocationAddress };
 }
 
+/** A segment's text: laddr's Summary then Description, normalized; null when both are blank. */
+function segmentText(s: LaddrSegment): string | null {
+  return (
+    [s.Summary, s.Description]
+      .filter((x): x is string => !!x && x.trim() !== "")
+      .map(lf)
+      .join("\n\n") || null
+  );
+}
+
+/** Words that add nothing when a slug is cut short after them. */
+const SLUG_TRAILING_RE = /-(?:and|or|of|the|a|an|to|for|with|at|in|on|\d+)$/;
+
+/**
+ * The event slug is `<YYYY-MM-DD>-<a few words of the title>`, the same
+ * date-first shape the app derives for new events, kept to a handful of
+ * words: the title is slugified, cut at the last word boundary within
+ * `max` characters, and trailing connectives or bare numbers are shed.
+ */
+function titleWords(title: string, max = 32): string {
+  // "Opening Work Day & Participant Ticket Info" → "Opening Work Day":
+  // the clause before an ampersand, slash or colon names the thing.
+  const clause = title.split(/\s+(?:&|\/|and)\s+|:\s+/)[0]!;
+  let s = slugify(clause.trim().split(/\s+/).length >= 2 ? clause : title, 80);
+  while (s.length > max && s.includes("-")) s = s.slice(0, s.lastIndexOf("-"));
+  for (;;) {
+    const trimmed = s.replace(SLUG_TRAILING_RE, "");
+    if (trimmed === s || !trimmed.includes("-")) break;
+    s = trimmed;
+  }
+  return s;
+}
+
 /** A segment as an agenda item. An implausible end (before the start, or more than a day later) is dropped. */
 function agendaItem(
   s: LaddrSegment,
@@ -198,11 +232,7 @@ function agendaItem(
       endsAt = null;
     }
   }
-  let description =
-    [s.Summary, s.Description]
-      .filter((x): x is string => !!x && x.trim() !== "")
-      .map(lf)
-      .join("\n\n") || null;
+  let description = segmentText(s);
   if (description && description.length > 2_000) {
     warn(
       `segment ${s.Handle}: description ${description.length} chars; truncated to 2,000`,
@@ -276,6 +306,20 @@ async function main(): Promise<void> {
   const mediaCache = new Map<number, Captured>();
   const seriesOut: Translated<EventSeries>[] = [];
   const eventsOut: Translated<Event>[] = [];
+  /** Backfilled records whose slug changed since the last run: deleted before the upserts. */
+  const staleEvents: Event[] = [];
+  // Slugs must not collide with events outside the backfill; the backfill's
+  // own records are matched by (series, day) and may be re-slugged.
+  const backfillSeriesIds = new Set(
+    existingSeries
+      .filter((s) => programs.some((p) => p.Handle.toLowerCase() === s.slug))
+      .map((s) => s.id),
+  );
+  const usedSlugs = new Set(
+    existingEvents
+      .filter((e) => !backfillSeriesIds.has(e.seriesId ?? ""))
+      .map((e) => e.slug),
+  );
   const summary: Array<{
     series: string;
     days: Array<{
@@ -284,6 +328,7 @@ async function main(): Promise<void> {
       startsAt: string;
       endsAt: string;
       venue: string | null;
+      description: number;
       agenda: number;
     }>;
   }> = [];
@@ -329,8 +374,13 @@ async function main(): Promise<void> {
     );
     const days: (typeof summary)[number]["days"] = [];
     for (const day of daysOf(segments)) {
-      const eventSlug = `${day.date}-${slug}`;
       const first = day.segments[0]!;
+      const eventSlug = ensureUniqueSlug(
+        `${day.date}-${titleWords(first.Title)}`,
+        (candidate) => usedSlugs.has(candidate),
+        100,
+      );
+      usedSlugs.add(eventSlug);
       const items = day.segments.map((s) => agendaItem(s, warn));
       const startsAt = items[0]!.startsAt;
       // The day runs from its first start to its last end. An item with no
@@ -350,6 +400,34 @@ async function main(): Promise<void> {
       const existingDay = existingDays.get(day.date);
       const year = partitionYear(startsAt);
       const eventAttachments = new Map<string, Buffer>();
+      // laddr's first segment of a day was usually the day itself — the
+      // "Work Day" entry whose text describes the whole day, or the single
+      // segment of a one-session day. When it spans the day's whole range
+      // it is the event, not a slot in it: its text becomes the event
+      // description and it leaves the agenda.
+      const head = items[0]!;
+      const headIsWholeDay =
+        head.startsAt === startsAt &&
+        (head.endsAt === null || head.endsAt >= endsAt);
+      let description: string | null = null;
+      if (headIsWholeDay) {
+        description = segmentText(first);
+        if (description && description.length > 20_000) {
+          warn(
+            `segment ${first.Handle}: description ${description.length} chars; truncated to 20,000`,
+          );
+          description = `${description.slice(0, 19_990).trimEnd()}…`;
+        }
+        if (description) {
+          description = await rewriteMedia(
+            description,
+            `/api/attachments/events/${year}/${eventSlug}`,
+            mediaCache,
+            eventAttachments,
+          );
+        }
+        items.shift();
+      }
       for (const it of items) {
         // An agenda venue is an override (a room, a nearby spot); laddr
         // repeated the day's venue on every segment, which is no override.
@@ -374,7 +452,7 @@ async function main(): Promise<void> {
         id: existingDay?.id ?? uuidv7(),
         slug: eventSlug,
         title: first.Title.slice(0, 200),
-        description: null,
+        description,
         startsAt,
         endsAt,
         ...venue,
@@ -385,6 +463,10 @@ async function main(): Promise<void> {
         createdAt: existingDay?.createdAt ?? iso(p.Created),
         updatedAt: p.Modified ? iso(p.Modified) : iso(p.Created),
       });
+      if (existingDay && existingDay.slug !== eventSlug) {
+        warn(`${existingDay.slug} is now ${eventSlug}; old record removed`);
+        staleEvents.push(existingDay);
+      }
       eventsOut.push({ record, attachments: eventAttachments });
       days.push({
         slug: eventSlug,
@@ -392,6 +474,7 @@ async function main(): Promise<void> {
         startsAt,
         endsAt,
         venue: venue.venueName,
+        description: description?.length ?? 0,
         agenda: items.length,
       });
     }
@@ -415,6 +498,7 @@ async function main(): Promise<void> {
           );
         await tx["event-series"].upsert(record, MARKDOWN_UPSERT);
       }
+      for (const old of staleEvents) await tx.events.delete(old);
       for (const { record, attachments } of eventsOut) {
         if (attachments.size > 0)
           await tx.events.setAttachments(

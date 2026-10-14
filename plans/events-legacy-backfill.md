@@ -20,16 +20,27 @@ are events: carry them into the `event-series` and `events` sheets so
 
 **In:** one `event-series` record per laddr event (slug = laddr handle,
 title and description from the program), one `events` record per calendar
-day of segments (slug `<YYYY-MM-DD>-<series slug>`, venue from the day's
-first segment, span from the day's first start to its last end, the day's
-segments as `agenda` items), legacy `/thumbnail/<id>/…` images captured as
-attachments on the event whose text references them and rewritten per
+day of segments (slug `<YYYY-MM-DD>-<a few words of the day's title>`,
+venue from the day's first segment, span from the day's first start to its
+last end, the day's segments as `agenda` items — except a first segment
+that spans the whole day, whose text is the event's description), legacy
+`/thumbnail/<id>/…` images captured as attachments on the record whose
+text references them and rewritten per
 [legacy-id-mapping.md](../specs/behaviors/legacy-id-mapping.md#legacy-resources-captured-at-import-time-not-proxied-at-runtime).
-Committed through gitsheets on a branch of the data repo for a PR into
-`published`.
+Also the **Monthly Hack Nights** series seeded from Meetup — the last two
+past and every scheduled hack night, each with `meetupUrl`, the Meetup
+description's "Agenda" block as agenda items — so the series the site
+exists to replace has a reference pattern to design against. Committed
+through gitsheets on a branch of the data repo for a PR into `published`.
 
-**Out:** any Meetup check-in history (dropped); RSVPs for historical
-events (there were none on the site).
+**Then curated by hand.** The scripts get the records close; the handful
+of records are then reviewed one by one on the branch (titles, descriptions,
+venues, spans, agendas) with a design eye, so the result is the reference
+pattern future events follow, not a mechanical copy of laddr and Meetup.
+
+**Out:** any Meetup check-in history and RSVP lists (dropped — RSVPs for
+upcoming hack nights stay on Meetup until the cutover); RSVPs for
+historical events (there were none on the site).
 
 ## Implements
 
