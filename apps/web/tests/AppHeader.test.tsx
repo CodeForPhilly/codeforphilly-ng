@@ -129,8 +129,16 @@ describe('AppHeader', () => {
 
     const desktop = screen.getByRole('navigation', { name: /primary navigation/i });
     expect(within(desktop).getByRole('list')).toBeInTheDocument();
-    // Projects, Help Wanted, Members, About
-    expect(within(desktop).getAllByRole('listitem')).toHaveLength(4);
+    // Projects, Events, Help Wanted, Members, About
+    const items = within(desktop).getAllByRole('listitem');
+    expect(items).toHaveLength(5);
+    expect(items.map((li) => li.textContent?.trim())).toEqual([
+      'Projects',
+      'Events',
+      'Help Wanted',
+      'Members',
+      expect.stringMatching(/^About/),
+    ]);
 
     await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
     const mobile = await screen.findByRole('navigation', { name: /mobile navigation/i });

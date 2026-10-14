@@ -7,7 +7,7 @@ See [data-model.md](../data-model.md#project) for the entity shape, [behaviors/p
 ## Endpoints
 
 | Method | Path | Auth | Summary |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `GET` | `/api/projects` | public | List/browse projects with filters and sort. |
 | `GET` | `/api/projects/:slug` | public | Fetch a single project. |
 | `POST` | `/api/projects` | user | Create a new project (caller becomes maintainer). |
@@ -21,8 +21,8 @@ See [data-model.md](../data-model.md#project) for the entity shape, [behaviors/p
 ### Query parameters
 
 | Param | Type | Notes |
-|---|---|---|
-| `q` | string | Free-text search across `title`, `summary`, `overview` (SQLite FTS5 in-memory index — see [behaviors/storage.md](../behaviors/storage.md#full-text-search)). |
+| --- | --- | --- |
+| `q` | string | Free-text search across `title`, `summary`, `overview`; the last word matches as a prefix, so it serves find-as-you-type (SQLite FTS5 in-memory index — see [behaviors/storage.md](../behaviors/storage.md#full-text-search)). Results in relevance order. |
 | `stage` | enum | `commenting` \| `bootstrapping` \| `prototyping` \| `testing` \| `maintaining` \| `drifting` \| `hibernating` |
 | `stageIn` | csv-of-enum | Multi-value filter. |
 | `tag` | string | Tag handle in `<namespace>.<slug>` form (e.g., `tech.flutter`). Repeatable; **OR within namespace, AND across namespaces.** `?tag=topic.transit&tag=topic.mapping&tag=tech.python` returns projects that are tagged `(topic.transit OR topic.mapping) AND tech.python`. Matches the conventional faceted-search behavior — within a facet group users widen, across groups they narrow. |
@@ -30,7 +30,7 @@ See [data-model.md](../data-model.md#project) for the entity shape, [behaviors/p
 | `memberSlug` | string | Person slug — returns projects where this person is in `project-memberships`. |
 | `helpWanted` | bool | If `true`, only projects with at least one `helpWantedRoles.status = 'open'`. |
 | `featured` | bool | If `true`, only projects with `featured = true`. Used by the home page. |
-| `sort` | sort spec | Default `-updatedAt`. Allowed keys: `createdAt`, `updatedAt`, `title`, `stage` (stage ordered by `project-stages.md` rank). |
+| `sort` | sort spec | Default `-updatedAt`, except that a request with `q` and no `sort` lists in relevance order. Allowed keys: `createdAt`, `updatedAt`, `title`, `stage` (stage ordered by `project-stages.md` rank). |
 | `page`, `perPage` | int | See [conventions.md](conventions.md#pagination). |
 
 Soft-deleted projects (`deletedAt is not null`) are excluded for non-staff and included for staff. Staff filter: `?includeDeleted=true`.
@@ -187,7 +187,7 @@ Update one or more fields. Field-level. Omitted fields are unchanged. Tags, if p
 ### Allowed fields by role
 
 | Field | maintainer | staff |
-|---|:---:|:---:|
+| --- | :---: | :---: |
 | title, summary, overview, usersUrl, developersUrl, chatChannel | ✓ | ✓ |
 | stage | ✓ | ✓ |
 | tags.{topic,tech,event} | ✓ | ✓ |

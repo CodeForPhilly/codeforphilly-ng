@@ -581,7 +581,7 @@ describe('scrubRepo', () => {
       const post = {
         id: uuid(10), slug: 'launch-night', title: 'Launch night',
         body: '# Launch night\n\n![photo](image-1.jpg)\n',
-        publishedAt: NOW, createdAt: NOW, updatedAt: NOW,
+        postedAt: NOW, createdAt: NOW, updatedAt: NOW,
       };
       await repo.transact({ message: 'seed', author: { name: 't', email: 't@cfp.test' } }, async (tx) => {
         await tx.sheet('people').upsert({ id: uuid(1), slug: 'alice', fullName: 'Alice Smith', accountLevel: 'user', createdAt: NOW, updatedAt: NOW });
@@ -647,7 +647,7 @@ describe('scrubRepo', () => {
         await tx.sheet('people').upsert({ id: uuid(1), slug: 'alice', fullName: 'Alice Smith', accountLevel: 'user', createdAt: NOW, updatedAt: NOW });
         await tx.sheet('blog-posts').upsert({
           id: uuid(10), slug: 'contact', title: 'Contact', body: 'Write to hello@real-org.com\n',
-          publishedAt: NOW, createdAt: NOW, updatedAt: NOW,
+          postedAt: NOW, createdAt: NOW, updatedAt: NOW,
         });
       });
       targetTmp = await makeTmp();

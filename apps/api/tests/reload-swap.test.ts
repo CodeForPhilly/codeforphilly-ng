@@ -13,6 +13,8 @@
 import { describe, expect, it } from 'vitest';
 import type {
   BlogPost,
+  Event,
+  EventRsvp,
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
@@ -29,6 +31,9 @@ import { swapInPlace } from '../src/store/memory/reload.js';
 import {
   createEmptyState,
   indexBlogPost,
+  indexEvent,
+  indexEventRsvp,
+  indexEventSeries,
   indexHelpWantedInterest,
   indexPersonEvaluation,
   indexHelpWantedRole,
@@ -125,6 +130,14 @@ function makeInterest(n: number, roleId: string, personId: string): HelpWantedIn
   return { id: uuid(n), roleId, personId, createdAt: NOW } as unknown as HelpWantedInterestExpression;
 }
 
+function makeEvent(n: number, slug: string, legacyId: number): Event {
+  return { id: uuid(n), slug, legacyId, title: slug, status: 'scheduled', startsAt: NOW, endsAt: NOW, icsSequence: 0, createdAt: NOW, updatedAt: NOW } as unknown as Event;
+}
+
+function makeRsvp(n: number, eventId: string, personId: string): EventRsvp {
+  return { id: uuid(n), eventId, personId, createdAt: NOW, updatedAt: NOW } as unknown as EventRsvp;
+}
+
 function makeSlugHistory(n: number, entityId: string, oldSlug: string, newSlug: string): SlugHistory {
   return {
     id: uuid(n),
@@ -160,6 +173,11 @@ function buildState(base: number, slugs: { project: string; buzz: string; oldSlu
   indexHelpWantedRole(state, role);
   indexHelpWantedInterest(state, makeInterest(base + 10, role.id, person.id));
   indexSlugHistory(state, makeSlugHistory(base + 11, project.id, slugs.oldSlug, slugs.project));
+  const series = { id: uuid(base + 14), slug: `${slugs.project}-series`, title: 'Series', createdAt: NOW, updatedAt: NOW };
+  indexEventSeries(state, series);
+  const event = makeEvent(base + 12, `${slugs.project}-hack-night`, 8);
+  indexEvent(state, { ...event, seriesId: series.id });
+  indexEventRsvp(state, makeRsvp(base + 13, event.id, person.id));
   indexPersonEvaluation(state, {
     personSlug: person.slug,
     evaluator: 'human-voter' + base,

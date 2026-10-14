@@ -113,9 +113,9 @@ Each entity lives in one sheet. The path template determines how records are sto
 | BlogPost | `blog-posts` | `blog-posts/${slug}.md` (markdown format, body in `body`) |
 | HelpWantedRole | `help-wanted-roles` | `help-wanted-roles/${projectSlug}/${id}.toml` |
 | HelpWantedInterestExpression | `help-wanted-interest` | `help-wanted-interest/${roleId}/${personSlug}.toml` |
-| Event | `events` | `events/${slug}.toml` |
-| EventRsvp | `event-rsvps` | `event-rsvps/${eventSlug}/${personSlug}.toml` |
-| EventSeries | `event-series` | `event-series/${slug}.toml` |
+| Event | `events` | `events/${year}/${slug}.md` — markdown body `description`; `year` rendered from `startsAt` |
+| EventRsvp | `event-rsvps` | `event-rsvps/${year}/${eventSlug}/${personSlug}.toml` |
+| EventSeries | `event-series` | `event-series/${slug}.md` — markdown body `description` |
 | Tag | `tags` | `tags/${namespace}/${slug}.toml` |
 | TagAssignment | `tag-assignments` | `tag-assignments/${taggableType}/${taggableId}/${tagId}.toml` |
 | SlugHistory | `slug-history` | `slug-history/${entityType}/${oldSlug}.toml` |
@@ -133,7 +133,18 @@ The path template is the only "index" gitsheets provides natively. Choose it to 
 
 Every `${field}` in a path template must be a field every record of that sheet carries. A template naming a field the record lacks makes every upsert throw, aborting the whole transaction. Some fields exist only to render the path (`projectSlug`, `personSlug` on child records) and are added by the write services.
 
-The data repo's `empty` branch is the source of truth for the `.gitsheets/*.toml` configs. The API vendors a copy at `apps/api/gitsheets/`; tests seed every test data repo from it, and CI fails when a vendored file differs from `empty` or is missing there (a config only in `empty`, for a sheet the API doesn't open yet, is a warning, since sheets land in the data repo first) (given a deploy key that can read the private data repo; without one the check is skipped with a warning).
+The data repo's `empty` branch is the source of truth for the `.gitsheets/` directory: sheet configs (layout: root, path template, format) and the adopted schema contracts. The API vendors a byte-for-byte mirror at `apps/api/gitsheets/`, and tests seed every test data repo from it. CI fails when a mirrored file differs from `empty` or is missing there. A file only in `empty` is a warning, because sheets land in the data repo before the API opens them. CI reads the private data repo with a read-only deploy key; without the key the check is skipped with a warning.
+
+### Schema contracts
+
+Every public sheet's record shape is a versioned gitsheets schema contract, **published by this repo and adopted by the data repo**.
+
+- **Name and source.** Sheet `<sheet>` implements `codeforphilly.org/<sheet>/v<N>`. The documents live in this repo at `contracts/codeforphilly.org/<sheet>/v<N>.json`, generated from the Zod schemas in `@cfp/shared`. The Zod schema is the source of truth for record shape; the contract is its published, language-neutral form.
+- **Generation rules.** JSON Schema draft-07, open for extension (no `additionalProperties: false` anywhere), no null-bearing keywords (TOML has no null, so a `.nullable()` field becomes its non-null type and stays optional), `required` sorted, no Zod-emitted safe-integer bounds. `$id` is `https://codeforphilly.org/<sheet>/v<N>`.
+- **Immutability.** A published version never changes. CI regenerates every contract and fails if the result differs from a committed `v<N>`; a schema change that alters a contract adds `v<N+1>` beside it and moves the sheet to it.
+- **Adoption.** The data repo adopts each contract with `gitsheets contracts adopt` from this repo's raw URL pinned to the commit that published it, so `.gitsheets/contracts/sources.toml` records where it came from and `gitsheets contracts sync` reports drift. Each sheet config declares `implements = ["codeforphilly.org/<sheet>/v<N>"]`, which makes gitsheets enforce the contract on every write, whoever the writer is (the API, importer, operator scripts, the spam pipeline, hand edits).
+- **Verification.** At boot the API opens every public sheet against the contract version it was built with, in gitsheets' `declared` mode: the sheet must declare that exact contract, byte-identical, or the boot fails. No records are read, and there is no structural fallback.
+- **Order of a change.** The data repo moves in lockstep with the app. Push the new contract version on a PR branch (its commit URL is the published source), adopt it on the data repo's `empty`, `fixture` and `legacy-import` branches (adoption validates every existing record) and mirror the result into `apps/api/gitsheets/` in the same PR, then merge. Adopt on `published` immediately before deploying the release that verifies it; an API built against the previous version fails to boot against the new declaration, so the release and the `published` adoption go out together.
 
 ### Record format
 
@@ -282,6 +293,7 @@ Search hits `title + summary + overview` for projects and `fullName + bio` for p
 
 - Throwaway: never persisted, rebuilt on every restart. Boot cost is acceptable at civic scale (<1s for our corpus).
 - Engine choice: SQLite FTS5 has built-in ranking, prefix matching, and BM25 scoring — equivalent to what Postgres `tsvector` would give us.
+- Matching: each word of `q` must match, and the **last word matches as a prefix** — the query is what someone has typed so far, so `civic eng` finds "Civic Engagement Launchpad" and `hack` finds "Hackathon" and "DataHack". Earlier words are whole tokens. Results come back in relevance order, with a match in the name (project title, person's name, role title) ranking above the same match in body text.
 - Fallback: for v1 we may ship with **MiniSearch** (a few KB of JS, no native deps) and escalate to SQLite FTS5 only if MiniSearch's ranking is insufficient. Either choice is invisible to callers — the `?q=` API doesn't change.
 
 ## Sync to GitHub

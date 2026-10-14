@@ -34,6 +34,7 @@ import { requireAuth } from '../auth/require.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from './tag.write.js';
 import type { PrivateStore } from '../store/private/index.js';
+import { partitionYear } from './event.write.js';
 import { rekeyAttachment, restoreAttachments, takeAttachments } from './slug-rename.js';
 
 function nowIso(): string {
@@ -294,6 +295,21 @@ export class PersonWriteService {
       if (interest.personId === personId) {
         await tx.public['help-wanted-interest'].delete(interest);
         stateApply.removeInterest(interest);
+      }
+    }
+
+    // 3b. Cascade-delete event RSVPs (path: year/eventSlug/personSlug).
+    for (const rsvpId of this.#state.rsvpsByPerson.get(personId) ?? new Set<string>()) {
+      const rsvp = this.#state.eventRsvps.get(rsvpId);
+      const event = rsvp ? this.#state.events.get(rsvp.eventId) : undefined;
+      if (rsvp && event) {
+        await tx.public['event-rsvps'].delete({
+          ...rsvp,
+          year: partitionYear(event.startsAt),
+          eventSlug: event.slug,
+          personSlug: existing.slug,
+        } as typeof rsvp);
+        stateApply.removeEventRsvp(rsvp);
       }
     }
 

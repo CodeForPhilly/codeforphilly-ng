@@ -41,6 +41,9 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
   const db = new Database(':memory:');
 
   db.exec(`
+    -- Ranking: bm25() with per-column weights (title 10, summary 3, body 1),
+    -- so a word in the name outranks the same word in the text — the
+    -- order a find-as-you-type box wants (specs/behaviors/storage.md).
     CREATE VIRTUAL TABLE projects_fts
       USING fts5(slug UNINDEXED, title, summary, overview, tokenize='porter ascii');
 
@@ -61,7 +64,7 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
     searchProjects: db.prepare(
       `SELECT slug FROM projects_fts
        WHERE projects_fts MATCH ?
-       ORDER BY rank
+       ORDER BY bm25(projects_fts, 0, 10, 3, 1)
        LIMIT 1000`,
     ),
 
@@ -74,7 +77,7 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
     searchPeople: db.prepare(
       `SELECT slug FROM people_fts
        WHERE people_fts MATCH ?
-       ORDER BY rank
+       ORDER BY bm25(people_fts, 0, 10, 1)
        LIMIT 1000`,
     ),
 
@@ -87,7 +90,7 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
     searchHelpWanted: db.prepare(
       `SELECT id FROM help_wanted_fts
        WHERE help_wanted_fts MATCH ?
-       ORDER BY rank
+       ORDER BY bm25(help_wanted_fts, 0, 10, 1)
        LIMIT 1000`,
     ),
   };
@@ -200,13 +203,17 @@ export function buildFtsEngine(state: InMemoryState): FtsEngine {
 
 /**
  * Sanitize a user query string so it doesn't cause SQLite FTS5 syntax errors.
- * Wraps each word in double-quotes to treat them as exact phrases, then ANDs them.
+ * Wraps each word in double-quotes to treat them as exact phrases, then ANDs
+ * them. The last word matches as a prefix — the query is what someone has
+ * typed so far, so `hack` finds "Hackathon" and `civic eng` finds "Civic
+ * Engagement" (specs/behaviors/storage.md#full-text-search).
  */
-function sanitizeFtsQuery(q: string): string {
+export function sanitizeFtsQuery(q: string): string {
   const words = q
     .trim()
     .split(/\s+/)
     .filter(Boolean)
     .map((w) => `"${w.replace(/"/g, '""')}"`);
+  if (words.length > 0) words[words.length - 1] += '*';
   return words.join(' ');
 }

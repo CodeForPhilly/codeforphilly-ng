@@ -78,12 +78,13 @@ The event as a single-`VEVENT` `VCALENDAR`. Available for `scheduled` and `cance
 
 ### Response — 200
 
-Sorted by `createdAt` ascending (first to RSVP first). Clients group per [behaviors/events.md#the-follow-up-what-are-you-coming-to-do](../behaviors/events.md#the-follow-up-what-are-you-coming-to-do).
+Sorted by `createdAt` ascending (first to RSVP first). Clients group per [behaviors/events.md#the-follow-up-what-are-you-coming-to-do](../behaviors/events.md#the-follow-up-what-are-you-coming-to-do). A paginated envelope like every other list.
 
 ```json
 {
   "success": true,
-  "data": [ EventRsvp, ... ]
+  "data": [ EventRsvp, ... ],
+  "metadata": { "page": 1, "perPage": 100, "totalItems": 14, "totalPages": 1 }
 }
 ```
 
@@ -279,6 +280,8 @@ Hard delete. Permitted only when `status = draft` or the event has no RSVPs. Rem
   "cancellationNote": null,
   "rsvpCount": 14,
   "viewerRsvp": { "plan": "project" | "newcomer" | "no_project" | null, "project": { "slug": "squadquest", "title": "SquadQuest" } | null, "createdAt": "..." } | null,
+  "viewerRecentProjects": [ { "slug": "squadquest", "title": "SquadQuest" } ],
+  "recentProjects": [ { "slug": "philly-bike-action", "title": "Philly Bike Action" }, "…" ],
   "icsUrl": "/api/events/2026-11-03-hack-night/ics",
   "permissions": {
     "canRsvp": true,
@@ -295,6 +298,8 @@ Hard delete. Permitted only when `status = draft` or the event has no RSVPs. Rem
 - `descriptionHtml` is server-rendered per [markdown-rendering.md](../behaviors/markdown-rendering.md).
 - `rsvpCount` counts going RSVPs.
 - `viewerRsvp` is `null` for anonymous callers and for members who haven't RSVP'd.
+- `viewerRecentProjects` is the projects the caller named on their RSVPs to *other* events, most recently answered first, de-duplicated, at most eight — what the follow-up's project picker offers before anything is typed ([screens/event-detail.md](../screens/event-detail.md)). `[]` for anonymous callers. Detail only; the list shape omits it.
+- `recentProjects` is the last ten distinct projects anyone named on an RSVP to any event, most recently answered first — the active projects, so a newcomer's picker opens on the teams that actually meet rather than a search box. Same for every caller. Detail only.
 - `permissions.canRsvp` is `true` exactly when a `PUT …/rsvp` from this caller would succeed (signed in, event `scheduled`, `endsAt > now`). Anonymous callers get `false`; the client renders "Sign in to RSVP" from the auth context.
 - `icsSequence`, `reminders`, and `createdById` are internal and not serialized.
 

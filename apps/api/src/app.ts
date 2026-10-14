@@ -42,6 +42,7 @@ import servicesPlugin from './plugins/services.js';
 import markdownPlugin from './plugins/markdown.js';
 import slugRedirectPlugin from './plugins/slug-redirect.js';
 import legacyRedirectPlugin from './plugins/legacy-redirect.js';
+import eventRemindersPlugin from './plugins/event-reminders.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import idempotencyPlugin from './plugins/idempotency.js';
 import sessionMiddlewarePlugin from './auth/middleware.js';
@@ -56,6 +57,8 @@ import { projectUpdateRoutes } from './routes/projects-updates.js';
 import { projectBuzzRoutes } from './routes/projects-buzz.js';
 import { blogPostRoutes } from './routes/blog-posts.js';
 import { helpWantedRoutes } from './routes/projects-help-wanted.js';
+import { eventRoutes } from './routes/events.js';
+import { eventSeriesRoutes } from './routes/event-series.js';
 import { projectMembershipRoutes } from './routes/projects-members.js';
 import { previewRoutes } from './routes/preview.js';
 import { attachmentRoutes } from './routes/attachments.js';
@@ -153,6 +156,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(markdownPlugin);
   await fastify.register(slugRedirectPlugin);
   await fastify.register(legacyRedirectPlugin);
+  await fastify.register(eventRemindersPlugin);
 
   // ----- 7. Session middleware (JWT auth) -----
   // Before rate-limit and idempotency: all three use onRequest hooks, which run
@@ -199,6 +203,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(projectBuzzRoutes);
   await fastify.register(blogPostRoutes);
   await fastify.register(helpWantedRoutes);
+  await fastify.register(eventRoutes);
+  await fastify.register(eventSeriesRoutes);
   await fastify.register(projectMembershipRoutes);
   await fastify.register(previewRoutes);
   await fastify.register(attachmentRoutes);

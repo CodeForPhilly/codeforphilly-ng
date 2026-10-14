@@ -1,0 +1,8 @@
+[gitsheet]
+root = 'event-series'
+path = '${{ slug }}'
+implements = ["codeforphilly.org/event-series/v1"]
+
+[gitsheet.format]
+type = 'markdown'
+body = 'description'

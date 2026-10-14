@@ -2,9 +2,9 @@
 
 ## Rule
 
-An **event** is a single, dated gathering Code for Philly hosts — a monthly hack night, a showcase, a workshop. Staff create them on the site, members RSVP on the site, and the site is the system of record for when, where, and who's going. Meetup.com is no longer the source of truth; while the community transitions, an event may carry a link to its Meetup listing, but the site's own RSVP is always the primary call to action.
+An **event** is a single gathering Code for Philly hosts at one venue over one contiguous span — a monthly hack night, a showcase, a workshop, one day of a hackathon. Staff create them on the site, members RSVP on the site, and the site is the system of record for when, where, and who's going. Meetup.com is no longer the source of truth; while the community transitions, an event may carry a link to its Meetup listing, but the site's own RSVP is always the primary call to action.
 
-This is the scope [issue #194](https://github.com/CodeForPhilly/codeforphilly-ng/issues/194) asks for: an easy-to-remember `/events` page, member RSVPs, calendar files, reminder emails, and a short list on the home page. Events are **flat** — one record is one thing you RSVP to — and two optional structures hang off them: a [series](#series) ("Monthly Hack Nights") and an [agenda](#agenda) (the timed schedule inside a big event). Together they cover what laddr's program-with-sessions model did for Launchpad without making sessions their own records.
+This is the scope [issue #194](https://github.com/CodeForPhilly/codeforphilly-ng/issues/194) asks for: an easy-to-remember `/events` page, member RSVPs, calendar files, reminder emails, and a short list on the home page. Events are **flat** — one record is one thing you RSVP to — and two optional structures hang off them: a [series](#series) ("Launchpad 2018", "Monthly Hack Nights") and an [agenda](#agenda) (the time slots within one event). A multi-day program is a series of per-day events, each with its own venue and agenda; that is how laddr's program-with-sessions model maps onto records people can actually RSVP to.
 
 ## Applies To
 
@@ -23,6 +23,7 @@ This is the scope [issue #194](https://github.com/CodeForPhilly/codeforphilly-ng
 - Display format, used everywhere an event's time appears (cards, detail, emails, ICS `SUMMARY` is excluded):
   - Same-day event: `Tue, Nov 3 · 6:00–8:30 PM EST`
   - Multi-day event: `Fri, Mar 31, 6:00 PM – Wed, May 10, 9:00 PM EDT`
+  - A multi-day event that crosses a DST change labels both ends: `Sat, Nov 1, 6:00 PM EDT – Sun, Nov 2, 9:00 AM EST`.
   - Year is appended (`Nov 3, 2025`) only when the event is not in the current calendar year.
 
 ## Upcoming vs past
@@ -54,9 +55,10 @@ An event is **upcoming** while `endsAt > now` and **past** once `endsAt ≤ now`
 
 ## Series
 
-An **event series** is a named grouping with no dates of its own: "Monthly Hack Nights", "Launchpad", "Open Data Workshops". An event belongs to at most one series (`seriesId`), and a series has any number of events across any span of time.
+An **event series** is a named grouping with no dates of its own. It takes two shapes: a **program instance** such as "Launchpad 2018" or "DataHack 2020", whose days are its events — the Friday kickoff at City Hall, the Saturday work day at the Innovation Lab, the showcase night at Indy Hall — and an **open-ended set** such as "Monthly Hack Nights" or "Open Data Workshops" that accretes one event at a time. "Launchpad" by itself is not a series; each year's program is. An event belongs to at most one series (`seriesId`), and a series has any number of events across any span of time.
 
-- A series is **not** a recurrence rule and generates nothing. It is a label with a page. The [One record per occurrence](#principles) principle stands: every hack night is still its own record.
+- A series is **not** a recurrence rule and generates nothing. It is a label with a page. The [One record per occurrence](#principles) principle stands: every hack night, and every day of a Launchpad, is still its own record with its own venue, RSVPs, and reminders.
+- The series page is where a program reads as a whole: its description above, then its events in order, each with its venue and date. Nothing about the series record changes when days are added.
 - The event detail page shows "Part of <series title>" linking to `/events/series/<slug>`; the series page lists its upcoming events first, then past, with the series description above.
 - Duplicating an event keeps its series. That is how the monthly hack night accumulates under one heading with no extra typing.
 - Staff manage series from the event form (pick an existing one or create inline) and from the series page (edit title and description). A series can be deleted only when no event references it.
@@ -64,11 +66,11 @@ An **event series** is a named grouping with no dates of its own: "Monthly Hack 
 
 ## Agenda
 
-An event may carry an **agenda**: an ordered list of timed items embedded in the record (laddr's `EventSegment`, without the separate table). A hack night has none. A Launchpad weekend has a dozen.
+An event may carry an **agenda**: an ordered list of time slots within that one event, embedded in the record. A hack night has none. The Saturday of a Launchpad has a dozen — opening remarks, team formation, workshops, lunch, open hacking, dinner, close — all at that day's venue.
 
-- Each item has a start time, an optional end, a title, an optional venue override, and an optional markdown description. Items sit within the event's own time range and are kept sorted by start.
-- The detail page renders a non-empty agenda as the **Schedule** sidebar, grouped by day in `America/New_York` ("**Friday,** March 31"), each item showing its compact time range ("6–9pm", "9am–7pm"), its title, and its description. A venue is shown with a map-pin and a Google Maps link only when it differs from the previous item that day — this is laddr's schedule sidebar, which was the best piece of the old UI.
-- Agenda items have no identity: no slug, no page, no RSVP, no reminder. "Going to Showcase Night" means RSVPing to the event that contains it. If a session genuinely needs its own RSVP list, it becomes its own event in the same series ([deferred.md](../deferred.md#per-session-rsvps-on-multi-day-events)).
+- Each item has a start time, an optional end, a title, an optional venue override (a room, a nearby spot for dinner — never a different day or a different event's venue), and an optional markdown description. Items sit within the event's own time range and are kept sorted by start.
+- The detail page renders a non-empty agenda as the **Schedule** sidebar, grouped by day in `America/New_York` ("**Friday,** March 31"), each item showing its compact time range ("6–9pm", "9am–7pm"), its title, and its description. A venue is shown with a map-pin and a Google Maps link only when it differs from the previous item's venue, where an item without a venue override is at the event's venue and each day starts from the event's venue — this is laddr's schedule sidebar, which was the best piece of the old UI.
+- Agenda items have no identity: no slug, no page, no RSVP, no reminder. Anything someone would RSVP to on its own — a day, a showcase night — is an event in the series, not an agenda item.
 - The agenda is **not** exported as separate calendar entries; the event's `.ics` `DESCRIPTION` includes a plain-text rendering of the schedule after the description.
 - Agenda edits bump nothing and email nobody. Only the event-level time and location fields trigger the "event updated" mail.
 
@@ -138,8 +140,8 @@ The "Add to Google Calendar" control is a prefilled `calendar.google.com/calenda
 Attendees get two reminder emails per event: **one week before** and **one day before** `startsAt`.
 
 - A background sweep runs in-process every 5 minutes (the same shape as the revocation sweeper in [authorization.md](authorization.md#revocation)). Single replica, so one sweep. It runs *inside* the API process rather than as a Kubernetes CronJob or an Actions cron because the bookkeeping write has to go through the in-process write mutex ([storage.md](storage.md)); a separate process could only write by pushing a commit to the data repo and waiting for hot reload, which is a roundabout way to set one timestamp.
-- The week reminder is **due** for a `scheduled` event when `now ≥ startsAt − 7d` and `now < startsAt − 24h` and `reminders.weekSentAt` is unset. The day reminder is due when `now ≥ startsAt − 24h` and `now < startsAt` and `reminders.daySentAt` is unset.
-- The windows are closed-ended so a pod that was down for the whole window, or an event created inside it, skips that reminder rather than sending a "one week" note two days out. An event created less than a day ahead gets no reminders; its confirmation email is the reminder.
+- The week reminder is **due** for a `scheduled` event when `startsAt − 7d ≤ now < startsAt − 6d` and `reminders.weekSentAt` is unset. The day reminder is due when `startsAt − 24h ≤ now < startsAt − 18h` and `reminders.daySentAt` is unset. Each window is one sweep-friendly band just after its mark, not everything from the mark to the event.
+- The windows are narrow on purpose: a pod that was down for the whole band, or an event created after the band passed, skips that reminder rather than sending a "one week" note three days out or a "tomorrow" note at lunchtime. An event created less than seven days ahead gets only the day reminder; one created less than a day ahead gets none — its confirmation email is the reminder.
 - **At-most-once:** the sweep records `reminders.<kind>SentAt = now` on the event *before* sending, in its own commit under the write mutex, then emails each going attendee. A send failure is logged and not retried; a duplicate reminder is the worse failure.
 - Each reminder email goes to the attendee's `PrivateProfile.email` and includes the when/where block, the member's follow-up answer if any ("You said you're coming to work on SquadQuest"), the canonical URL, and a "Can't make it? Update your RSVP" link. The `.ics` is not re-attached — the confirmation already delivered it.
 - Members who RSVP after a reminder was sent don't receive that reminder. They were just on the page.
@@ -153,7 +155,7 @@ Attendees get two reminder emails per event: **one week before** and **one day b
 
 ## Duplicating
 
-Monthly events are the whole point and there is **no recurrence engine**. Instead the event form accepts `?from=<slug>`: it opens prefilled with every field of the source event — including its series and agenda — except `slug`, `status` (always `scheduled`), RSVPs, and reminder bookkeeping, with `startsAt`/`endsAt` (and each agenda item) shifted forward one month in `America/New_York`. Staff adjust the date and save. One explicit record per occurrence means every event can be edited, cancelled, and RSVP'd independently, and the data repo shows exactly what was announced.
+Monthly events are the whole point and there is **no recurrence engine**. Instead the event form accepts `?from=<slug>`: it opens prefilled with every field of the source event — including its series and agenda — except `slug`, `status` (always `scheduled`), RSVPs, and reminder bookkeeping, with `startsAt`/`endsAt` (and each agenda item) shifted forward one month in `America/New_York`. "One month" keeps the day-of-month and wall-clock time; a day the next month lacks (Jan 31 → Feb) clamps to that month's last day. Staff adjust the date and save. One explicit record per occurrence means every event can be edited, cancelled, and RSVP'd independently, and the data repo shows exactly what was announced.
 
 The form is a convenience, not the only door. `POST /api/events` is the same write, so a script or an agent can create next month's hack night with one call; and because the data repo is the store, a record committed directly to `published` (the way blog posts are authored) arrives through hot reload like any other data change. Whichever path creates the record, reminders, RSVPs, and the feed treat it identically.
 
@@ -163,7 +165,7 @@ The form is a convenience, not the only door. `POST /api/events` is the same wri
 
 ## Legacy URLs
 
-Laddr served `/events`, `/events/*past`, `/events/*upcoming`, `/events/*all`, `/events/<handle>`, and `/events/<handle>/segments/<segHandle>`. The rewrite answers them per [legacy-id-mapping.md](legacy-id-mapping.md#legacy-url-forms-we-accept): the starred list views 301 to `/events/past` or `/events`; the four historical laddr events are backfilled with their slugs preserved, their segments as agenda items, and a "Launchpad" series grouping the three Launchpads, so `/events/launchpad-2023` keeps resolving; segment URLs 301 to the event's schedule anchor.
+Laddr served `/events`, `/events/*past`, `/events/*upcoming`, `/events/*all`, `/events/<handle>`, and `/events/<handle>/segments/<segHandle>`. A laddr "event" was a whole program, so each of the four becomes a **series** whose slug is the laddr handle in slug form — `launchpad-2018`, `launchpad-2019`, `data-hack-2020`, `launchpad-2023` — with one event per day of segments and that day's segments as its agenda. The rewrite answers the old URLs per [legacy-id-mapping.md](legacy-id-mapping.md#legacy-url-forms-we-accept): the starred list views 301 to `/events/past` or `/events`; `/events/<handle>` and its segment URLs 301 to the series page. The four handles are a closed set, so they map statically rather than through [legacy handle normalization](slug-handles.md#legacy-handle-normalization), which would keep laddr's underscores: `launchpad-2018` → `launchpad-2018`, `launchpad_2019` → `launchpad-2019`, `datahack2020` → `data-hack-2020`, `launchpad-2023` → `launchpad-2023`.
 
 ## Principles
 
@@ -173,7 +175,7 @@ Laddr served `/events`, `/events/*past`, `/events/*upcoming`, `/events/*all`, `/
 
 - **Philly time, always.** When a time could be shown in the viewer's zone or in `America/New_York`, show Philly time with its abbreviation. The event is in one place; the page should agree with the sign on the door.
 - **One record per occurrence.** When a feature tempts a recurrence rule or a template that generates events, reach for "duplicate" instead. A series is a label, never a generator. Every occurrence is an independent, editable, cancellable record with its own RSVPs; the data repo's history shows what was actually announced, not what a rule would have produced.
-- **Sessions don't get identity until they need RSVPs.** An agenda item is a line in a schedule. The moment someone needs to RSVP to it, reminder for it, or link to it on its own, it becomes an event in the same series — not a new kind of record.
+- **One venue, one span, one event.** An event is a place and a contiguous stretch of time. When a program changes venue or crosses into another day, that is another event in the same series; the agenda only ever subdivides the time inside one event. Modelling a weekend as one event with a venue per agenda item is the mistake this rules out.
 - **Our RSVP is the call to action.** Any link to an external listing (Meetup, Eventbrite, tickets) is secondary in position and weight. The site is displacing Meetup, not pointing at it.
 - **RSVPs are public.** The attendee list is the feature, and the data repo is public anyway. Never add a privacy knob the storage can't honor.
 - **The write never waits on the mail.** RSVP, cancel, and update succeed whether or not email delivers; reminders are at-most-once. A missed email is recoverable from the site; a duplicate or a failed RSVP is not.

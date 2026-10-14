@@ -9,7 +9,7 @@
  * session middleware in auth-jwt-substrate) via `getCallerSession()` below.
  */
 import type { FastifyRequest } from 'fastify';
-import type { Person, Project, ProjectBuzz, ProjectMembership, ProjectUpdate } from '@cfp/shared/schemas';
+import type { Event, Person, Project, ProjectBuzz, ProjectMembership, ProjectUpdate } from '@cfp/shared/schemas';
 import type { HelpWantedRole } from '@cfp/shared/schemas';
 
 /** Minimal caller shape used by permission helpers. Derived from `request.session.person`. */
@@ -147,6 +147,50 @@ export function computeBuzzPermissions(
     canEdit: isPoster || staff,
     canDelete: isPoster || staff,
   };
+}
+
+export interface EventPermissions {
+  /** True exactly when a PUT …/rsvp from this caller would succeed. */
+  readonly canRsvp: boolean;
+  readonly canEdit: boolean;
+  readonly canPublish: boolean;
+  readonly canCancel: boolean;
+  readonly canDelete: boolean;
+}
+
+/** RSVP window per specs/behaviors/events.md#rsvp-window: scheduled and not yet ended. */
+export function isRsvpOpen(event: Event, now: Date = new Date()): boolean {
+  return event.status === 'scheduled' && new Date(event.endsAt) > now;
+}
+
+export function computeEventPermissions(
+  caller: CallerSession | undefined,
+  event: Event,
+  rsvpCount: number,
+  now: Date = new Date(),
+): EventPermissions {
+  const staff = isStaff(caller);
+  return {
+    canRsvp: caller !== undefined && isRsvpOpen(event, now),
+    canEdit: staff,
+    canPublish: staff && event.status === 'draft',
+    canCancel: staff && event.status === 'scheduled',
+    canDelete: staff && (event.status === 'draft' || rsvpCount === 0),
+  };
+}
+
+export interface EventSeriesPermissions {
+  readonly canEdit: boolean;
+  /** Staff, and only while no event references the series. */
+  readonly canDelete: boolean;
+}
+
+export function computeEventSeriesPermissions(
+  caller: CallerSession | undefined,
+  eventCount: number,
+): EventSeriesPermissions {
+  const staff = isStaff(caller);
+  return { canEdit: staff, canDelete: staff && eventCount === 0 };
 }
 
 export function computeHelpWantedPermissions(

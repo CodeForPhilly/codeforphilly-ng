@@ -71,12 +71,6 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 - **Why deferred:** RSVP records live in the public data repo, and the attendee list is the feature ([behaviors/events.md](behaviors/events.md#rsvps-are-public)). A "hide me" flag on the public record would be a promise the storage can't keep.
 - **When promoted:** Keep the public record as the only thing the attendee list reads, and add a *supplemental* private RSVP record in the private store ([behaviors/private-storage.md](behaviors/private-storage.md)) for members who choose "RSVP privately". Private RSVPs count toward `rsvpCount` only as an aggregate ("14 going · 2 private"), receive the same confirmation and reminder emails, and never produce a public file. The reminder sweep would read both stores.
 
-### Per-session RSVPs on multi-day events
-
-- **What:** RSVPing to one agenda item of a big event ("just the Showcase Night") rather than the whole thing.
-- **Why deferred:** Agenda items are embedded in the event record and carry no identity ([data-model.md](data-model.md#agenda-items)). The four historical Launchpads are the only events that ever had sessions, and they handled per-session tickets off-site.
-- **When promoted:** Make each session its own flat `Event` in the same `EventSeries`. The series page already renders them as a day-grouped schedule; nothing about the record shape changes.
-
 ### Event recurrence
 
 - **What:** "Every first Tuesday" rules that generate occurrences.

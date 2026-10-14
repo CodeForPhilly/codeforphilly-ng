@@ -28,6 +28,15 @@ export type { HelpWantedRole } from './help-wanted-role.js';
 export { HelpWantedInterestExpressionSchema } from './help-wanted-interest.js';
 export type { HelpWantedInterestExpression } from './help-wanted-interest.js';
 
+export { EventSchema, EventAgendaItemSchema, EVENT_STATUSES } from './event.js';
+export type { Event, EventAgendaItem, EventStatus } from './event.js';
+
+export { EventRsvpSchema, EVENT_RSVP_PLANS } from './event-rsvp.js';
+export type { EventRsvp, EventRsvpPlan } from './event-rsvp.js';
+
+export { EventSeriesSchema } from './event-series.js';
+export type { EventSeries } from './event-series.js';
+
 export { SlugHistorySchema } from './slug-history.js';
 export type { SlugHistory } from './slug-history.js';
 

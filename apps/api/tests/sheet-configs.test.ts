@@ -15,10 +15,13 @@ import { canonicalContractHash } from 'gitsheets';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 
-import { PERSON_EVALUATIONS_CONTRACT_NAME, PERSON_EVALUATIONS_CONTRACT_V1 } from '@cfp/shared';
+import { SHEET_CONTRACTS, contractName, type ContractSheet } from '@cfp/shared';
 
 import { PUBLIC_SHEET_SCHEMAS } from '../src/store/public.js';
 import { SHEET_CONFIG_DIR } from './helpers/sheet-configs.js';
+
+/** This repo's published contract documents (repo-root `contracts/`). */
+const PUBLISHED_CONTRACTS_DIR = join(SHEET_CONFIG_DIR, '..', '..', '..', 'contracts');
 
 /**
  * Fields that exist only to render a sheet's path: the schemas don't declare
@@ -32,6 +35,7 @@ const WRITE_INJECTED_PATH_FIELDS: Readonly<Record<string, readonly string[]>> = 
   'project-buzz': ['projectSlug'],
   'help-wanted-roles': ['projectSlug'],
   'help-wanted-interest': ['personSlug'],
+  'event-rsvps': ['year', 'eventSlug', 'personSlug'],
 };
 
 function templateFields(config: string): string[] {
@@ -68,16 +72,34 @@ describe('sheet configs', () => {
     });
   }
 
-  it('vendors the person-evaluations contract byte-identical to the shared document', async () => {
-    const vendored = await readFile(
-      join(SHEET_CONFIG_DIR, 'contracts', `${PERSON_EVALUATIONS_CONTRACT_NAME}.toml`),
-      'utf8',
+  it('publishes a contract for exactly the sheets the store opens', () => {
+    expect(Object.keys(SHEET_CONTRACTS).sort()).toEqual(Object.keys(PUBLIC_SHEET_SCHEMAS).sort());
+  });
+
+  it('mirrors only contracts this repo published, byte-identical to the published document', async () => {
+    const dir = join(SHEET_CONFIG_DIR, 'contracts');
+    // Contracts live in `<host>/<path>.toml` subdirectories; top-level files
+    // (`sources.toml`) are gitsheets' provenance sidecar.
+    const mirrored = (await readdir(dir, { recursive: true })).filter(
+      (f) => f.endsWith('.toml') && f.includes('/'),
     );
-    expect(canonicalContractHash(vendored, { format: 'toml' })).toBe(
-      canonicalContractHash(PERSON_EVALUATIONS_CONTRACT_V1),
-    );
-    const config = await readFile(join(SHEET_CONFIG_DIR, 'person-evaluations.toml'), 'utf8');
-    expect(config).toContain(`implements = ["${PERSON_EVALUATIONS_CONTRACT_NAME}"]`);
+    for (const file of mirrored) {
+      const name = file.replace(/\.toml$/, '');
+      const published = await readFile(join(PUBLISHED_CONTRACTS_DIR, `${name}.json`), 'utf8');
+      const vendored = await readFile(join(dir, file), 'utf8');
+      expect(canonicalContractHash(vendored, { format: 'toml' }), name).toBe(
+        canonicalContractHash(published, { format: 'json' }),
+      );
+    }
+  });
+
+  it('every sheet config declares exactly the contract version this build publishes', async () => {
+    for (const sheet of Object.keys(PUBLIC_SHEET_SCHEMAS) as ContractSheet[]) {
+      const config = await readFile(join(SHEET_CONFIG_DIR, `${sheet}.toml`), 'utf8');
+      const declared = /^implements\s*=\s*\[(.*)\]/m.exec(config)?.[1] ?? '';
+      const names = [...declared.matchAll(/["']([^"']+)["']/g)].map((m) => m[1]);
+      expect(names, sheet).toEqual([contractName(sheet)]);
+    }
   });
 });
 

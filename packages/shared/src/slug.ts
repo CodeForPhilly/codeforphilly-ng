@@ -8,7 +8,7 @@
  * concern and deliberately not part of this.
  */
 
-export type LegacyHandleEntity = 'person' | 'project' | 'tag' | 'buzz';
+export type LegacyHandleEntity = 'person' | 'project' | 'tag' | 'buzz' | 'event' | 'event_series';
 
 export interface HandleRules {
   readonly maxLen: number;
@@ -20,6 +20,9 @@ export const LEGACY_HANDLE_RULES: Readonly<Record<LegacyHandleEntity, HandleRule
   project: { maxLen: 80, allowUnderscore: true },
   tag: { maxLen: 50, allowUnderscore: false },
   buzz: { maxLen: 50, allowUnderscore: false },
+  // laddr event handles carried underscores (`launchpad_2019`); 100 matches the event slug pattern.
+  event: { maxLen: 100, allowUnderscore: true },
+  event_series: { maxLen: 100, allowUnderscore: false },
 };
 
 /**

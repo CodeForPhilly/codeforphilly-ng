@@ -28,6 +28,15 @@ export const RESERVED_SLUGS = new Set<string>([
   'logout',
   'api',
   'auth',
+  // Sibling list views, feeds, and sub-collections under a collection route
+  // (`/events/past`, `/api/events/feed.ics`, `/events/series/<slug>`).
+  'past',
+  'upcoming',
+  'all',
+  'feed',
+  'series',
+  'events',
+  'calendar',
 ]);
 
 /** Reserved-slug check — true if the slug must not be used by user-supplied input. */
@@ -40,6 +49,12 @@ const PROJECT_SLUG_RE = /^[a-z0-9][a-z0-9-_]{1,79}$/;
 const PERSON_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,49}$/;
 const TAG_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,49}$/;
 const BUZZ_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,99}$/;
+// Underscores tolerated for the backfilled laddr handle `launchpad_2019`.
+const EVENT_SLUG_RE = /^[a-z0-9][a-z0-9-_]{1,99}$/;
+
+export function isValidEventSlug(slug: string): boolean {
+  return EVENT_SLUG_RE.test(slug);
+}
 
 export function isValidProjectSlug(slug: string): boolean {
   return PROJECT_SLUG_RE.test(slug);

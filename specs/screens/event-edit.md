@@ -30,7 +30,7 @@ A single-column form. Fields, in order:
 | Meetup link | url | optional, HTTPS on meetup.com; helper "Shown as a secondary link while we transition off Meetup." |
 | Description | markdown textarea with preview (same control as project overview) | optional, ≤ 20,000 |
 | Series | combobox: existing series by title, or "Create '<typed text>'" which calls `POST /api/event-series` on save | optional. Duplicate mode carries the source's series. |
-| Schedule | collapsed "Add a schedule" disclosure; a repeatable row editor with Starts (date + time), Ends (time, optional), Title, Venue (optional, with address), Description (markdown, optional); rows reorder by start on save | optional, ≤ 50 rows; each start within the event's range (inline error otherwise). Hidden behind the disclosure so a hack night form stays short. |
+| Schedule | collapsed "Add a schedule" disclosure; a repeatable row editor with Starts (date + time), Ends (time, optional, on the row's start date; a time at or before the start means the item runs past midnight), Title, Venue (optional, with address), Description (markdown, optional); rows reorder by start on save | optional, ≤ 50 rows; each start within the event's range, both ends inclusive (inline error otherwise, and the disclosure opens to show it). Hidden behind the disclosure so a hack night form stays short. |
 | Slug | text, collapsed under "Advanced" | create: placeholder shows the generated default (`2026-11-03-hack-night`) and leaves the field empty; edit: current slug, with helper "Changing this redirects the old link for 90 days." |
 | Save as | radio: "Publish now" (default) / "Save as draft" | create only. Edit shows the current status read-only with a note that cancelling happens from the event page. |
 

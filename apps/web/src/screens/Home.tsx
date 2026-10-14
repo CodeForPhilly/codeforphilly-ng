@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ActivityCard, mergeActivity, type ActivityItem } from '@/components/ActivityCard';
 import { HelpWantedCard } from '@/components/HelpWantedCard';
 import { HeroSlideshow } from '@/components/HeroSlideshow';
+import { UpcomingEventsStrip } from '@/components/UpcomingEventsStrip';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -96,6 +97,9 @@ export function Home() {
           </Button>
         </div>
       </section>
+
+      {/* Upcoming events — hidden entirely when nothing is scheduled */}
+      <UpcomingEventsStrip />
 
       {/* Featured projects */}
       <section className="container mx-auto px-4 py-12">

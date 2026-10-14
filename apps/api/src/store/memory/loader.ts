@@ -8,6 +8,9 @@ import type { PublicStore } from '../public.js';
 import {
   createEmptyState,
   indexBlogPost,
+  indexEvent,
+  indexEventRsvp,
+  indexEventSeries,
   indexHelpWantedInterest,
   indexHelpWantedRole,
   indexMembership,
@@ -47,6 +50,10 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
   const slugHistoryRecords = await publicStore['slug-history'].queryAll();
   // Human spam votes. Absent on data repos without the sheet config → [].
   const evaluations = await publicStore['person-evaluations'].queryAll();
+  // Events + RSVPs. Absent on data repos without the sheet configs → [].
+  const events = await publicStore.events.queryAll();
+  const eventRsvps = await publicStore['event-rsvps'].queryAll();
+  const eventSeries = await publicStore['event-series'].queryAll();
 
   for (const p of projects) indexProject(state, p);
   for (const p of people) indexPerson(state, p);
@@ -64,6 +71,9 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
   const bootNow = new Date();
   for (const r of slugHistoryRecords) indexSlugHistory(state, r, bootNow);
   for (const e of evaluations) indexPersonEvaluation(state, e);
+  for (const s of eventSeries) indexEventSeries(state, s);
+  for (const ev of events) indexEvent(state, ev);
+  for (const r of eventRsvps) indexEventRsvp(state, r);
 
   return state;
 }

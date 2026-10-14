@@ -42,6 +42,16 @@ export class PostmarkTransport implements EmailTransport {
       TextBody: email.text,
       HtmlBody: email.html,
       MessageStream: this.#messageStream,
+      ...(email.attachments && email.attachments.length > 0
+        ? {
+            Attachments: email.attachments.map((a) => ({
+              Name: a.name,
+              Content: a.content,
+              ContentType: a.contentType,
+              ContentID: null,
+            })),
+          }
+        : {}),
     });
     return { messageId: result.MessageID };
   }

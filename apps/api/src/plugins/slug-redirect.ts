@@ -25,14 +25,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
-import { normalizeLegacyHandle } from '@cfp/shared';
-import type { SlugHistory } from '@cfp/shared/schemas';
+import { normalizeLegacyHandle, type LegacyHandleEntity } from '@cfp/shared';
 
 import { slugHistoryKey, type InMemoryState } from '../store/memory/state.js';
 
 const MAX_HOPS = 8;
 
-type EntityType = SlugHistory['entityType'];
+type EntityType = LegacyHandleEntity;
 
 /**
  * Pattern descriptor for a slug-bearing path. Each pattern declares the
@@ -78,6 +77,21 @@ const patterns: readonly RoutePattern[] = [
     match: /^\/members\/([^/]+)(\/.*)?$/,
     liveIndex: (state, slug) => state.personIdBySlug.has(slug),
     rebuild: (m, resolved) => `/members/${resolved}${m[2] ?? ''}`,
+  },
+  {
+    entityType: 'event_series',
+    // Before the event pattern so `/events/series/<slug>` resolves as a series.
+    match: /^\/events\/series\/([^/]+)(\/.*)?$/,
+    liveIndex: (state, slug) => state.eventSeriesIdBySlug.has(slug),
+    rebuild: (m, resolved) => `/events/series/${resolved}${m[2] ?? ''}`,
+  },
+  {
+    entityType: 'event',
+    // `/events/past`, `/events/new`, `/events/series/…` fall through: they're
+    // never live event slugs and never in slug-history.
+    match: /^\/events\/([^/]+)(\/.*)?$/,
+    liveIndex: (state, slug) => state.eventIdBySlug.has(slug),
+    rebuild: (m, resolved) => `/events/${resolved}${m[2] ?? ''}`,
   },
   {
     entityType: 'tag',

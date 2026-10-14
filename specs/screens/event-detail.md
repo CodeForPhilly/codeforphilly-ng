@@ -10,7 +10,7 @@ Legacy laddr URLs of the same shape resolve directly because the backfilled hist
 
 - `GET /api/events/:slug` — full Event with `viewerRsvp` and `permissions`
 - `GET /api/events/:slug/rsvps?perPage=100` — attendee list (lazy after first paint)
-- `GET /api/projects?perPage=100&sort=title` — only when the viewer is going and opens the project picker in the follow-up (lazy)
+- `GET /api/projects?q=<typed>&perPage=8` — only while the viewer is going and typing in the follow-up's project picker (lazy, debounced); the picker's opened-but-empty suggestions come from the event's `viewerRecentProjects` and `recentProjects`, already loaded
 - `GET /api/auth/me`
 
 Unknown slug, or a draft and the caller isn't staff: 404 page.
@@ -34,7 +34,7 @@ Across the top of the content area, before the title:
   - `venueName` in bold, then `venueAddress` on the next line, the address linked to `https://maps.google.com/?q=<url-encoded venueName, venueAddress>` opening in a new tab
   - `onlineUrl` as "Join online" link when set (shown alongside the venue for hybrid events)
   - "Location to be announced" when neither is set
-- Staff controls, right-aligned: "Edit" → `/events/<slug>/edit`; "Duplicate" → `/events/new?from=<slug>`; "Cancel event…" (confirm dialog with the optional note) when `permissions.canCancel`; "Delete" when `permissions.canDelete`
+- Staff controls, right-aligned: "Edit" → `/events/<slug>/edit`; "Duplicate" → `/events/new?from=<slug>`; "Cancel event…" (confirm dialog with the optional note) when `permissions.canCancel`; "Delete" always shown to staff, disabled with the tooltip "Cancel instead — people have RSVP'd" when `permissions.canDelete` is false
 
 ### Main column (two-thirds at lg, full below)
 
@@ -44,7 +44,7 @@ Across the top of the content area, before the title:
    | ------------ | -------- |
    | Anonymous, RSVPs open | Button "Sign in to RSVP" → `/login?return=/events/<slug>`; helper "Your name will appear on the attendee list." |
    | Signed in, not going, RSVPs open | Primary button "I'm going"; same helper text |
-   | Signed in, going, RSVPs open | Success state "You're going ✓" with a quiet "Can't make it?" link that withdraws (confirm); below it the **follow-up** per [behaviors/events.md](../behaviors/events.md#the-follow-up-what-are-you-coming-to-do): the prompt "What are you coming to do? (optional)" with three choices — "I'm new to Code for Philly", "I don't have a project yet", "I'm coming to work on [Pick a project ▾]" (picker lists non-deleted projects by title). Selecting a choice saves immediately; the chosen one shows as selected with a "Change" affordance. Unanswered shows the three choices; never a blank. |
+   | Signed in, going, RSVPs open | Success state "You're going ✓" with a quiet "Can't make it?" link that withdraws (confirm); below it the **follow-up** per [behaviors/events.md](../behaviors/events.md#the-follow-up-what-are-you-coming-to-do): the prompt "What are you coming to do? (optional)" with three choices — "I'm new to Code for Philly", "I don't have a project yet", "I'm coming to work on [Pick a project ▾]". The picker is a find-as-you-type combobox that never lists the whole catalog: opened with nothing typed, it offers two groups — "Your recent projects", the projects the member named on their own RSVPs to other events (`viewerRecentProjects`, newest first), then "Other active projects", the last ten distinct projects anyone named on any RSVP (`recentProjects`, newest first) — a project appearing once in the first group it belongs to, empty groups omitted, so a newcomer sees the teams that actually meet without searching; only when both are empty, nothing but the input's own hint "Type a project name"; once the member types, it searches projects by title and text (`GET /api/projects?q=`), showing at most eight in relevance order, or "No projects match". Arrow keys, Enter and Escape work as in any combobox. Selecting a choice saves immediately; the chosen one shows as selected with a "Change" affordance. Unanswered shows the three choices; never a blank. |
    | RSVPs closed (cancelled, past) | No control; the count line still renders |
 
    Under the control: "14 going" linked to the attendee list anchor. When `meetupUrl` is set, a small muted "Also listed on Meetup ↗" link sits *below* everything in this block, never beside the button.
@@ -69,7 +69,7 @@ Across the top of the content area, before the title:
 
 2. **Share**
    - "Copy link" (copies `https://<host>/events/<slug>`)
-   - "Share to Slack" — same mechanism as the project page
+   - "Share to Slack" — same mechanism as the project page; the copied message is `<title> — <when>: <canonical URL>`
 
 3. **Details**
    - "Added" relative time with absolute tooltip
