@@ -37,6 +37,33 @@ feature branch ──▶ develop ──(push)──▶ "Release: vX.Y.Z" PR into
    then merge the bot's PR into `deploys/k8s-manifests`. Details in
    [deploy.md](./deploy.md#image--cluster-gitops).
 
+### Releases that change a schema contract
+
+The API boots only when every sheet on the data branch it serves declares
+exactly the contract versions the release publishes
+([storage.md → Schema contracts](../../specs/behaviors/storage.md#schema-contracts)).
+The adoption on `empty`, `fixture` and `legacy-import` happened in the PR that
+published the contract. `published` is adopted at release time, because sandbox
+**and** production both serve it:
+
+1. Find the contract changes in the release:
+   `git diff <previous tag> vX.Y.Z --stat -- contracts/`. If there are none, skip
+   this section.
+2. In a clone of `codeforphilly-data` on `published`, for each new or changed
+   contract run
+   `gitsheets contracts adopt https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/<sha>/contracts/codeforphilly.org/<sheet>/v<N>.json`
+   pinned to the same commit `empty` adopted from (see its
+   `.gitsheets/contracts/sources.toml`). Then set each changed sheet's
+   `implements` line, and remove any contract version no sheet declares any more.
+   Squash into one commit and run `gitsheets contracts verify`, which validates
+   every record. Commit as a pseudonymous author
+   (`<you>@users.noreply.codeforphilly.org`).
+3. Push `published`, then deploy the release to the sandbox and production back
+   to back. Pods already running keep serving after the push (gitsheets doesn't
+   re-check contract identity on reload), but a pod of the previous release that
+   restarts between the push and its deploy fails its boot.
+4. Confirm both pods are ready on `vX.Y.Z`.
+
 ## Prerequisites (one-time)
 
 - **`BOT_GITHUB_TOKEN`** repo (or org) secret — a PAT/app token with `repo`
