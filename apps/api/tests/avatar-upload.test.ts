@@ -331,3 +331,44 @@ describe('POST /api/people/:slug/avatar', () => {
     expect([413, 422]).toContain(res.statusCode);
   });
 });
+
+describe('slug rename keeps the avatar', () => {
+  it('serves the avatar at the renamed key and rewrites avatarKey', async () => {
+    const jpeg = await makeTestImage({ width: 300, height: 300, format: 'jpeg' });
+    const { accessToken } = await mintSessionFor(PERSON_ID, 'user', JWT_KEY);
+
+    const upload = await injectMultipart(app!, {
+      url: '/api/people/me/avatar',
+      field: 'image',
+      filename: 'avatar.jpg',
+      contentType: 'image/jpeg',
+      body: jpeg,
+      cookieToken: accessToken,
+    });
+    expect(upload.statusCode).toBe(200);
+
+    const rename = await app!.inject({
+      method: 'PATCH',
+      url: '/api/people/me',
+      headers: { cookie: `cfp_session=${accessToken}` },
+      payload: { slug: 'me-renamed' },
+    });
+    expect(rename.statusCode).toBe(200);
+
+    const person = await app!.inject({ method: 'GET', url: '/api/people/me-renamed' });
+    expect(person.statusCode).toBe(200);
+    const body = person.json<{ data: { avatarUrl: string | null } }>();
+    expect(body.data.avatarUrl).toBe('/api/attachments/people/me-renamed/avatar.jpg');
+
+    for (const name of ['avatar.jpg', 'avatar-128.jpg']) {
+      const res = await app!.inject({
+        method: 'GET',
+        url: `/api/attachments/people/me-renamed/${name}`,
+      });
+      expect(res.statusCode, name).toBe(200);
+      expect(res.rawPayload.length, name).toBeGreaterThan(0);
+    }
+    const old = await app!.inject({ method: 'GET', url: '/api/attachments/people/me/avatar.jpg' });
+    expect(old.statusCode).toBe(404);
+  });
+});
