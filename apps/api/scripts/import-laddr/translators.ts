@@ -25,6 +25,7 @@
  */
 import { uuidv7 } from 'uuidv7';
 
+import { normalizeHandle, normalizeLegacyHandle } from '@cfp/shared';
 import type {
   BlogPost,
   Person,
@@ -130,14 +131,10 @@ export function safeSlug(
   ctx: { idMaps: IdMaps; warnings: Warnings; legacyId: number | string },
 ): string {
   const allowedChars = allowUnderscore ? 'a-z0-9-_' : 'a-z0-9-';
-  const replaceRe = allowUnderscore ? /[^a-z0-9_-]+/g : /[^a-z0-9-]+/g;
   const headRe = new RegExp(`^[a-z0-9][${allowedChars}]{1,${maxLen - 1}}$`);
 
-  let candidate = rawInput.toLowerCase().replace(replaceRe, '-');
-  candidate = candidate.replace(/^[-_]+|[-_]+$/g, '');
+  let candidate = normalizeHandle(rawInput, { maxLen, allowUnderscore });
   if (candidate.length === 0) candidate = `legacy-${ctx.legacyId}`;
-  if (candidate.length > maxLen) candidate = candidate.slice(0, maxLen);
-  if (!/^[a-z0-9]/.test(candidate)) candidate = `s${candidate}`.slice(0, maxLen);
 
   if (candidate !== rawInput) {
     ctx.warnings.push(
@@ -473,7 +470,7 @@ export function translateTag(row: RawTag, ctx: TranslateCtx): Tag | null {
   // contain underscores. Tag slugs only allow `[a-z0-9-]` — coerce, but
   // don't dedupe (tags are uniqued by `(namespace, slug)` already; collisions
   // surface as gitsheets-side write errors and are exceedingly rare).
-  const slug = split.slug.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+  const slug = normalizeLegacyHandle(split.slug, 'tag');
   if (slug.length === 0) {
     ctx.warnings.push(
       `[tags] legacyId=${legacyId} slug "${split.slug}" reduced to empty after sanitization; skipped`,
