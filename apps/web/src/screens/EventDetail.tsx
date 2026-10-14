@@ -24,7 +24,6 @@ import {
   api,
   ApiError,
   type EventDetail as EventDetailData,
-  type EventRsvp,
   type EventRsvpInput,
   type EventRsvpPlan,
   type SuccessEnvelope,
@@ -58,28 +57,20 @@ interface FollowUpProps {
 
 /**
  * The picker's opened-but-empty suggestions (screens/event-detail.md): the
- * viewer's own recent projects from other events first, then the projects
- * other attendees of this event named, newest answer first; a project
- * appears once, in the first group it belongs to.
+ * viewer's own recent projects from other events first, then the active
+ * projects — the last ten distinct ones anyone named on any RSVP; a
+ * project appears once, in the first group it belongs to.
  */
 export function suggestionGroups(
-  recent: readonly ProjectChoice[],
-  rsvps: readonly EventRsvp[],
-  viewerSlug: string | null | undefined,
+  mine: readonly ProjectChoice[],
+  active: readonly ProjectChoice[],
 ): ProjectSuggestionGroup[] {
   const seen = new Set<string>();
   const take = (list: readonly ProjectChoice[]): ProjectChoice[] =>
     list.filter((p) => (seen.has(p.slug) ? false : (seen.add(p.slug), true)));
-  const mine = take(recent);
-  const teams = take(
-    [...rsvps]
-      .filter((r) => r.project && r.person?.slug !== viewerSlug)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .map((r) => ({ slug: r.project!.slug, title: r.project!.title })),
-  );
   return [
-    { label: 'Your recent projects', items: mine },
-    { label: 'Teams already coming', items: teams },
+    { label: 'Your recent projects', items: take(mine) },
+    { label: 'Other active projects', items: take(active) },
   ].filter((g) => g.items.length > 0);
 }
 
@@ -482,7 +473,7 @@ export function EventDetail() {
                   <FollowUp
                     plan={event.viewerRsvp?.plan ?? null}
                     project={event.viewerRsvp?.project ?? null}
-                    groups={suggestionGroups(event.viewerRecentProjects, rsvps, person?.slug)}
+                    groups={suggestionGroups(event.viewerRecentProjects, event.recentProjects)}
                     busy={rsvpBusy}
                     onSave={saveFollowUp}
                   />

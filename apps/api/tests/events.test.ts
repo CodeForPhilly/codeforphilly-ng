@@ -323,6 +323,10 @@ describe('RSVP', () => {
     expect(sameDetail.json().data.viewerRecentProjects).toEqual([]);
     const anonDetail = await app!.inject({ method: 'GET', url: `/api/events/${other.slug}` });
     expect(anonDetail.json().data.viewerRecentProjects).toEqual([]);
+    // Every caller sees the active projects: the last ten distinct ones anyone
+    // named on any RSVP, this event's included.
+    expect(anonDetail.json().data.recentProjects).toEqual([{ slug: fixtures.projectSlug, title: expect.any(String) }]);
+    expect(sameDetail.json().data.recentProjects).toEqual([{ slug: fixtures.projectSlug, title: expect.any(String) }]);
 
     const noSlug = await app!.inject({
       method: 'PUT',

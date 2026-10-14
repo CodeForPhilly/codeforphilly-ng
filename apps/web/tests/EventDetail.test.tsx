@@ -149,7 +149,7 @@ describe('EventDetail', () => {
     const box = screen.getByRole('combobox', { name: 'Pick a project' });
     expect(box).toHaveAttribute('placeholder', 'Type a project name');
     expect(screen.queryByRole('option')).not.toBeInTheDocument();
-    expect(screen.queryByText('Teams already coming')).not.toBeInTheDocument();
+    expect(screen.queryByText('Other active projects')).not.toBeInTheDocument();
     expect(calls.some((c) => c.url.startsWith('/api/projects'))).toBe(false);
 
     await user.type(box, 'squad');
@@ -167,28 +167,24 @@ describe('EventDetail', () => {
     expect(await screen.findByText('I’m coming to work on SquadQuest')).toBeInTheDocument();
   });
 
-  it('project picker: opened empty offers the viewer’s recent projects, then teams other attendees named, without listing the catalog', async () => {
+  it('project picker: opened empty offers the viewer’s recent projects, then the other active projects, without listing the catalog', async () => {
     const user = userEvent.setup();
     const calls = mockFetch({
       me: USER_ME,
       event: makeEvent({
         viewerRsvp: { plan: null, project: null, createdAt: '2026-10-02T00:00:00Z' },
-        // Named on a previous event; also named by Ada here, so it shows once, under "Your recent projects".
+        // Alpha is in both lists; it shows once, under "Your recent projects".
         viewerRecentProjects: [{ slug: 'squadquest', title: 'SquadQuest' }, { slug: 'alpha', title: 'Alpha' }],
+        recentProjects: [{ slug: 'zeta', title: 'Zeta' }, { slug: 'alpha', title: 'Alpha' }, { slug: 'omega', title: 'Omega' }],
       }),
-      rsvps: [
-        makeRsvp('Ada Lovelace', { plan: 'project', project: { slug: 'alpha', title: 'Alpha' }, updatedAt: '2026-10-01T00:00:00Z' }),
-        makeRsvp('Grace Hopper', { plan: 'project', project: { slug: 'zeta', title: 'Zeta' }, updatedAt: '2026-10-03T00:00:00Z' }),
-        makeRsvp('Linus T', { plan: 'project', project: { slug: 'alpha', title: 'Alpha' }, updatedAt: '2026-10-02T00:00:00Z' }),
-      ],
     });
     render();
     await screen.findByRole('heading', { name: /Going/ });
     await user.click(await screen.findByRole('button', { name: 'I’m coming to work on [Pick a project ▾]' }));
 
     expect(screen.getByText('Your recent projects')).toBeInTheDocument();
-    expect(screen.getByText('Teams already coming')).toBeInTheDocument();
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['SquadQuest', 'Alpha', 'Zeta']);
+    expect(screen.getByText('Other active projects')).toBeInTheDocument();
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['SquadQuest', 'Alpha', 'Zeta', 'Omega']);
     expect(calls.some((c) => c.url.startsWith('/api/projects'))).toBe(false);
 
     await user.click(screen.getByRole('option', { name: 'Alpha' }));

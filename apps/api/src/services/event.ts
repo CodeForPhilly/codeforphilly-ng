@@ -89,7 +89,23 @@ export class EventService {
     const ids = this.#state.rsvpsByPerson.get(caller.id) ?? new Set<string>();
     const named = [...ids]
       .map((id) => this.#state.eventRsvps.get(id))
-      .filter((r): r is EventRsvp => r !== undefined && r.eventId !== eventId && r.plan === 'project' && !!r.projectId)
+      .filter((r): r is EventRsvp => r !== undefined && r.eventId !== eventId);
+    return this.#distinctProjects(named, 8);
+  }
+
+  /**
+   * The last ten distinct projects anyone named on an RSVP to any event,
+   * most recently answered first — the active projects, so a newcomer's
+   * picker opens on the teams that actually meet (specs/api/events.md).
+   */
+  recentProjects(): ProjectRef[] {
+    return this.#distinctProjects([...this.#state.eventRsvps.values()], 10);
+  }
+
+  /** Distinct live projects named on `rsvps`, newest answer first, up to `limit`. */
+  #distinctProjects(rsvps: EventRsvp[], limit: number): ProjectRef[] {
+    const named = rsvps
+      .filter((r) => r.plan === 'project' && !!r.projectId)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const out: ProjectRef[] = [];
     const seen = new Set<string>();
@@ -98,7 +114,7 @@ export class EventService {
       if (!p || p.deletedAt || seen.has(p.id)) continue;
       seen.add(p.id);
       out.push({ slug: p.slug, title: p.title });
-      if (out.length === 8) break;
+      if (out.length === limit) break;
     }
     return out;
   }
@@ -140,6 +156,7 @@ export class EventService {
       rsvpCount,
       viewerRsvp: this.viewerRsvp(event.id, caller),
       viewerRecentProjects: this.viewerRecentProjects(event.id, caller),
+      recentProjects: this.recentProjects(),
       projectLookup: (id) => this.#state.projects.get(id),
       series: this.seriesRef(event),
       permissions: computeEventPermissions(caller, event, rsvpCount, now),

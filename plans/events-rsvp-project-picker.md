@@ -92,6 +92,11 @@ projects, a different and short list).
   should come up first. The event detail now carries
   `viewerRecentProjects` (the caller's named projects on other events,
   newest first) and the picker shows it as the first group.
+- Second review: "teams already coming" is empty exactly when a newcomer
+  needs the list most (a fresh event). The second group is now
+  `recentProjects` — the last ten distinct projects anyone named on any
+  RSVP — under "Other active projects", so the picker opens on the teams
+  that actually meet. Follow-on PR after #223.
 - Kept the hand-rolled combobox (same shape as `SeriesPicker`) rather than
   adopting shadcn's Popover + Command; decided with Chris for launch.
 

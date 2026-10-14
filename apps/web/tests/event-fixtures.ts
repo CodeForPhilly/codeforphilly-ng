@@ -41,6 +41,7 @@ export function makeEvent(overrides: Partial<EventDetail> = {}): EventDetail {
   return {
     ...makeSummary(),
     viewerRecentProjects: [],
+    recentProjects: [],
     description: 'Bring a laptop.',
     descriptionHtml: '<p>Bring a laptop.</p>',
     cancellationNote: null,
