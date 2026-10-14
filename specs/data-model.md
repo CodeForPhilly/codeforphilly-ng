@@ -451,12 +451,13 @@ Used for the 30-day per-person-per-role rate cap on `POST /express-interest` (se
 
 ## Event _(new — replaces Meetup.com)_
 
-A single dated gathering: a hack night, a showcase, a workshop, a hackathon weekend. Staff-authored; members RSVP. Rules in [behaviors/events.md](behaviors/events.md). Events are **flat** — one record is one thing you can RSVP to. Two optional structures hang off it: a link to an [EventSeries](#eventseries-new) ("Monthly Hack Nights", "Launchpad 2023") and an embedded **agenda** of timed items, which together replace laddr's `Event` + `EventSegment` pair without making sessions their own RSVP-able records.
+A single gathering at one venue over one contiguous span: a hack night, a workshop, one day of a hackathon. Staff-authored; members RSVP. Rules in [behaviors/events.md](behaviors/events.md). Events are **flat** — one record is one thing you can RSVP to. Two optional structures hang off it: a link to an [EventSeries](#eventseries-new) ("Launchpad 2018", "Monthly Hack Nights") and an embedded **agenda** of time slots within the event. A program that moves between venues or spans days is a series of events, not one event.
 
 **Sheet:** `events`
-**Path template:** `events/${slug}.toml`
+**Path template:** `events/${year}/${slug}.md` where `year` is rendered from `startsAt` (`${{ startsAt.slice(0, 4) }}` — the UTC year)
+**Format:** `markdown` — the `description` field is the file body, after `+++` TOML frontmatter, like blog posts
 
-The default slug is date-first (`2026-11-03-hack-night`) so the sheet directory lists chronologically when browsed in the data repo.
+The sheet is partitioned by year because monthly events accrete forever; within a year the default slug is date-first (`2026-11-03-hack-night`) so the directory lists chronologically when browsed in the data repo. The slug stays globally unique — the year is a storage partition, not part of the URL.
 
 | Field | Type | Notes |
 | ------- | ------ | ------- |
@@ -464,7 +465,7 @@ The default slug is date-first (`2026-11-03-hack-night`) so the sheet directory 
 | legacyId | int nullable | laddr `events.ID` for the four backfilled historical events. |
 | slug | string | unique. URL: `/events/<slug>`. See [behaviors/slug-handles.md](behaviors/slug-handles.md). |
 | title | string | required, 1–200 chars |
-| description | string nullable | markdown, ≤ 20,000 chars |
+| description | string nullable | markdown, ≤ 20,000 chars — the file body |
 | startsAt | iso8601 | required |
 | endsAt | iso8601 | required; strictly after `startsAt` |
 | venueName | string nullable | ≤ 120 chars |
@@ -518,17 +519,18 @@ Items are kept sorted by `startsAt` on write; a cap of 50 items per event keeps 
 
 ## EventSeries _(new)_
 
-A named, open-ended grouping of events: "Monthly Hack Nights", "Launchpad 2023", "Open Data Workshops". It carries no dates of its own — its events do — and takes no RSVPs. It exists so the detail page can say "Part of Monthly Hack Nights", so a series page can list every occurrence past and future, and so duplicating an event carries the grouping forward.
+A named grouping of events. Two shapes share the record: a **program instance** — "Launchpad 2018" is a series whose three days are its events, each with its own venue and agenda — and an **open-ended set** — "Monthly Hack Nights" accretes one event a month. A series carries no dates of its own (its events do) and takes no RSVPs. It exists so the detail page can say "Part of Launchpad 2018", so a series page can list every event past and future, and so duplicating an event carries the grouping forward. "Launchpad" alone is not a series; each year's program is.
 
 **Sheet:** `event-series`
-**Path template:** `event-series/${slug}.toml`
+**Path template:** `event-series/${slug}.md`
+**Format:** `markdown` — the `description` field is the file body
 
 | Field | Type | Notes |
 | ------- | ------ | ------- |
 | id | uuid | |
 | slug | string | unique. URL: `/events/series/<slug>`. |
 | title | string | required, 1–120 chars |
-| description | string nullable | markdown, ≤ 10,000 chars |
+| description | string nullable | markdown, ≤ 10,000 chars — the file body |
 | createdAt | iso8601 | |
 | updatedAt | iso8601 | |
 
@@ -543,9 +545,9 @@ A named, open-ended grouping of events: "Monthly Hack Nights", "Launchpad 2023",
 A member's public "I'm going" for an event. Existence means going; there is no status field. After RSVPing the member may answer one follow-up — what they're coming to do — which is what the attendee list groups by.
 
 **Sheet:** `event-rsvps`
-**Path template:** `event-rsvps/${eventSlug}/${personSlug}.toml`
+**Path template:** `event-rsvps/${year}/${eventSlug}/${personSlug}.toml` — `year` is the event's partition year, written onto the record by the write service alongside `eventSlug` and `personSlug`
 
-The composite path makes "who's going to event X" a directory scan and "has this person RSVP'd" a path-exists test. Renaming an event's slug moves its RSVP files in the same commit.
+The composite path makes "who's going to event X" a directory scan and "has this person RSVP'd" a path-exists test, and the year partition keeps the top-level directory bounded the same way `events/` is. Renaming an event's slug moves its RSVP files in the same commit.
 
 | Field | Type | Notes |
 | ------- | ------ | ------- |
@@ -646,9 +648,9 @@ Cascading deletes are not enforced by gitsheets; the API's mutation services del
 | Database tables | gitsheets sheets |
 | `INDEX`, `UNIQUE INDEX` | enforced in-process by the API under the write mutex; backed by in-memory indices built at boot |
 | `FOREIGN KEY ... ON DELETE CASCADE` | atomic multi-record gitsheets commit (see Storage spec) |
-| `events.Handle` / `Title` / `StartTime` / `EndTime` / `LocationName` / `LocationAddress` / `Description` / `Status` | `Event.slug` / `title` / `startsAt` / `endsAt` / `venueName` / `venueAddress` / `description` / `status` (`published` → `scheduled`, `deleted` → not imported) |
-| `event_segments.Title` / `StartTime` / `EndTime` / `LocationName` / `LocationAddress` / `Summary` + `Description` | `Event.agenda[]` items: `title` / `startsAt` / `endsAt` / `venueName` / `venueAddress` / `description` (summary and description concatenated) |
-| _(no laddr equivalent; Launchpads were standalone events)_ | `event-series` sheet — "Launchpad", "Monthly Hack Nights" |
+| `events.Handle` / `Title` / `Description` (a laddr "event" was a whole program) | `EventSeries.slug` / `title` / `description` |
+| `event_segments` grouped by calendar day (`LocationName` / `LocationAddress` of the day's first segment) | one `Event` per day in that series: `venueName` / `venueAddress`, `startsAt`/`endsAt` spanning the day's segments, slug `<YYYY-MM-DD>-<series slug>` |
+| `event_segments.Title` / `StartTime` / `EndTime` / `Summary` + `Description` | `Event.agenda[]` items on that day's event: `title` / `startsAt` / `endsAt` / `description` (summary and description concatenated) |
 | Meetup.com RSVPs (never in laddr's DB) | `event-rsvps` sheet |
 | `member_checkins` | _dropped — see [deferred.md](deferred.md)_ |
 | `Emergence\CMS\BlogPost` | _dropped — see [deferred.md](deferred.md)_ |
