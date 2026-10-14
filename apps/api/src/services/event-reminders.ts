@@ -18,6 +18,7 @@ import { StateApply } from '../store/state-apply.js';
 import type { Store } from '../store/store.js';
 import { eventEmailFacts, rsvpPlanLine } from './event-notify.js';
 import { EventService } from './event.js';
+import { MARKDOWN_UPSERT } from './event.write.js';
 
 export type ReminderKind = 'week' | 'day';
 
@@ -89,7 +90,7 @@ export class EventReminderService {
         author: { name: 'cfp-api', email: 'api@codeforphilly.org' },
       },
       async (tx) => {
-        await tx.public.events.upsert(marked);
+        await tx.public.events.upsert(marked, MARKDOWN_UPSERT);
       },
     );
     new StateApply().upsertEvent(marked).apply(this.#d.state, this.#d.fts);

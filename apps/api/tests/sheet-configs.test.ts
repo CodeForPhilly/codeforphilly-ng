@@ -35,7 +35,7 @@ const WRITE_INJECTED_PATH_FIELDS: Readonly<Record<string, readonly string[]>> = 
   'project-buzz': ['projectSlug'],
   'help-wanted-roles': ['projectSlug'],
   'help-wanted-interest': ['personSlug'],
-  'event-rsvps': ['eventSlug', 'personSlug'],
+  'event-rsvps': ['year', 'eventSlug', 'personSlug'],
 };
 
 function templateFields(config: string): string[] {

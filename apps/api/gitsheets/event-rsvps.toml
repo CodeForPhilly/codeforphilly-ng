@@ -1,4 +1,4 @@
 [gitsheet]
 root = 'event-rsvps'
-path = '${{ eventSlug }}/${{ personSlug }}'
+path = '${{ year }}/${{ eventSlug }}/${{ personSlug }}'
 implements = ["codeforphilly.org/event-rsvps/v1"]

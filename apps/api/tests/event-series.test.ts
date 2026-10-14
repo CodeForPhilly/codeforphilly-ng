@@ -2,9 +2,14 @@
  * Event series and agendas — specs/behaviors/events.md#series, #agenda;
  * specs/api/events.md#event-series.
  */
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { openRepo } from 'gitsheets';
+
+const execFileAsync = promisify(execFile);
 
 import { buildApp } from '../src/app.js';
 import { mintSessionFor } from '../src/auth/issue.js';
@@ -96,6 +101,9 @@ describe('event series', () => {
 
     const res = await staffJson('POST', '/api/event-series', { title: 'Monthly Hack Nights', description: 'First **Tuesdays**.' });
     expect(res.statusCode, res.body).toBe(201);
+    // Series are markdown-bodied records (specs/behaviors/storage.md#sheet-layout).
+    const { stdout: tree } = await execFileAsync('git', ['--git-dir', dataRepo.path, 'ls-tree', '-r', '--name-only', 'main']);
+    expect(tree.split('\n')).toContain('event-series/monthly-hack-nights.md');
     expect(res.json().data).toMatchObject({
       slug: 'monthly-hack-nights',
       title: 'Monthly Hack Nights',

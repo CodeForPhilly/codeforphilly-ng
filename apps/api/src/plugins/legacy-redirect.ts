@@ -107,12 +107,23 @@ async function legacyRedirectPlugin(fastify: FastifyInstance): Promise<void> {
       return;
     }
 
-    // /events/<handle>/segments/<seg> → /events/<handle>#schedule ------------
-    // Segments became agenda items on the event (specs/behaviors/events.md#agenda).
+    // A laddr "event" was a whole program, backfilled as a series
+    // (specs/behaviors/events.md#legacy-urls):
+    //   /events/<handle>/segments/<seg> → /events/series/<handle>
+    //   /events/<handle>                → /events/series/<handle>   (when <handle>
+    //                                      is a live series slug and no event owns it)
     const segmentMatch = /^\/events\/([^/*]+)\/segments(\/.*)?$/.exec(path);
     if (segmentMatch) {
-      await sendRedirect(reply, `/events/${segmentMatch[1]}${query}#schedule`);
+      await sendRedirect(reply, `/events/series/${segmentMatch[1]}${query}`);
       return;
+    }
+    const programMatch = /^\/events\/([^/*]+)\/?$/.exec(path);
+    if (programMatch) {
+      const handle = programMatch[1] as string;
+      if (state.eventSeriesIdBySlug.has(handle) && !state.eventIdBySlug.has(handle)) {
+        await sendRedirect(reply, `/events/series/${handle}${query}`);
+        return;
+      }
     }
 
     // /projects?ID=<n> → /projects/<slug> -------------------------------------

@@ -134,7 +134,8 @@ export function serializeEvent(
 ): EventResponse {
   return {
     ...serializeEventSummary(event, opts),
-    description: event.description ?? null,
+    // A body-less markdown record reads back as '' — present it as absent.
+    description: event.description || null,
     descriptionHtml: event.description ? renderMarkdown(event.description).html : '',
     agenda: (event.agenda ?? []).map(serializeAgendaItem),
     cancellationNote: event.cancellationNote ?? null,
