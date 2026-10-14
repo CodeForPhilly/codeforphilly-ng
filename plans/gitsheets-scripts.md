@@ -7,7 +7,7 @@ specs:
 awaits:
   - "JarvusInnovations/gitsheets — ref-scoped read-only sheets (issue TBD) — cleaner than the no-op-transact read trick"
   - "JarvusInnovations/gitsheets — public tx.writeFile / orphan commits (issue TBD) — needed for scrub-data's config writes"
-pr:
+pr: 204
 ---
 
 # Plan: route operator scripts through gitsheets
