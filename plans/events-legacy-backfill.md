@@ -1,11 +1,12 @@
 ---
-status: in-progress
+status: done
 depends: [events-storage-layout]
 specs:
   - specs/behaviors/events.md
   - specs/behaviors/legacy-id-mapping.md
   - specs/data-model.md
 issues: [194]
+pr: 218
 ---
 
 # Plan: Backfill the four laddr events
@@ -78,16 +79,17 @@ historical events (there were none on the site).
 
 ## Validation
 
-- [ ] `/events/series/launchpad-2023`, `/events/series/launchpad_2019`,
-  `/events/series/datahack2020`, `/events/series/launchpad-2018` render on
+- [x] `/events/series/launchpad-2023`, `/events/series/launchpad-2019`,
+  `/events/series/data-hack-2020`, `/events/series/launchpad-2018` render on
   production, each listing its days under Past with venue and date.
-- [ ] Each day's event renders its Schedule with every laddr segment of
-  that day, time range and venue.
-- [ ] `/events/launchpad-2023` and
+- [x] Each day's event renders its Schedule with every laddr segment of
+  that day, time range and venue (one-session days carry the text as the
+  description instead, per the curation pass).
+- [x] `/events/launchpad-2023` and
   `/events/launchpad-2023/segments/friday_night_kickoff-2023` 301 to the
-  series page.
-- [ ] No description references `codeforphilly.org/thumbnail/…`.
-- [ ] `/events/past` shows the days in reverse start order.
+  series page; `launchpad_2019` and `datahack2020` through the static map.
+- [x] No description references `codeforphilly.org/thumbnail/…`.
+- [x] `/events/past` shows the days in reverse start order.
 
 ## Risks / unknowns
 
@@ -102,8 +104,41 @@ historical events (there were none on the site).
 
 ## Notes
 
-(Populated at closeout.)
+- Shipped across #218 (laddr script), #219 (slug keywords, whole-day first
+  segment, Meetup seed, curation pass), #221 (slug-form series slugs,
+  static laddr handle map, renames keep images) and codeforphilly-data #20
+  (records only, rebased onto the v0.7.0 `published` adoption; merged
+  after production was live, hot-reloaded incrementally on both pods).
+  Live on codeforphilly.org 2026-10-14: 5 series, 31 events, 16 images.
+- **Scripts get close; people finish.** The two scripts produced the
+  records; a hand pass through the app's own staff write routes
+  (`curate-events-backfill.ts`) set the reference pattern: signature days
+  titled for their program ("Launchpad Kickoff Night", "Launchpad Work
+  Day", "Launchpad Demo Night", "Data Hack Presentations"), hack nights
+  plain; dead registration links, laddr UI artifacts, a personal phone
+  number and a named contact removed; venues named and addressed
+  consistently; schedules that lived in descriptions turned into agenda
+  items; the 2023 "Weekly Hack Nights" segment split into its five
+  Tuesdays; the 2026 hack-night description rewritten as the pattern
+  future nights follow.
+- The Monthly Hack Nights seed (September–December 2026, `meetupUrl` on
+  each) is the series the site replaces Meetup for; RSVPs stay on Meetup
+  until the cutover.
+- Found and fixed along the way: event/series renames dropped the
+  attachment folder (fixed in #221, with link relinking); gitsheets reads
+  sheet configs from the transaction's parent tree, so a branch parented
+  on the old layout writes the old layout; markdown upserts with a null
+  body need `allowMissingBody` (gitsheets#308).
+- Judgment calls: 2018 Demo Night set to 6–8:30 pm (laddr's end was two
+  days later); 2020 hack nights given a one-line description from the
+  program text; the old `events-backfill` branch on the data repo (closed
+  #12) was left in place and not reused.
 
 ## Follow-ups
 
-(Populated at closeout.)
+- **Issue-worthy, not filed:** laddr showed sponsor logos through 200px
+  thumbnails; series pages render the captured originals at full width.
+  A markdown image-size convention would fix it in the renderer.
+- **None** for the data: re-running the scripts against `published` would
+  overwrite the curation; the branch is the record, and `curate-events-
+  backfill.ts` is how to replay it if it ever has to be regenerated.
