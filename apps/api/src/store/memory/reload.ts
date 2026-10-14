@@ -20,10 +20,35 @@
  * Used by `apps/api/src/routes/internal.ts` (the `POST
  * /api/_internal/reload-data` webhook).
  */
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
 import type { FastifyInstance } from 'fastify';
 import { invalidateFacets } from './facets.js';
+import { applyChanges, collectChanges } from './incremental.js';
 import { loadInMemoryState } from './loader.js';
 import type { InMemoryState } from './state.js';
+
+const exec = promisify(execFile);
+
+export interface ReloadOptions {
+  /**
+   * The commit the live state currently reflects. When given, the reload
+   * applies only the records that changed since, unless a sheet config
+   * changed or the diff is too large.
+   */
+  readonly fromCommit?: string;
+}
+
+export type ReloadMode = 'incremental' | 'full';
+
+/** Whether `.gitsheets/` (the sheet configs) differs between two commits. */
+async function sheetConfigsChanged(repoPath: string, from: string, to: string): Promise<boolean> {
+  const tree = async (commit: string): Promise<string> =>
+    (await exec('git', ['rev-parse', `${commit}:.gitsheets`], { cwd: repoPath })).stdout.trim();
+  const [a, b] = await Promise.all([tree(from), tree(to)]);
+  return a !== b;
+}
 
 /**
  * Replace the contents of `target`'s Maps with `source`'s Maps. The
@@ -42,16 +67,34 @@ function replaceMapContents<K, V>(target: Map<K, V>, source: Map<K, V>): void {
 }
 
 /**
- * Build a fresh `InMemoryState` from the public store and swap it into
- * the running Fastify instance, then reload the revocation set and the FTS
- * index from the same snapshot and invalidate the facet cache.
+ * Bring the live in-memory state, revocation set and FTS index up to the
+ * public store's current snapshot, and invalidate the facet cache.
+ *
+ * With `fromCommit`, applies only the records that changed since (see
+ * `incremental.ts`); otherwise, or when configs changed or the diff is
+ * large, rebuilds everything. Returns which path ran.
  *
  * The caller must already have refreshed the public store to the new HEAD
  * (`fastify.reconcileDataRepo` does, under the repository write lock).
  */
 export async function reloadInMemoryStateAndFts(
   fastify: FastifyInstance,
-): Promise<void> {
+  opts: ReloadOptions = {},
+): Promise<ReloadMode> {
+  const { fromCommit } = opts;
+  if (fromCommit) {
+    const repoPath = fastify.config.CFP_DATA_REPO_PATH;
+    if (!(await sheetConfigsChanged(repoPath, fromCommit, 'HEAD'))) {
+      const changes = await collectChanges(fastify.store.public, fromCommit);
+      if (changes) {
+        applyChanges(fastify.inMemoryState, fastify.fts, changes);
+        await fastify.revocations.loadFromSheet(fastify.store.public);
+        invalidateFacets();
+        return 'incremental';
+      }
+    }
+  }
+
   // Step 1: build the fresh in-memory state. If this throws (validator
   // failure on a new record, etc.), the live state is untouched and the
   // caller surfaces the error.
@@ -74,6 +117,7 @@ export async function reloadInMemoryStateAndFts(
 
   // Step 5: drop the cached facet roll-ups so the next request recomputes.
   invalidateFacets();
+  return 'full';
 }
 
 /**

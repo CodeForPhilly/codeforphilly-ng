@@ -34,7 +34,7 @@ import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
 
 import { errorResponse, ok } from '../lib/response.js';
-import { reloadInMemoryStateAndFts } from '../store/memory/reload.js';
+import { reloadInMemoryStateAndFts, type ReloadMode } from '../store/memory/reload.js';
 import type { ReconcileOutcome, ReconcileResult } from '../store/reconcile.js';
 
 const exec = promisify(execFile);
@@ -197,9 +197,12 @@ export async function internalRoutes(fastify: FastifyInstance): Promise<void> {
 
       // ---- Reconcile + rebuild under the repository write lock ----
       let result: ReconcileResult;
+      let reloadMode: ReloadMode | undefined;
       try {
         result = await fastify.reconcileDataRepo({
-          onMoved: () => reloadInMemoryStateAndFts(fastify),
+          onMoved: async (moved) => {
+            reloadMode = await reloadInMemoryStateAndFts(fastify, { fromCommit: moved.oldCommit });
+          },
         });
       } catch (err) {
         // A throw from the rebuild leaves the in-memory state + FTS index
@@ -242,6 +245,7 @@ export async function internalRoutes(fastify: FastifyInstance): Promise<void> {
           oldCommit: result.oldCommit,
           newCommit: result.newCommit,
           conflictBranch: result.conflictBranch,
+          reloadMode,
           durationMs,
         },
         'hot-reload: in-memory state + FTS rebuilt',
@@ -251,6 +255,7 @@ export async function internalRoutes(fastify: FastifyInstance): Promise<void> {
         ok({
           noChanges: false,
           rebuilt: true,
+          reloadMode,
           outcome: result.outcome,
           oldCommit: result.oldCommit,
           newCommit: result.newCommit,
