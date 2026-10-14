@@ -55,6 +55,10 @@ projects, a different and short list).
 
 ## Validation
 
+- [x] A member who named a project on one event sees it first, under
+  "Your recent projects", when opening the picker on another event
+  (`viewerRecentProjects` on the event detail); not on the same event,
+  and never when anonymous.
 - [x] Opening the picker on an event where nobody has named a project
   shows only "Type a project name"; on one where attendees have, it lists
   their projects newest-first and nothing else.
@@ -83,6 +87,11 @@ projects, a different and short list).
   weights title 10 / summary 3 / body 1 (people and help-wanted likewise).
 - The empty picker shows nothing but the input's placeholder when there
   are no suggestions; a popover repeating the hint looked like a bug.
+- First cut suggested only what other attendees of this event had named.
+  Chris's review on devbox: his own project from the previous event
+  should come up first. The event detail now carries
+  `viewerRecentProjects` (the caller's named projects on other events,
+  newest first) and the picker shows it as the first group.
 - Kept the hand-rolled combobox (same shape as `SeriesPicker`) rather than
   adopting shadcn's Popover + Command; decided with Chris for launch.
 

@@ -167,11 +167,15 @@ describe('EventDetail', () => {
     expect(await screen.findByText('I’m coming to work on SquadQuest')).toBeInTheDocument();
   });
 
-  it('project picker: opened empty offers the teams other attendees named, newest first, without listing the catalog', async () => {
+  it('project picker: opened empty offers the viewer’s recent projects, then teams other attendees named, without listing the catalog', async () => {
     const user = userEvent.setup();
     const calls = mockFetch({
       me: USER_ME,
-      event: makeEvent({ viewerRsvp: { plan: null, project: null, createdAt: '2026-10-02T00:00:00Z' } }),
+      event: makeEvent({
+        viewerRsvp: { plan: null, project: null, createdAt: '2026-10-02T00:00:00Z' },
+        // Named on a previous event; also named by Ada here, so it shows once, under "Your recent projects".
+        viewerRecentProjects: [{ slug: 'squadquest', title: 'SquadQuest' }, { slug: 'alpha', title: 'Alpha' }],
+      }),
       rsvps: [
         makeRsvp('Ada Lovelace', { plan: 'project', project: { slug: 'alpha', title: 'Alpha' }, updatedAt: '2026-10-01T00:00:00Z' }),
         makeRsvp('Grace Hopper', { plan: 'project', project: { slug: 'zeta', title: 'Zeta' }, updatedAt: '2026-10-03T00:00:00Z' }),
@@ -182,8 +186,9 @@ describe('EventDetail', () => {
     await screen.findByRole('heading', { name: /Going/ });
     await user.click(await screen.findByRole('button', { name: 'I’m coming to work on [Pick a project ▾]' }));
 
+    expect(screen.getByText('Your recent projects')).toBeInTheDocument();
     expect(screen.getByText('Teams already coming')).toBeInTheDocument();
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Zeta', 'Alpha']);
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['SquadQuest', 'Alpha', 'Zeta']);
     expect(calls.some((c) => c.url.startsWith('/api/projects'))).toBe(false);
 
     await user.click(screen.getByRole('option', { name: 'Alpha' }));

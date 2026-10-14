@@ -9,10 +9,14 @@ export interface ProjectChoice {
   readonly title: string;
 }
 
+export interface ProjectSuggestionGroup {
+  readonly label: string;
+  readonly items: readonly ProjectChoice[];
+}
+
 interface ProjectPickerProps {
-  /** Shown when the box is opened with nothing typed — e.g. teams other attendees named. */
-  suggestions: readonly ProjectChoice[];
-  suggestionsLabel: string;
+  /** Shown when the box is opened with nothing typed — e.g. the viewer's recent projects, then teams other attendees named. */
+  groups: readonly ProjectSuggestionGroup[];
   onPick: (project: ProjectChoice) => void;
   disabled?: boolean;
   placeholder?: string;
@@ -34,13 +38,13 @@ function useDebounced<T>(value: T, ms: number): T {
 
 /**
  * Find-as-you-type project combobox (screens/event-detail.md → follow-up).
- * Never lists the catalog: opened empty it shows `suggestions`; once text is
- * typed it searches `GET /api/projects?q=` (last word as a prefix) and lists
- * at most eight results in relevance order.
+ * Never lists the catalog: opened empty it shows the suggestion `groups`
+ * (empty groups omitted); once text is typed it searches
+ * `GET /api/projects?q=` (last word as a prefix) and lists at most eight
+ * results in relevance order.
  */
 export function ProjectPicker({
-  suggestions,
-  suggestionsLabel,
+  groups,
   onPick,
   disabled,
   placeholder = 'Type a project name',
@@ -62,9 +66,11 @@ export function ProjectPicker({
   });
 
   const searching = needle.length > 0;
-  const items: readonly ProjectChoice[] = searching
-    ? (searchQ.data?.data ?? []).slice(0, MAX_RESULTS)
-    : suggestions.slice(0, MAX_RESULTS);
+  const shown: readonly ProjectSuggestionGroup[] = searching
+    ? [{ label: '', items: (searchQ.data?.data ?? []).slice(0, MAX_RESULTS) }]
+    : groups.filter((g) => g.items.length > 0).map((g) => ({ label: g.label, items: g.items.slice(0, MAX_RESULTS) }));
+  // One flat list for keyboard navigation across groups.
+  const items: readonly ProjectChoice[] = shown.flatMap((g) => g.items);
   const waiting = searching && (q !== needle || searchQ.isLoading);
   // Nothing typed and nothing to suggest: the input's placeholder is the
   // whole hint; an empty popover would only repeat it.
@@ -99,6 +105,7 @@ export function ProjectPicker({
   if (searching && waiting) status = 'Searching…';
   else if (searching && items.length === 0) status = 'No projects match';
 
+  let index = -1;
   return (
     <div className="relative w-full max-w-xs">
       <Input
@@ -124,30 +131,39 @@ export function ProjectPicker({
       />
       {expanded && (
         <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-popover py-1 text-sm shadow-md">
-          {!searching && items.length > 0 && (
-            <p className="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{suggestionsLabel}</p>
-          )}
           {status ? (
             <p className="px-3 py-1.5 text-muted-foreground" role="status">
               {status}
             </p>
           ) : (
-            <ul id={listId} role="listbox" aria-label={ariaLabel} className="max-h-60 overflow-auto">
-              {items.map((p, i) => (
-                <li
-                  key={p.slug}
-                  id={`${listId}-${i}`}
-                  role="option"
-                  aria-selected={i === activeIndex}
-                  className={cn('cursor-pointer px-3 py-1.5', i === activeIndex && 'bg-accent text-accent-foreground')}
-                  // mousedown, not click, so the input's blur doesn't close the list first
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    choose(p);
-                  }}
-                  onMouseEnter={() => setActive(i)}
-                >
-                  {p.title}
+            <ul id={listId} role="listbox" aria-label={ariaLabel} className="max-h-72 overflow-auto">
+              {shown.map((group) => (
+                <li key={group.label} role="presentation">
+                  {group.label && (
+                    <p className="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{group.label}</p>
+                  )}
+                  <ul role="group" aria-label={group.label || undefined}>
+                    {group.items.map((p) => {
+                      const i = ++index;
+                      return (
+                        <li
+                          key={p.slug}
+                          id={`${listId}-${i}`}
+                          role="option"
+                          aria-selected={i === activeIndex}
+                          className={cn('cursor-pointer px-3 py-1.5', i === activeIndex && 'bg-accent text-accent-foreground')}
+                          // mousedown, not click, so the input's blur doesn't close the list first
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            choose(p);
+                          }}
+                          onMouseEnter={() => setActive(i)}
+                        >
+                          {p.title}
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </li>
               ))}
             </ul>

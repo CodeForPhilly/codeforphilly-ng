@@ -40,6 +40,7 @@ export function makeSummary(overrides: Partial<EventSummary> = {}): EventSummary
 export function makeEvent(overrides: Partial<EventDetail> = {}): EventDetail {
   return {
     ...makeSummary(),
+    viewerRecentProjects: [],
     description: 'Bring a laptop.',
     descriptionHtml: '<p>Bring a laptop.</p>',
     cancellationNote: null,

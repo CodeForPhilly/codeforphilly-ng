@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownView } from '@/components/MarkdownView';
 import { PersonAvatar } from '@/components/PersonAvatar';
-import { ProjectPicker, type ProjectChoice } from '@/components/ProjectPicker';
+import { ProjectPicker, type ProjectChoice, type ProjectSuggestionGroup } from '@/components/ProjectPicker';
 import { ScheduleBlock } from '@/components/ScheduleBlock';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -51,30 +51,39 @@ const PLAN_LABELS: Record<Exclude<EventRsvpPlan, 'project'>, string> = {
 interface FollowUpProps {
   plan: EventRsvpPlan | null;
   project: { slug: string; title: string } | null;
-  suggestions: readonly ProjectChoice[];
+  groups: readonly ProjectSuggestionGroup[];
   busy: boolean;
   onSave: (input: EventRsvpInput) => Promise<void>;
 }
 
 /**
- * Projects other attendees said they're coming to work on, newest answer
- * first, de-duplicated — the picker's opened-but-empty suggestions
- * (screens/event-detail.md). The viewer's own answer is not a suggestion.
+ * The picker's opened-but-empty suggestions (screens/event-detail.md): the
+ * viewer's own recent projects from other events first, then the projects
+ * other attendees of this event named, newest answer first; a project
+ * appears once, in the first group it belongs to.
  */
-export function suggestedProjects(rsvps: readonly EventRsvp[], viewerSlug: string | null | undefined): ProjectChoice[] {
+export function suggestionGroups(
+  recent: readonly ProjectChoice[],
+  rsvps: readonly EventRsvp[],
+  viewerSlug: string | null | undefined,
+): ProjectSuggestionGroup[] {
   const seen = new Set<string>();
-  return [...rsvps]
-    .filter((r) => r.project && r.person?.slug !== viewerSlug)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .flatMap((r) => {
-      const p = r.project!;
-      if (seen.has(p.slug)) return [];
-      seen.add(p.slug);
-      return [{ slug: p.slug, title: p.title }];
-    });
+  const take = (list: readonly ProjectChoice[]): ProjectChoice[] =>
+    list.filter((p) => (seen.has(p.slug) ? false : (seen.add(p.slug), true)));
+  const mine = take(recent);
+  const teams = take(
+    [...rsvps]
+      .filter((r) => r.project && r.person?.slug !== viewerSlug)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((r) => ({ slug: r.project!.slug, title: r.project!.title })),
+  );
+  return [
+    { label: 'Your recent projects', items: mine },
+    { label: 'Teams already coming', items: teams },
+  ].filter((g) => g.items.length > 0);
 }
 
-function FollowUp({ plan, project, suggestions, busy, onSave }: FollowUpProps) {
+function FollowUp({ plan, project, groups, busy, onSave }: FollowUpProps) {
   const [changing, setChanging] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -118,8 +127,7 @@ function FollowUp({ plan, project, suggestions, busy, onSave }: FollowUpProps) {
           <div className="flex w-full flex-wrap items-center gap-2">
             <span>I&rsquo;m coming to work on</span>
             <ProjectPicker
-              suggestions={suggestions}
-              suggestionsLabel="Teams already coming"
+              groups={groups}
               disabled={busy}
               onPick={(p) => void save({ plan: 'project', projectSlug: p.slug })}
             />
@@ -474,7 +482,7 @@ export function EventDetail() {
                   <FollowUp
                     plan={event.viewerRsvp?.plan ?? null}
                     project={event.viewerRsvp?.project ?? null}
-                    suggestions={suggestedProjects(rsvps, person?.slug)}
+                    groups={suggestionGroups(event.viewerRecentProjects, rsvps, person?.slug)}
                     busy={rsvpBusy}
                     onSave={saveFollowUp}
                   />
