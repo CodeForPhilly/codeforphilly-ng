@@ -724,16 +724,11 @@ describe('Post-onboarding /account-claim/legacy search + merge approval', () => 
     const fresh = app.inMemoryState.people.get(freshId);
     expect(fresh).toBeUndefined();
 
-    // slug-history entry created for old → new. We read it via `git show`
-    // rather than `app.store.public['slug-history'].queryAll()` — that sheet
-    // isn't loaded into the typed in-memory Store, so the standing Sheet
-    // handle caches the pre-transact dataTree and returns []. See #47 and
-    // specs/behaviors/storage.md → "Direct gitsheets reads after a transact".
-    const showRes = await exec('git', ['show', 'HEAD:slug-history/person/fresh-new.toml'], {
-      cwd: dataRepo.path,
-    });
-    expect(showRes.stdout).toContain('newSlug');
-    expect(showRes.stdout).toContain('legacy-old');
+    // slug-history entry created for old → new. The standing sheet sees the
+    // commit directly: gitsheets auto-refreshes sheets after a transact.
+    const history = await app.store.public['slug-history'].get('person/fresh-new');
+    expect(history?.oldSlug).toBe('fresh-new');
+    expect(history?.newSlug).toBe('legacy-old');
   });
 });
 

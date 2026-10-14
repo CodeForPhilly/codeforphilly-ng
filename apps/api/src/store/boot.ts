@@ -2,7 +2,6 @@ import type { Repository } from 'gitsheets';
 import { FilesystemPrivateStore } from './private/filesystem.js';
 import { S3PrivateStore } from './private/s3.js';
 import { openPublicStore } from './public.js';
-import { wireSheetIndices } from './sheet-indices.js';
 import { Store } from './store.js';
 
 /** Subset of process.env needed to boot both stores. */
@@ -38,10 +37,6 @@ export async function bootStores(env: Env): Promise<{ store: Store; publicRepo: 
   const { store: publicStore, repo: publicRepo } = await openPublicStore(env.CFP_DATA_REPO_PATH).catch((err) => {
     throw new Error(`Failed to open public gitsheets store at ${env.CFP_DATA_REPO_PATH}: ${String(err)}`, { cause: err });
   });
-
-  // Secondary in-memory indices on each sheet — used for slug uniqueness +
-  // reverse lookups during write-api mutations.
-  await wireSheetIndices(publicStore);
 
   const privateStore = buildPrivateStore(env);
 

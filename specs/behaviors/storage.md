@@ -171,7 +171,7 @@ people/janedoe/avatar.jpg
 people/janedoe/avatar-128.jpg
 ```
 
-The on-record key (`avatarKey`) references the attachment path relative to the data repo root. Web serves attachments via a streamed `GET /api/attachments/<key>` route with cache headers.
+The on-record key (`avatarKey`) references the attachment path relative to the data repo root, `<sheet>/<record path>/<name>`. Web serves attachments via `GET /api/attachments/<key>`, which resolves the key through the sheet's current read snapshot. The response carries `ETag: "<blob hash>"` and `Cache-Control: public, max-age=3600`; a request whose `If-None-Match` matches gets `304` with no body. A key outside any sheet, or with no blob, is `404`; an empty blob is a `200` with an empty body.
 
 ## In-memory representation
 
@@ -205,17 +205,11 @@ type Store = {
 
 Mutations are scoped to the HTTP request — see the [Request-bound commit lifecycle](#request-bound-commit-lifecycle) below.
 
-### Direct gitsheets reads after a transact (caching limitation)
+### Read freshness
 
-gitsheets' `Sheet` objects cache the `dataTree` snapshot they were opened against, for the lifetime of the `Sheet` instance. `repo.transact` correctly builds a fresh workspace from the current HEAD each call, so writes always target the right tree — but after `transact` returns and HEAD has advanced, any standing `sheet.query()` / `queryAll()` / `findByIndex()` calls on the originally-opened `Sheet` objects in `store.public` return data from the **pre-commit** tree.
+Standing gitsheets `Sheet` handles read from a snapshot of the tree. gitsheets rebinds every open sheet to the new HEAD after each of our own committing transactions, so direct reads (`sheet.query()`, `sheet.get()`, `sheet.getAttachment()`) see a write as soon as its `transact` returns. A ref moved outside a transaction — reconcile's fast-forward, rebase or escape hatch — isn't seen until `store.public.refresh()`; reconcile calls it whenever it moves the branch, at boot and on hot reload.
 
-This is why the hot-reload path uses `Store.swapPublic` (`apps/api/src/store/store.ts`) to re-open the public store after a working-tree-changing reconcile.
-
-**Consequence for the in-memory pattern above:** sheets whose records flow into the typed in-memory `Store` (people, projects, memberships, …) are immune — `StateApply.upsert*` mutates the in-memory Maps in lockstep with each transact, and route handlers read from those Maps. The staleness only affects code that reads directly from `store.public['<sheet>'].query*()` after a write in the same logical operation.
-
-**Today** that means `slug-history` and `revocations` — neither has live exposure (no current route handler reads them post-write in the same request), but tests that verify a transact landed on those sheets must use `git show HEAD:…` or `swapPublic` themselves. When a future redirect handler does read slug-history post-write, the correct fix is to load it into the typed in-memory `Store` like the other sheets, not to call `swapPublic` per request.
-
-Upstream gitsheets enhancement filed at [JarvusInnovations/gitsheets#184](https://github.com/JarvusInnovations/gitsheets/issues/184) (per-sheet `refresh()`). When that lands, tests + future direct-read code can replace the `git show HEAD:…` fallback with `await sheet.refresh(); await sheet.queryAll()`.
+Route handlers still read entities from the typed in-memory `Store`; direct sheet reads are for sheets that aren't loaded into it (`slug-history`, `revocations`) and for attachments.
 
 ## Commits are the audit log
 
@@ -294,6 +288,7 @@ Search hits `title + summary + overview` for projects and `fullName + bio` for p
 
 After every commit, an async background task pushes to the configured `origin` (the private `codeforphilly-data` GitHub repo). Pushes are non-blocking — the mutation returns to the caller as soon as the local commit lands.
 
+- Every push of the working branch goes through the one push daemon, including the push after a reconcile replays local commits onto the remote. At boot, before the daemon starts, reconcile leaves ahead commits to the daemon's startup backlog.
 - If a push fails (network blip, GitHub outage), it's retried with exponential backoff up to a 1-hour ceiling.
 - If retries are still failing after 1 hour, the API logs an error and emits a Prometheus alert metric. The local commit history is intact; the remote just catches up later.
 - No commits are ever rewritten or force-pushed by the runtime. The data repo is append-only from the API's perspective.
@@ -336,13 +331,13 @@ A push to the configured `CFP_DATA_BRANCH` from outside the API (typically a mer
 
 - **Endpoint** — `POST /api/_internal/reload-data`. Hidden from the public OpenAPI doc; not advertised externally.
 - **Auth** — `Authorization: Bearer <token>` where the token matches the `CFP_DATA_RELOAD_SECRET` env var (a Kubernetes Secret in production). Constant-time comparison. When the env var is unset, the endpoint is registered but every request gets 503 ("hot-reload not configured").
-- **Body** — `{ branch?: string, commitHash?: string }`. Both optional. `branch` defaults to `CFP_DATA_BRANCH`. `commitHash` is the commit the caller observed pushing; the endpoint uses it to short-circuit when the pod already has it.
-- **Cheap pre-check** — if `commitHash` is an ancestor of local HEAD (`git merge-base --is-ancestor`), respond 200 noChanges immediately without acquiring the data-repo lock. This covers the common self-trigger where the API's own push daemon prompted the workflow.
-- **Reconcile + rebuild** — otherwise acquire the data-repo lock, call the same reconciliation state machine the boot path uses (`fastify.reconcileDataRepo`), and:
-  - If outcome is `'in-sync'`, skip the rebuild and return 200 noChanges with the outcome.
-  - Otherwise rebuild the in-memory state and FTS index from the new tree, then return 200 with the outcome, the old and new commit, and `rebuilt: true`.
+- **Body** — `{ branch?: string, commitHash?: string }`. Both optional. `branch`, if given, must equal `CFP_DATA_BRANCH`, otherwise `400`: the public store reads `HEAD`, so reconciling any other ref would desync silently. `commitHash` is the commit the caller observed pushing; the endpoint uses it to short-circuit when the pod already has it.
+- **Cheap pre-check** — if `commitHash` is an ancestor of local HEAD (`git merge-base --is-ancestor`), respond 200 noChanges immediately without fetching or taking the write lock. This covers the common self-trigger where the API's own push daemon prompted the workflow.
+- **Reconcile + rebuild** — otherwise run the same reconciliation state machine the boot path uses (`fastify.reconcileDataRepo`):
+  - If the branch didn't move (`in-sync`, `pushed-ahead`, `fetch-failed`), skip the rebuild and return 200 noChanges with the outcome.
+  - Otherwise refresh the public store, rebuild the in-memory state, the revocation set and the FTS index from the new tree, then return 200 with the outcome, the old and new commit, and `rebuilt: true`.
 - **Atomicity** — the rebuild constructs a fresh `InMemoryState` first; only after that succeeds does it mutate the live Maps in place. **Every** collection on the live state is replaced from the fresh one — the primary entity maps and every secondary index, including the legacy-id, buzz-by-slug, and slug-history indices — so no lookup path can serve pre-reload contents after a reload. The FTS engine exposes a `reload(state)` that drops and re-inserts every FTS5 table. If the rebuild throws partway, the route returns 500 and the operator should restart the pod.
-- **Concurrency** — uses the same `dataRepoLock` as boot reconciliation, so a webhook fires can't race a `transact`-driven write.
+- **Concurrency** — the fetch runs outside any lock, so a slow network never blocks writes. The ref move, store refresh, rebuild and swap all run inside the repository's write lock (gitsheets `repo.withLock`), the same mutex `transact` holds. A write issued during a reload waits for it and then applies on top of the reloaded state; no write can land between the ref move and the swap, so none is lost.
 
 The GitHub Actions workflow that calls this endpoint lives in the `codeforphilly-data` repo (`.github/workflows/notify-deployments.yml`), not in this app repo. It fires on push to `CFP_DATA_BRANCH` and posts `{ branch, commitHash: <github.sha> }` with the secret as a bearer token.
 
