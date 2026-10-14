@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { toJSONSchema } from 'zod';
 
 import {
+  EventRsvpSchema,
+  EventSchema,
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
   PersonSchema,
@@ -47,6 +49,8 @@ const schemas = [
   { name: 'TagAssignment', schema: TagAssignmentSchema },
   { name: 'SlugHistory', schema: SlugHistorySchema },
   { name: 'Revocation', schema: RevocationSchema },
+  { name: 'Event', schema: EventSchema },
+  { name: 'EventRsvp', schema: EventRsvpSchema },
 ] as const;
 
 await mkdir(outDir, { recursive: true });

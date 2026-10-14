@@ -16,7 +16,8 @@
       "enum": [
         "project",
         "person",
-        "help_wanted_role"
+        "help_wanted_role",
+        "blog_post"
       ]
     },
     "taggableId": {

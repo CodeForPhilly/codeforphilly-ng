@@ -12,7 +12,9 @@
         "project",
         "person",
         "tag",
-        "buzz"
+        "buzz",
+        "event",
+        "event_series"
       ]
     },
     "oldSlug": {
