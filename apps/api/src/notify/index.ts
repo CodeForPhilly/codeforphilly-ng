@@ -98,6 +98,16 @@ export interface EventCancelledNotification {
   readonly ics: string;
 }
 
+/** One-week or one-day reminder to a going attendee (specs/behaviors/events.md#reminders). */
+export interface EventReminderNotification {
+  readonly email: string;
+  readonly fullName: string;
+  readonly kind: 'week' | 'day';
+  readonly event: EventEmailFacts;
+  /** The attendee's follow-up answer as a sentence, or null when unanswered. */
+  readonly planLine: string | null;
+}
+
 export interface Notifier {
   notifyHelpWantedInterest(n: HelpWantedInterestNotification): Promise<{ delivered: boolean }>;
   notifyHelpWantedFilled(n: HelpWantedFillNotification): Promise<{ delivered: boolean }>;
@@ -106,6 +116,7 @@ export interface Notifier {
   notifyEventRsvp(n: EventRsvpNotification): Promise<{ delivered: boolean }>;
   notifyEventUpdated(n: EventUpdatedNotification): Promise<{ delivered: boolean }>;
   notifyEventCancelled(n: EventCancelledNotification): Promise<{ delivered: boolean }>;
+  notifyEventReminder(n: EventReminderNotification): Promise<{ delivered: boolean }>;
 }
 
 /**
@@ -161,6 +172,14 @@ export class LoggingNotifier implements Notifier {
 
   async notifyEventCancelled(n: EventCancelledNotification): Promise<{ delivered: boolean }> {
     this.#log.info({ kind: 'event.cancelled', email: n.email, event: n.event.slug }, 'event cancelled notification');
+    return { delivered: true };
+  }
+
+  async notifyEventReminder(n: EventReminderNotification): Promise<{ delivered: boolean }> {
+    this.#log.info(
+      { kind: `event.reminder.${n.kind}`, email: n.email, event: n.event.slug },
+      'event reminder notification',
+    );
     return { delivered: true };
   }
 }

@@ -21,10 +21,10 @@ import type { Event } from '@cfp/shared/schemas';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
-import { formatEventInstant, formatEventWhen } from '../lib/event-time.js';
-import { buildEventIcs, buildFeedIcs, eventUrl, googleCalendarUrl } from '../lib/ics.js';
+import { formatEventInstant } from '../lib/event-time.js';
+import { buildEventIcs, buildFeedIcs, googleCalendarUrl } from '../lib/ics.js';
 import { ok, paginated } from '../lib/response.js';
-import type { EventEmailFacts } from '../notify/index.js';
+import { collectAttendees, eventEmailFacts } from '../services/event-notify.js';
 import type { EventChange, EventInput, RsvpInput } from '../services/event.write.js';
 import { getCallerSession } from '../services/permissions.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
@@ -72,29 +72,16 @@ function icsHeaders(disposition: string) {
 export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
   const siteHost = (): string => fastify.config.CFP_SITE_HOST;
 
-  function facts(event: Event): EventEmailFacts {
-    return {
-      slug: event.slug,
-      title: event.title,
-      when: formatEventWhen(event.startsAt, event.endsAt),
-      venueName: event.venueName ?? null,
-      venueAddress: event.venueAddress ?? null,
-      onlineUrl: event.onlineUrl ?? null,
-      url: eventUrl(siteHost(), event.slug),
-    };
-  }
+  const facts = (event: Event) => eventEmailFacts(event, siteHost());
 
-  /** Resolve every going attendee's email + name. Skips people without an address. */
+  /** Every going attendee with a deliverable address, as `{ email, fullName }`. */
   async function attendees(eventId: string): Promise<Array<{ email: string; fullName: string }>> {
-    const out: Array<{ email: string; fullName: string }> = [];
-    for (const rsvp of fastify.services.events.rsvpsFor(eventId)) {
-      const person = fastify.inMemoryState.people.get(rsvp.personId);
-      if (!person || person.deletedAt) continue;
-      const profile = await fastify.store.private.getProfile(person.id);
-      if (!profile?.email) continue;
-      out.push({ email: profile.email, fullName: person.fullName });
-    }
-    return out;
+    const all = await collectAttendees(
+      fastify.inMemoryState,
+      fastify.store.private,
+      fastify.services.events.rsvpsFor(eventId),
+    );
+    return all.map(({ email, fullName }) => ({ email, fullName }));
   }
 
   /** Fire-and-forget fan-out after a commit; the mutation already succeeded. */

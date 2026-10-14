@@ -9,6 +9,7 @@
 import type {
   EventCancelledNotification,
   EventEmailFacts,
+  EventReminderNotification,
   EventRsvpNotification,
   EventUpdatedNotification,
 } from './index.js';
@@ -159,6 +160,38 @@ export function renderEventUpdatedEmail(n: EventUpdatedNotification, siteHost: s
   );
 
   return { subject, text, html, attachments: [icsAttachment(e.slug, n.ics)] };
+}
+
+export function renderEventReminderEmail(n: EventReminderNotification, siteHost: string): EventTemplate {
+  const e = n.event;
+  void siteHost;
+  const lead = n.kind === 'week' ? 'Next week' : 'Tomorrow';
+  const subject = `${lead}: ${e.title} — ${e.when}`;
+  const text = [
+    `Hey ${n.fullName} — ${lead.toLowerCase()} is ${e.title}, and you're on the list.`,
+    '',
+    `When:  ${e.when}`,
+    ...whereText(e),
+    '',
+    n.planLine ? `${n.planLine}\n` : '',
+    `Event page: ${e.url}`,
+    `Can't make it? Update your RSVP there.`,
+    '',
+    `— Code for Philly`,
+  ]
+    .filter((line, idx, arr) => !(line === '' && arr[idx - 1] === ''))
+    .join('\n');
+
+  const html = shell(
+    `  <p>Hey ${escapeHtml(n.fullName)} — ${lead.toLowerCase()} is <a href="${e.url}"><strong>${escapeHtml(e.title)}</strong></a>, and you're on the list.</p>
+  <p><strong>When:</strong> ${escapeHtml(e.when)}<br><strong>Where:</strong> ${whereHtml(e)}</p>
+${n.planLine ? `  <p>${escapeHtml(n.planLine)}</p>` : ''}
+  <p>${button(e.url, 'View event', '#262626')}</p>
+  <p style="color: #666; font-size: 0.875rem;">Can't make it? Update your RSVP on the event page.</p>`,
+    `You're receiving this because you RSVP'd to an event on Code for Philly.`,
+  );
+
+  return { subject, text, html, attachments: [] };
 }
 
 export function renderEventCancelledEmail(n: EventCancelledNotification, siteHost: string): EventTemplate {
