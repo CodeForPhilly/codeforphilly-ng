@@ -137,6 +137,19 @@ describe('POST /api/events', () => {
     expect(user.statusCode).toBe(403);
   });
 
+  it('stores the record under its year with the description as the markdown body', async () => {
+    // gitsheets normalizes the body's trailing newline away; everything
+    // before it comes back byte-for-byte.
+    const description = '# Agenda\n\n- Bring a laptop.\n- Say hi!\n\nSee **you** there.';
+    const body = hackNight(7, { description });
+    const { slug } = await createEvent(body);
+    expect(await committedPaths()).toContain(`events/${body.startsAt.slice(0, 4)}/${slug}.md`);
+    // Round trip: the stored body comes back as the description, unchanged.
+    const detail = await app!.inject({ method: 'GET', url: `/api/events/${slug}`, headers: { cookie: await staffCookie() } });
+    expect(detail.json().data.description).toBe(description);
+    expect(detail.json().data.descriptionHtml).toContain('<strong>you</strong>');
+  });
+
   it('creates a scheduled event with a date-first default slug and staff permissions', async () => {
     const body = hackNight(7);
     const res = await app!.inject({
@@ -407,10 +420,11 @@ describe('PATCH /api/events/:slug', () => {
     // The committed tree moved the RSVP file under the new slug (direct
     // gitsheets reads are cached after a transact, so inspect git itself).
     const tree = await committedPaths();
-    expect(tree).toContain(`event-rsvps/hack-night-new/${fixtures.personSlug}.toml`);
-    expect(tree).not.toContain(`event-rsvps/hack-night-old/${fixtures.personSlug}.toml`);
-    expect(tree).toContain('events/hack-night-new.toml');
-    expect(tree).not.toContain('events/hack-night-old.toml');
+    const year = hackNight(7).startsAt.slice(0, 4);
+    expect(tree).toContain(`event-rsvps/${year}/hack-night-new/${fixtures.personSlug}.toml`);
+    expect(tree).not.toContain(`event-rsvps/${year}/hack-night-old/${fixtures.personSlug}.toml`);
+    expect(tree).toContain(`events/${year}/hack-night-new.md`);
+    expect(tree).not.toContain(`events/${year}/hack-night-old.md`);
     expect(tree).toContain('slug-history/event/hack-night-old.toml');
     expect(app!.inMemoryState.eventIdBySlug.get('hack-night-new')).toBe(id);
 
@@ -418,6 +432,34 @@ describe('PATCH /api/events/:slug', () => {
     expect(redirect.statusCode).toBe(301);
     expect(redirect.headers['location']).toBe('/events/hack-night-new');
     expect((await app!.inject({ method: 'GET', url: '/api/events/hack-night-old' })).statusCode).toBe(404);
+  });
+
+  it('moves the event and RSVP files when startsAt crosses a year boundary', async () => {
+    // Dec 31 23:00Z → Jan 1 01:00Z: the partition year changes, the slug
+    // does not (specs/behaviors/storage.md#sheet-layout).
+    const y = new Date().getUTCFullYear() + 1;
+    const { slug } = await createEvent(
+      hackNight(7, { slug: 'nye-hack', startsAt: `${y}-12-31T23:00:00.000Z`, endsAt: `${y + 1}-01-01T02:00:00.000Z` }),
+    );
+    await app!.inject({ method: 'PUT', url: `/api/events/${slug}/rsvp`, headers: { cookie: await janeCookie() } });
+    let tree = await committedPaths();
+    expect(tree).toContain(`events/${y}/nye-hack.md`);
+    expect(tree).toContain(`event-rsvps/${y}/nye-hack/${fixtures.personSlug}.toml`);
+
+    const res = await app!.inject({
+      method: 'PATCH',
+      url: `/api/events/${slug}`,
+      headers: { cookie: await staffCookie(), 'content-type': 'application/json' },
+      payload: { startsAt: `${y + 1}-01-01T01:00:00.000Z`, endsAt: `${y + 1}-01-01T03:00:00.000Z` },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    tree = await committedPaths();
+    expect(tree).toContain(`events/${y + 1}/nye-hack.md`);
+    expect(tree).not.toContain(`events/${y}/nye-hack.md`);
+    expect(tree).toContain(`event-rsvps/${y + 1}/nye-hack/${fixtures.personSlug}.toml`);
+    expect(tree).not.toContain(`event-rsvps/${y}/nye-hack/${fixtures.personSlug}.toml`);
+    expect(tree).not.toContain('slug-history/event/nye-hack.toml');
+    expect((await app!.inject({ method: 'GET', url: `/api/events/${slug}/rsvps` })).json().data).toHaveLength(1);
   });
 
   it('refuses status changes via PATCH', async () => {
@@ -507,7 +549,7 @@ describe('calendar feed and legacy URLs', () => {
       ['/events/*past', '/events/past'],
       ['/events/*upcoming', '/events'],
       ['/events/*all', '/events'],
-      ['/events/launchpad-2023/segments/friday_night_kickoff-2023', '/events/launchpad-2023#schedule'],
+      ['/events/launchpad-2023/segments/friday_night_kickoff-2023', '/events/series/launchpad-2023'],
     ];
     for (const [from, to] of cases) {
       const res = await app!.inject({ method: 'GET', url: from });
@@ -529,6 +571,6 @@ describe('person purge', () => {
     expect(purge.statusCode, purge.body).toBe(204);
     const detail = await app!.inject({ method: 'GET', url: `/api/events/${slug}` });
     expect(detail.json().data.rsvpCount).toBe(0);
-    expect(await committedPaths()).not.toContain(`event-rsvps/${slug}/${fixtures.personSlug}.toml`);
+    expect(await committedPaths()).not.toContain(`event-rsvps/${slug.slice(0, 4)}/${slug}/${fixtures.personSlug}.toml`);
   });
 });

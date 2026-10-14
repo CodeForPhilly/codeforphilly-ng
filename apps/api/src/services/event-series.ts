@@ -16,6 +16,7 @@ import type { InMemoryState } from '../store/memory/state.js';
 import { StateApply } from '../store/state-apply.js';
 import type { DualStoreTx } from '../store/store.js';
 import { EventService, isUpcoming } from './event.js';
+import { MARKDOWN_UPSERT } from './event.write.js';
 import { computeEventSeriesPermissions, type CallerSession, type EventSeriesPermissions } from './permissions.js';
 import { renderMarkdown } from './serializers/common.js';
 import type { EventSummaryResponse, SeriesRef } from './serializers/event.js';
@@ -116,7 +117,8 @@ export class EventSeriesService {
       id: series.id,
       slug: series.slug,
       title: series.title,
-      description: series.description ?? null,
+      // A body-less markdown record reads back as '' — present it as absent.
+      description: series.description || null,
       descriptionHtml: series.description ? renderMarkdown(series.description).html : null,
       eventCount: this.eventsOf(series, caller).length,
       createdAt: series.createdAt,
@@ -150,7 +152,7 @@ export class EventSeriesWriteService {
       createdAt: now,
       updatedAt: now,
     });
-    await tx.public['event-series'].upsert(series);
+    await tx.public['event-series'].upsert(series, MARKDOWN_UPSERT);
     return { series, stateApply: new StateApply().upsertEventSeries(series) };
   }
 
@@ -193,7 +195,7 @@ export class EventSeriesWriteService {
       await tx.public['slug-history'].upsert(history);
       stateApply.renameEventSeriesSlug(existing.slug).upsertSlugHistory(history);
     }
-    await tx.public['event-series'].upsert(updated);
+    await tx.public['event-series'].upsert(updated, MARKDOWN_UPSERT);
     stateApply.upsertEventSeries(updated);
     return { series: updated, stateApply };
   }

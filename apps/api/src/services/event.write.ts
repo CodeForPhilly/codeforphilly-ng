@@ -40,10 +40,29 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-/** Denormalized path-template fields for `event-rsvps/${eventSlug}/${personSlug}`. */
-function withRsvpPath(rsvp: EventRsvp, eventSlug: string, personSlug: string): EventRsvp {
-  return { ...rsvp, eventSlug, personSlug } as EventRsvp;
+/**
+ * The year an event's records are partitioned under on disk
+ * (specs/behaviors/storage.md#sheet-layout): the UTC year of `startsAt`.
+ * Every stored timestamp is a UTC `Z` string, so this equals what gitsheets
+ * renders for the event sheet's own `${{ startsAt: YYYY }}` bucket.
+ */
+export function partitionYear(startsAt: string): string {
+  return startsAt.slice(0, 4);
 }
+
+/** Denormalized path-template fields for `event-rsvps/${year}/${eventSlug}/${personSlug}`. */
+function withRsvpPath(rsvp: EventRsvp, event: Pick<Event, 'slug' | 'startsAt'>, personSlug: string): EventRsvp {
+  return { ...rsvp, year: partitionYear(event.startsAt), eventSlug: event.slug, personSlug } as EventRsvp;
+}
+
+/**
+ * Events are markdown-bodied records (`description` is the file body —
+ * specs/behaviors/storage.md#sheet-layout). gitsheets refuses a full-record
+ * upsert with no body unless told the omission is deliberate; ours always
+ * carry the whole record, and an event without a description is normal.
+ * A body-less file reads back as `''`, which the serializers fold to null.
+ */
+export const MARKDOWN_UPSERT = { allowMissingBody: true } as const;
 
 /** Fields whose change bumps `icsSequence` (specs/behaviors/events.md#calendar-files). */
 const CALENDAR_FIELDS = ['title', 'startsAt', 'endsAt', 'venueName', 'venueAddress', 'onlineUrl'] as const;
@@ -156,7 +175,7 @@ export class EventWriteService {
       updatedAt: now,
     });
 
-    await tx.public.events.upsert(event);
+    await tx.public.events.upsert(event, MARKDOWN_UPSERT);
     return { event, stateApply: new StateApply().upsertEvent(event) };
   }
 
@@ -195,6 +214,7 @@ export class EventWriteService {
         ? existing.slug
         : this.#resolveSlug(input.slug, base.title, base.startsAt, existing.id);
     const slugChanged = newSlug !== existing.slug;
+    const partitionChanged = partitionYear(base.startsAt) !== partitionYear(existing.startsAt);
 
     const calendarChanged = CALENDAR_FIELDS.some((f) => (existing[f] ?? null) !== (base[f] ?? null));
     const changes: EventChange[] = TIME_OR_PLACE_FIELDS.filter(
@@ -219,35 +239,39 @@ export class EventWriteService {
 
     const stateApply = new StateApply();
 
-    if (slugChanged) {
-      // Delete the old file, write slug history, and move every RSVP file
-      // under the new event slug in this same commit
-      // (specs/api/events.md#patch-apieventsslug).
+    if (slugChanged || partitionChanged) {
+      // The record's path changed (its slug, or the year it is partitioned
+      // under): delete the old file and move every RSVP file with it in
+      // this same commit (specs/api/events.md#patch-apieventsslug,
+      // specs/behaviors/storage.md#sheet-layout). Slug history only for a
+      // rename — the partition is invisible in URLs.
       await tx.public.events.delete(existing);
-      const changedAt = nowIso();
-      const history = {
-        id: uuidv7(),
-        entityType: 'event' as const,
-        oldSlug: existing.slug,
-        newSlug,
-        entityId: existing.id,
-        changedAt,
-        expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-      };
-      await tx.public['slug-history'].upsert(history);
-      stateApply.renameEventSlug(existing.slug).upsertSlugHistory(history);
+      if (slugChanged) {
+        const changedAt = nowIso();
+        const history = {
+          id: uuidv7(),
+          entityType: 'event' as const,
+          oldSlug: existing.slug,
+          newSlug,
+          entityId: existing.id,
+          changedAt,
+          expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        };
+        await tx.public['slug-history'].upsert(history);
+        stateApply.renameEventSlug(existing.slug).upsertSlugHistory(history);
+      }
 
       for (const rsvpId of this.#state.rsvpsByEvent.get(existing.id) ?? new Set<string>()) {
         const rsvp = this.#state.eventRsvps.get(rsvpId);
         if (!rsvp) continue;
         const personSlug = this.#state.personSlugById.get(rsvp.personId);
         if (!personSlug) continue;
-        await tx.public['event-rsvps'].delete(withRsvpPath(rsvp, existing.slug, personSlug));
-        await tx.public['event-rsvps'].upsert(withRsvpPath(rsvp, newSlug, personSlug));
+        await tx.public['event-rsvps'].delete(withRsvpPath(rsvp, existing, personSlug));
+        await tx.public['event-rsvps'].upsert(withRsvpPath(rsvp, updated, personSlug));
       }
     }
 
-    await tx.public.events.upsert(updated);
+    await tx.public.events.upsert(updated, MARKDOWN_UPSERT);
     stateApply.upsertEvent(updated);
     return { event: updated, previous: existing, changes, stateApply };
   }
@@ -257,7 +281,7 @@ export class EventWriteService {
     const existing = this.#eventOrThrow(slug);
     if (existing.status !== 'draft') throw new ConflictError('Event is not a draft', 'not_draft');
     const updated: Event = EventSchema.parse({ ...existing, status: 'scheduled', updatedAt: nowIso() });
-    await tx.public.events.upsert(updated);
+    await tx.public.events.upsert(updated, MARKDOWN_UPSERT);
     return { event: updated, stateApply: new StateApply().upsertEvent(updated) };
   }
 
@@ -281,7 +305,7 @@ export class EventWriteService {
       icsSequence: (existing.icsSequence ?? 0) + 1,
       updatedAt: now,
     });
-    await tx.public.events.upsert(updated);
+    await tx.public.events.upsert(updated, MARKDOWN_UPSERT);
     return { event: updated, stateApply: new StateApply().upsertEvent(updated) };
   }
 
@@ -298,7 +322,7 @@ export class EventWriteService {
       if (!rsvp) continue;
       const personSlug = this.#state.personSlugById.get(rsvp.personId);
       if (!personSlug) continue;
-      await tx.public['event-rsvps'].delete(withRsvpPath(rsvp, existing.slug, personSlug));
+      await tx.public['event-rsvps'].delete(withRsvpPath(rsvp, existing, personSlug));
       stateApply.removeEventRsvp(rsvp);
     }
     await tx.public.events.delete(existing);
@@ -358,7 +382,7 @@ export class EventWriteService {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     });
-    await tx.public['event-rsvps'].upsert(withRsvpPath(rsvp, event.slug, person.slug));
+    await tx.public['event-rsvps'].upsert(withRsvpPath(rsvp, event, person.slug));
     return { event, rsvp, created: existing === undefined, stateApply: new StateApply().upsertEventRsvp(rsvp) };
   }
 
@@ -376,7 +400,7 @@ export class EventWriteService {
     const existingId = this.#state.rsvpIdByEventAndPerson.get(rsvpKey(event.id, person.id));
     const existing = existingId ? this.#state.eventRsvps.get(existingId) : undefined;
     if (!existing) return { removed: false, stateApply: new StateApply() };
-    await tx.public['event-rsvps'].delete(withRsvpPath(existing, event.slug, person.slug));
+    await tx.public['event-rsvps'].delete(withRsvpPath(existing, event, person.slug));
     return { removed: true, stateApply: new StateApply().removeEventRsvp(existing) };
   }
 
