@@ -1,3 +1,4 @@
 [gitsheet]
 root = 'slug-history'
 path = '${{ entityType }}/${{ oldSlug }}'
+implements = ["codeforphilly.org/slug-history/v1"]

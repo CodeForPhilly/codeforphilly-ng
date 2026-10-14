@@ -1,3 +1,4 @@
 [gitsheet]
 root = 'events'
 path = '${{ slug }}'
+implements = ["codeforphilly.org/events/v1"]

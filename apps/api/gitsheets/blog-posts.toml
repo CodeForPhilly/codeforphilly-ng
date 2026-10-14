@@ -1,6 +1,7 @@
 [gitsheet]
 root = 'blog-posts'
 path = '${{ slug }}'
+implements = ["codeforphilly.org/blog-posts/v1"]
 
 [gitsheet.format]
 type = 'markdown'

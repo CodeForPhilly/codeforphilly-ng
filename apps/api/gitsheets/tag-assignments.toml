@@ -1,3 +1,4 @@
 [gitsheet]
 root = 'tag-assignments'
 path = '${{ taggableType }}/${{ taggableId }}/${{ tagId }}'
+implements = ["codeforphilly.org/tag-assignments/v1"]
