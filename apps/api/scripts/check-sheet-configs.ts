@@ -22,7 +22,8 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 
-const DEFAULT_REMOTE = 'https://github.com/CodeForPhilly/codeforphilly-data.git';
+// The data repo is private: SSH with a key that can read it (CI: a deploy key).
+const DEFAULT_REMOTE = 'git@github.com:CodeForPhilly/codeforphilly-data.git';
 const DEFAULT_REF = 'empty';
 const VENDORED_DIR = join(dirname(fileURLToPath(import.meta.url)), '../gitsheets');
 
