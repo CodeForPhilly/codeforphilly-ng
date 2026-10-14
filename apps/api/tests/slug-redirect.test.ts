@@ -256,3 +256,79 @@ describe('slug-redirect plugin', () => {
     expect(slugHistoryKey('buzz', 'x')).toBe('buzz:x');
   });
 });
+
+describe('slug-redirect: legacy handle normalization', () => {
+  it('301s a mixed-case legacy project handle, cached for a day', async () => {
+    await seedProject('apps_for_philly', '01951a3c-0000-7000-8000-000000000201');
+    app = await bootApp();
+
+    const res = await app.inject({ method: 'GET', url: '/projects/Apps_for_Philly' });
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.location).toBe('/projects/apps_for_philly');
+    expect(res.headers['cache-control']).toContain('max-age=86400');
+  });
+
+  it('normalizes punctuation and preserves the suffix', async () => {
+    await seedProject('sheldon-md', '01951a3c-0000-7000-8000-000000000202');
+    app = await bootApp();
+
+    const res = await app.inject({ method: 'GET', url: '/projects/sheldon.md/edit' });
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.location).toBe('/projects/sheldon-md/edit');
+  });
+
+  it('drops underscores for people and preserves the query', async () => {
+    await seedPerson('jane-doe', '01951a3c-0000-7000-8000-000000000203');
+    app = await bootApp();
+
+    const res = await app.inject({ method: 'GET', url: '/members/Jane_Doe?tab=projects' });
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.location).toBe('/members/jane-doe?tab=projects');
+  });
+
+  it('reaches the canonical member from a legacy /people/ URL', async () => {
+    await seedPerson('jane-doe', '01951a3c-0000-7000-8000-000000000204');
+    app = await bootApp();
+
+    let url = '/people/Jane_Doe';
+    for (let hop = 0; hop < 3; hop++) {
+      const res = await app.inject({ method: 'GET', url });
+      if (res.statusCode !== 301) break;
+      url = res.headers.location as string;
+    }
+    expect(url).toBe('/members/jane-doe');
+  });
+
+  it('normalizes a legacy tag handle', async () => {
+    await seedTag('topic', 'urban-design', '01951a3c-0000-7000-8000-000000000205');
+    app = await bootApp();
+
+    const res = await app.inject({ method: 'GET', url: '/tags/topic/Urban_Design' });
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.location).toBe('/tags/topic/urban-design');
+  });
+
+  it('follows slug-history from the normalized slug', async () => {
+    const id = '01951a3c-0000-7000-8000-000000000206';
+    await seedProject('new-name', id);
+    await seedSlugHistory('project', 'old_name', 'new-name', id);
+    app = await bootApp();
+
+    const res = await app.inject({ method: 'GET', url: '/projects/Old_Name' });
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.location).toBe('/projects/new-name');
+  });
+
+  it('does not redirect when the normalized slug is unknown', async () => {
+    app = await bootApp();
+    const res = await app.inject({ method: 'GET', url: '/projects/No_Such_Thing' });
+    expect(res.statusCode).not.toBe(301);
+  });
+
+  it('never redirects a live slug', async () => {
+    await seedProject('apps_for_philly', '01951a3c-0000-7000-8000-000000000207');
+    app = await bootApp();
+    const res = await app.inject({ method: 'GET', url: '/projects/apps_for_philly' });
+    expect(res.statusCode).not.toBe(301);
+  });
+});

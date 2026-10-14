@@ -25,6 +25,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
+import { normalizeLegacyHandle } from '@cfp/shared';
 import type { SlugHistory } from '@cfp/shared/schemas';
 
 import { slugHistoryKey, type InMemoryState } from '../store/memory/state.js';
@@ -58,20 +59,12 @@ const patterns: readonly RoutePattern[] = [
   // match runs first so we attempt to resolve both buzz and project; either
   // can independently redirect.
   // (Currently no slug-history writer for buzz, but the spec includes 'buzz'
-  // in SlugHistory.entityType so the plumbing supports it.)
+  // in SlugHistory.entityType so the plumbing supports it.) Buzz slugs are
+  // unique across all projects, so `buzzIdBySlug` is the live check.
   {
     entityType: 'buzz',
     match: /^\/projects\/([^/]+)\/buzz\/([^/]+)(\/.*)?$/,
-    liveIndex: (state, slug) => {
-      // Buzz slugs are keyed by `${projectId}:${buzzSlug}` in the live index;
-      // since we don't have the projectId at this point cheaply, treat the
-      // slug as missing-from-live whenever a slug-history record exists.
-      // This is the spec-permitted behavior: if a freed buzz slug was taken
-      // by a different project, the slug-history record points away anyway.
-      void state;
-      void slug;
-      return false;
-    },
+    liveIndex: (state, slug) => state.buzzIdBySlug.has(slug),
     rebuild: (m, resolved) => `/projects/${m[1]}/buzz/${resolved}${m[3] ?? ''}`,
   },
   {
@@ -111,14 +104,11 @@ const patterns: readonly RoutePattern[] = [
  * no rewriting is needed (slug already live, or no slug-history entry, or
  * the chain bottoms out at the same slug).
  */
-function resolveSlug(
+function followHistory(
   state: InMemoryState,
   pattern: RoutePattern,
   startSlug: string,
 ): string | null {
-  // Live first — never redirect away from a slug that's currently a real entity.
-  if (pattern.liveIndex(state, startSlug)) return null;
-
   let current = startSlug;
   for (let hop = 0; hop < MAX_HOPS; hop++) {
     const entry = state.slugHistory.get(slugHistoryKey(pattern.entityType, current));
@@ -136,6 +126,44 @@ function resolveSlug(
   }
   // Chain too long — log + bail. The first hop's destination is what we return.
   return current === startSlug ? null : current;
+}
+
+interface Resolution {
+  readonly slug: string;
+  /** True for a legacy-normalization hit, which never expires. */
+  readonly permanent: boolean;
+}
+
+/**
+ * Resolve a non-live slug: slug-history first, then the legacy handle
+ * normalization (specs/behaviors/slug-handles.md → "Legacy handle
+ * normalization"), which only redirects when the normalized slug is live or
+ * itself resolves through slug-history.
+ */
+function resolveSlug(
+  state: InMemoryState,
+  pattern: RoutePattern,
+  startSlug: string,
+): Resolution | null {
+  // Live first — never redirect away from a slug that's currently a real entity.
+  if (pattern.liveIndex(state, startSlug)) return null;
+
+  const viaHistory = followHistory(state, pattern, startSlug);
+  if (viaHistory !== null) return { slug: viaHistory, permanent: false };
+
+  const normalized = normalizeLegacyHandle(safeDecode(startSlug), pattern.entityType);
+  if (normalized === '' || normalized === startSlug) return null;
+  if (pattern.liveIndex(state, normalized)) return { slug: normalized, permanent: true };
+  const normalizedViaHistory = followHistory(state, pattern, normalized);
+  return normalizedViaHistory !== null ? { slug: normalizedViaHistory, permanent: false } : null;
+}
+
+function safeDecode(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 async function slugRedirectPlugin(fastify: FastifyInstance): Promise<void> {
@@ -162,15 +190,16 @@ async function slugRedirectPlugin(fastify: FastifyInstance): Promise<void> {
       const resolved = resolveSlug(state, pattern, slug);
       if (!resolved) continue;
 
-      const newPath = pattern.rebuild(m, resolved);
+      const newPath = pattern.rebuild(m, resolved.slug);
       const target = newPath + query;
-      // 5-minute cache: the redirect itself may expire when the 90-day
-      // window does; a short cache balances perf with not lying to clients
-      // about a permanent-looking redirect.
+      // Slug-history redirects get a 5-minute cache: they expire when the
+      // 90-day window does, so a short cache avoids lying to clients about a
+      // permanent-looking redirect. Legacy-normalization redirects never
+      // expire and can be cached for a day.
       await reply
         .code(301)
         .header('Location', target)
-        .header('Cache-Control', 'public, max-age=300')
+        .header('Cache-Control', `public, max-age=${resolved.permanent ? 86400 : 300}`)
         .send();
       return;
     }
