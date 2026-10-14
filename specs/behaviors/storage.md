@@ -133,7 +133,7 @@ The path template is the only "index" gitsheets provides natively. Choose it to 
 
 Every `${field}` in a path template must be a field every record of that sheet carries. A template naming a field the record lacks makes every upsert throw, aborting the whole transaction. Some fields exist only to render the path (`projectSlug`, `personSlug` on child records) and are added by the write services.
 
-The data repo's `empty` branch is the source of truth for the `.gitsheets/*.toml` configs. The API vendors a copy at `apps/api/gitsheets/`; tests seed every test data repo from it, and CI fails when the copy and `empty` diverge (given a deploy key that can read the private data repo; without one the check is skipped with a warning).
+The data repo's `empty` branch is the source of truth for the `.gitsheets/*.toml` configs. The API vendors a copy at `apps/api/gitsheets/`; tests seed every test data repo from it, and CI fails when a vendored file differs from `empty` or is missing there (a config only in `empty`, for a sheet the API doesn't open yet, is a warning, since sheets land in the data repo first) (given a deploy key that can read the private data repo; without one the check is skipped with a warning).
 
 ### Record format
 
