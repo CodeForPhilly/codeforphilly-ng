@@ -44,8 +44,8 @@ The web layer catches these patterns and 301s to the canonical URL:
 | `/tags/<handle>` | `/tags/<namespace>/<slug>` | split on `.` |
 | `/events/*past` | `/events/past` | static rewrite |
 | `/events/*upcoming`, `/events/*all` | `/events` | static rewrite |
-| `/events/<handle>` | `/events/series/<handle>` | a laddr event was a whole program; each is backfilled as a series with its handle as slug ([events.md](events.md#legacy-urls)) |
-| `/events/<handle>/segments/<segHandle>` | `/events/series/<handle>` | segments became that series' per-day events and their agenda items; no page per segment |
+| `/events/<handle>` | `/events/series/<slug>` | a laddr event was a whole program; each is backfilled as a series, and the four handles map statically to their series slugs ([events.md](events.md#legacy-urls)) |
+| `/events/<handle>/segments/<segHandle>` | `/events/series/<slug>` | segments became that series' per-day events and their agenda items; no page per segment |
 | `/calendar` | `/events` | static rewrite (not a laddr URL; the issue asked for the alias) |
 
 Patterns not listed (e.g., `/checkin`, `/bigscreen`) return 410 Gone with an explanation page (see [deferred.md](../deferred.md) for why those URLs no longer exist).
