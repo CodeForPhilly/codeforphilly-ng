@@ -22,6 +22,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
+import { normalizeLegacyHandle } from '@cfp/shared';
+
 import type { InMemoryState } from '../store/memory/state.js';
 
 /** Long cache — legacy URL shapes are permanent. */
@@ -133,8 +135,13 @@ async function legacyRedirectPlugin(fastify: FastifyInstance): Promise<void> {
     // /project-buzz/<slug>[/...] → /projects/<projectSlug>/buzz/<slug>[/...] --
     const buzzMatch = /^\/project-buzz\/([^/]+)(\/.*)?$/.exec(path);
     if (buzzMatch) {
-      const buzzSlug = buzzMatch[1] as string;
+      const rawSlug = buzzMatch[1] as string;
       const suffix = buzzMatch[2] ?? '';
+      // Exact match first, then the legacy handle normalization
+      // (specs/behaviors/slug-handles.md → "Legacy handle normalization").
+      const buzzSlug = state.buzzIdBySlug.has(rawSlug)
+        ? rawSlug
+        : normalizeLegacyHandle(rawSlug, 'buzz');
       const buzzId = state.buzzIdBySlug.get(buzzSlug);
       if (buzzId !== undefined) {
         const buzz = state.projectBuzz.get(buzzId);
@@ -155,9 +162,11 @@ async function legacyRedirectPlugin(fastify: FastifyInstance): Promise<void> {
     // /tags/<namespace>.<slug>[/...] → /tags/<namespace>/<slug>[/...] ---------
     // Pure URL transform; no lookup. The legacy dot-form was laddr's tag
     // handle shape; the new site uses path-form for routing distinction.
-    const dotTagMatch = /^\/tags\/([a-z]+)\.([^/]+)(\/.*)?$/.exec(path);
+    // laddr matched handles case-insensitively, so accept any-case namespaces;
+    // the slug-redirect plugin normalizes the slug leg.
+    const dotTagMatch = /^\/tags\/([a-zA-Z]+)\.([^/]+)(\/.*)?$/.exec(path);
     if (dotTagMatch) {
-      const namespace = dotTagMatch[1] as string;
+      const namespace = (dotTagMatch[1] as string).toLowerCase();
       const slug = dotTagMatch[2] as string;
       const suffix = dotTagMatch[3] ?? '';
       await sendRedirect(reply, `/tags/${namespace}/${slug}${suffix}${query}`);

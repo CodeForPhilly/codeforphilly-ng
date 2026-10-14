@@ -181,6 +181,23 @@ describe('legacy-redirect plugin', () => {
       expect(res.headers.location).toBe('/projects/news-project/buzz/press-mention');
     });
 
+    it('normalizes a legacy-cased buzz slug', async () => {
+      const projectId = '01951a3c-0000-7000-8000-000000000503';
+      const buzzId = '01951a3c-0000-7000-8000-000000000504';
+      await seedProject('news-project', projectId, undefined);
+      await seedBuzz({
+        projectId,
+        projectSlug: 'news-project',
+        buzzId,
+        buzzSlug: 'press-mention',
+      });
+      app = await bootApp();
+
+      const res = await app.inject({ method: 'GET', url: '/project-buzz/Press_Mention' });
+      expect(res.statusCode).toBe(301);
+      expect(res.headers.location).toBe('/projects/news-project/buzz/press-mention');
+    });
+
     it('passes through unknown buzz slugs', async () => {
       app = await bootApp();
       const res = await app.inject({ method: 'GET', url: '/project-buzz/nonexistent' });
@@ -208,6 +225,13 @@ describe('legacy-redirect plugin', () => {
       const res = await app.inject({ method: 'GET', url: '/tags/event.ecocamp-2014' });
       expect(res.statusCode).toBe(301);
       expect(res.headers.location).toBe('/tags/event/ecocamp-2014');
+    });
+
+    it('lowercases a legacy-cased namespace', async () => {
+      app = await bootApp();
+      const res = await app.inject({ method: 'GET', url: '/tags/Topic.transit' });
+      expect(res.statusCode).toBe(301);
+      expect(res.headers.location).toBe('/tags/topic/transit');
     });
 
     it('does not match /tags/topic/transit (already path-form)', async () => {
