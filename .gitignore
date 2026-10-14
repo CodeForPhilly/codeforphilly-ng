@@ -39,3 +39,6 @@ codeforphilly-data/
 # Logs
 *.log
 npm-debug.log*
+
+# Lavish review artifacts
+.lavish/

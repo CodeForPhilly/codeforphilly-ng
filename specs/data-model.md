@@ -30,6 +30,11 @@ Person ──*── ProjectMembership ──*── Project
 
 BlogPost ──── authored-by ──── Person      (0:1; staff-authored long-form posts)
 
+EventSeries ──*── Event ──*── EventRsvp ──*── Person   (staff-created gatherings; member RSVPs)
+  (optional:           │ agenda[]          │ plan + projectId (optional)
+   "Monthly Hack       │ (structured       └── Project   ("working on" at the event)
+    Nights")           │  schedule)
+
 Tag ──── TagAssignment ──── (Project | Person | HelpWantedRole | BlogPost)
                               polymorphic via taggableType + taggableId
 
@@ -55,7 +60,7 @@ The user/member of the brigade. Replaces laddr's `Emergence\People\Person`. Stor
 **Path template:** `people/${slug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | laddr `people.ID` |
 | slug | string | unique. Was `Username`. URL: `/members/<slug>`. |
@@ -109,7 +114,7 @@ The sensitive complement to a Person. Stored in the **private store** (S3-compat
 **Storage:** `profiles.jsonl` in the private bucket — one record per line, single overwrite per mutation.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | personId | uuid | references `Person.id` |
 | email | string | the user's most-recent GitHub-verified primary email. Refreshed on every OAuth login. Lowercased for canonical form. |
 | emailRefreshedAt | iso8601 | when `email` was last refreshed from GitHub |
@@ -119,7 +124,7 @@ The sensitive complement to a Person. Stored in the **private store** (S3-compat
 The `newsletter` sub-object:
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | optedIn | bool | |
 | optedInAt | iso8601 nullable | |
 | optedOutAt | iso8601 nullable | |
@@ -156,7 +161,7 @@ Password material is sensitive and **must not** appear in the public gitsheets r
 **Storage:** `legacy-passwords.jsonl` in the private bucket — one record per line, single overwrite per mutation.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | personId | uuid | references `Person.id`, 1:1 |
 | passwordHash | string | The current password hash. Format is auto-detected by the verifier (SHA-1 hex / bcrypt `$2[aby]$` / argon2id `$argon2id$`). Every successful verify rotates this to argon2id with current params. |
 | importedAt | iso8601 | when the laddr migration wrote this record |
@@ -176,7 +181,7 @@ Tracks revoked JWT IDs (`jti` claims) so that explicit sign-out / "revoke sessio
 **Path template:** `revocations/${jti}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | jti | string | the JWT ID being revoked. Also the filename. |
 | personId | uuid | |
 | revokedAt | iso8601 | |
@@ -194,7 +199,7 @@ A periodic background task (in-process) sweeps `revocations` for records whose `
 **Path template:** `projects/${slug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | laddr `projects.ID` |
 | slug | string | unique. Was `Handle`. URL: `/projects/<slug>`. See [behaviors/slug-handles.md](behaviors/slug-handles.md). |
@@ -239,7 +244,7 @@ Join record between Person and Project. Was laddr's `project_members`.
 The composite path makes "list members of project X" a single directory traversal.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | projectId | uuid | references projects.id |
 | personId | uuid | references people.id |
@@ -264,7 +269,7 @@ Markdown updates posted by project members. Was laddr's `project_updates`. No ve
 **Path template:** `project-updates/${projectSlug}/${number}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | |
 | projectId | uuid | |
@@ -290,7 +295,7 @@ Staff-authored long-form posts at `/blog`. Was laddr's `blog_posts`. Stored as a
 **Format:** `markdown` (gitsheets `[gitsheet.format]` with `type = 'markdown'`, `body = 'body'`)
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int nullable | laddr `blog_posts.ID`. Per [behaviors/legacy-id-mapping.md](behaviors/legacy-id-mapping.md). |
 | slug | string | unique. URL: `/blog/<slug>`. Used as the filename (`<slug>.md`). |
@@ -322,7 +327,7 @@ External media / press / "buzz" about a project. Was laddr's `project_buzz`.
 **Path template:** `project-buzz/${projectSlug}/${slug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | |
 | projectId | uuid | |
@@ -351,7 +356,7 @@ Polymorphic taxonomy. Replaces laddr's `tags` + `tag_items`, but with a typed `n
 **Path template:** `tags/${namespace}/${slug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | |
 | namespace | enum | `topic` \| `tech` \| `event` |
@@ -381,7 +386,7 @@ Polymorphic link between tags and (project | person | help_wanted_role).
 This composite path makes "things with tag X" a single directory traversal in the right shape; "tags on this thing" needs an in-memory inverted index.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | tagId | uuid | |
 | taggableType | enum | `project` \| `person` \| `help_wanted_role` \| `blog_post` |
@@ -406,7 +411,7 @@ A specific volunteer "ask" a maintainer posts on their project. See [behaviors/h
 The `id` is used as the filename (rather than a derived slug) because role titles are freeform and the URL form is `/projects/:slug/help-wanted/:roleId`.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | projectId | uuid | |
 | postedById | uuid | references people.id |
@@ -433,7 +438,7 @@ Tracks who has expressed interest in which role.
 **Path template:** `help-wanted-interest/${roleId}/${personSlug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
 | roleId | uuid | references help-wanted-roles.id |
 | personId | uuid | references people.id |
@@ -444,6 +449,123 @@ Used for the 30-day per-person-per-role rate cap on `POST /express-interest` (se
 
 **Uniqueness:** `(roleId, personId)` _within the trailing 30 days_ — enforced by the API (read the existing record if any, check `createdAt`, accept-or-reject).
 
+## Event _(new — replaces Meetup.com)_
+
+A single dated gathering: a hack night, a showcase, a workshop, a hackathon weekend. Staff-authored; members RSVP. Rules in [behaviors/events.md](behaviors/events.md). Events are **flat** — one record is one thing you can RSVP to. Two optional structures hang off it: a link to an [EventSeries](#eventseries-new) ("Monthly Hack Nights", "Launchpad 2023") and an embedded **agenda** of timed items, which together replace laddr's `Event` + `EventSegment` pair without making sessions their own RSVP-able records.
+
+**Sheet:** `events`
+**Path template:** `events/${slug}.toml`
+
+The default slug is date-first (`2026-11-03-hack-night`) so the sheet directory lists chronologically when browsed in the data repo.
+
+| Field | Type | Notes |
+| ------- | ------ | ------- |
+| id | uuid | Also the stable iCalendar `UID` (`<id>@codeforphilly.org`). |
+| legacyId | int nullable | laddr `events.ID` for the four backfilled historical events. |
+| slug | string | unique. URL: `/events/<slug>`. See [behaviors/slug-handles.md](behaviors/slug-handles.md). |
+| title | string | required, 1–200 chars |
+| description | string nullable | markdown, ≤ 20,000 chars |
+| startsAt | iso8601 | required |
+| endsAt | iso8601 | required; strictly after `startsAt` |
+| venueName | string nullable | ≤ 120 chars |
+| venueAddress | string nullable | ≤ 300 chars; rendered as a Google Maps link |
+| onlineUrl | string nullable | HTTPS; video-call or stream link |
+| meetupUrl | string nullable | HTTPS on `meetup.com`; secondary link during the Meetup transition |
+| seriesId | uuid nullable | references event-series.id — "part of Monthly Hack Nights" |
+| agenda | array of tables | ordered timed items rendered as the Schedule sidebar; see [Agenda items](#agenda-items) below. Empty for a plain hack night. |
+| status | enum | `draft` \| `scheduled` \| `cancelled`. Default `scheduled`. Transitions via dedicated endpoints only. |
+| cancelledAt | iso8601 nullable | set by `cancel` |
+| cancellationNote | string nullable | ≤ 500 chars plain text; set by `cancel` |
+| icsSequence | int | default `0`. Incremented on every calendar-relevant change and on cancel — becomes iCalendar `SEQUENCE`. |
+| reminders | table | `{ weekSentAt?: iso8601, daySentAt?: iso8601 }` — at-most-once bookkeeping for the reminder sweep ([behaviors/events.md#reminders](behaviors/events.md#reminders)). |
+| createdById | uuid nullable | references people.id (staff) |
+| createdAt | iso8601 | |
+| updatedAt | iso8601 | |
+
+Times are UTC on disk like every timestamp; display is always `America/New_York`.
+
+### Agenda items
+
+Each entry of `agenda` (TOML `[[agenda]]`) is a timed line in the event's schedule — laddr's `EventSegment`, embedded rather than a separate record. Items have no RSVPs, no slug, and no page of their own.
+
+| Field | Type | Notes |
+| ------- | ------ | ------- |
+| startsAt | iso8601 | within `[event.startsAt, event.endsAt]` |
+| endsAt | iso8601 nullable | after `startsAt` when present |
+| title | string | required, 1–120 chars |
+| venueName | string nullable | ≤ 120; overrides the event venue for this item |
+| venueAddress | string nullable | ≤ 300 |
+| description | string nullable | markdown, ≤ 2,000 chars |
+
+Items are kept sorted by `startsAt` on write; a cap of 50 items per event keeps the record readable.
+
+**Validators:**
+
+- `slug` matches `^[a-z0-9][a-z0-9-_]{1,99}$`; not a reserved slug (`past`, `upcoming`, `series`, `feed`, `new`, …)
+- `endsAt > startsAt`
+- `onlineUrl`, `meetupUrl` are HTTPS URLs when present; `meetupUrl` host ends in `meetup.com`
+- `cancelledAt` present iff `status = cancelled`
+- every `agenda[].startsAt` within the event's range; `agenda.length ≤ 50`
+
+**Secondary in-memory indices:**
+
+- `eventIdBySlug: Map<slug, id>`
+- `eventIdByLegacyId: Map<int, id>` — importer idempotence only
+- `eventsByStartsAt: sorted Event[]` — upcoming/past slicing and the reminder sweep
+- `eventsBySeries: Map<seriesId, Set<eventId>>` — the series page
+
+**Uniqueness:** `slug` (case-insensitive). `legacyId` unique-where-present.
+
+## EventSeries _(new)_
+
+A named, open-ended grouping of events: "Monthly Hack Nights", "Launchpad 2023", "Open Data Workshops". It carries no dates of its own — its events do — and takes no RSVPs. It exists so the detail page can say "Part of Monthly Hack Nights", so a series page can list every occurrence past and future, and so duplicating an event carries the grouping forward.
+
+**Sheet:** `event-series`
+**Path template:** `event-series/${slug}.toml`
+
+| Field | Type | Notes |
+| ------- | ------ | ------- |
+| id | uuid | |
+| slug | string | unique. URL: `/events/series/<slug>`. |
+| title | string | required, 1–120 chars |
+| description | string nullable | markdown, ≤ 10,000 chars |
+| createdAt | iso8601 | |
+| updatedAt | iso8601 | |
+
+**Validators:** `slug` matches `^[a-z0-9][a-z0-9-]{1,99}$` and is not reserved.
+
+**Secondary in-memory indices:** `eventSeriesIdBySlug: Map<slug, id>`.
+
+**Uniqueness:** `slug` (case-insensitive). Deleting a series is allowed only when no event references it (`409 has_events`).
+
+## EventRsvp _(new)_
+
+A member's public "I'm going" for an event. Existence means going; there is no status field. After RSVPing the member may answer one follow-up — what they're coming to do — which is what the attendee list groups by.
+
+**Sheet:** `event-rsvps`
+**Path template:** `event-rsvps/${eventSlug}/${personSlug}.toml`
+
+The composite path makes "who's going to event X" a directory scan and "has this person RSVP'd" a path-exists test. Renaming an event's slug moves its RSVP files in the same commit.
+
+| Field | Type | Notes |
+| ------- | ------ | ------- |
+| id | uuid | |
+| eventId | uuid | references events.id |
+| personId | uuid | references people.id |
+| plan | enum nullable | `newcomer` ("I'm new to Code for Philly") \| `no_project` ("I don't have a project yet") \| `project` ("I'm coming to work on …"). Absent until the member answers the follow-up. |
+| projectId | uuid nullable | references projects.id; required iff `plan = project`, absent otherwise |
+| createdAt | iso8601 | when the member RSVP'd; attendee list order |
+| updatedAt | iso8601 | |
+
+**Secondary in-memory indices:**
+
+- `rsvpsByEvent: Map<eventId, Set<rsvpId>>` — implicit in the path template; cached for counts
+- `rsvpsByPerson: Map<personId, Set<rsvpId>>` — person purge cascade and (future) "my events"
+
+**Uniqueness:** `(eventId, personId)`.
+
+RSVP records are **public** (they live in the public data repo and drive the attendee list). They are retained on cancel and when the event ends; they are removed on event hard-delete and on person purge.
+
 ## SlugHistory
 
 Records past slugs of an entity to power the 90-day redirect window. See [behaviors/slug-handles.md](behaviors/slug-handles.md).
@@ -452,9 +574,9 @@ Records past slugs of an entity to power the 90-day redirect window. See [behavi
 **Path template:** `slug-history/${entityType}/${oldSlug}.toml`
 
 | Field | Type | Notes |
-|-------|------|-------|
+| ------- | ------ | ------- |
 | id | uuid | |
-| entityType | enum | `project` \| `person` \| `tag` \| `buzz` |
+| entityType | enum | `project` \| `person` \| `tag` \| `buzz` \| `event` \| `event_series` |
 | oldSlug | string | the previous slug, used as the filename |
 | newSlug | string | the current canonical slug |
 | entityId | uuid | the entity's id (so we can re-resolve even if the slug has moved again) |
@@ -472,7 +594,7 @@ See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log) for t
 ## Relationships at a glance
 
 | From | To | Cardinality | Field |
-|------|----|-----------:|----|
+| ------ | ---- | -----------: | ---- |
 | Project | Person | many-to-one (maintainer) | `Project.maintainerId` |
 | ProjectMembership | Project | many-to-one | `ProjectMembership.projectId` |
 | ProjectMembership | Person | many-to-one | `ProjectMembership.personId` |
@@ -487,13 +609,18 @@ See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log) for t
 | HelpWantedInterestExpression | Person | many-to-one | `personId` |
 | TagAssignment | Tag | many-to-one | `tagId` |
 | TagAssignment | Project \| Person \| HelpWantedRole \| BlogPost | polymorphic | `taggableType + taggableId` |
+| Event | Person | many-to-one (createdBy) | `Event.createdById` |
+| Event | EventSeries | many-to-one, optional | `Event.seriesId` |
+| EventRsvp | Event | many-to-one | `EventRsvp.eventId` |
+| EventRsvp | Person | many-to-one | `EventRsvp.personId` |
+| EventRsvp | Project | many-to-one, optional | `EventRsvp.projectId` |
 
-Cascading deletes are not enforced by gitsheets; the API's mutation services delete dependent records as part of the same write-and-commit operation (see [behaviors/storage.md](behaviors/storage.md) for atomicity). For project delete this means: in one mutation, write the project's tombstone (`deletedAt`) and (for cascade-on-hard-delete) the dependent project-memberships, project-updates, project-buzz, help-wanted-roles, and tag-assignments are removed.
+Cascading deletes are not enforced by gitsheets; the API's mutation services delete dependent records as part of the same write-and-commit operation (see [behaviors/storage.md](behaviors/storage.md) for atomicity). For project delete this means: in one mutation, write the project's tombstone (`deletedAt`) and (for cascade-on-hard-delete) the dependent project-memberships, project-updates, project-buzz, help-wanted-roles, and tag-assignments are removed. Event hard-delete removes its event-rsvps; person purge removes the person's event-rsvps; a project hard-delete nulls `projectId` on any event-rsvps that pointed at it.
 
 ## Naming map: laddr → rewrite
 
 | laddr (PHP/MySQL) | rewrite (gitsheets/TOML) |
-|---|---|
+| --- | --- |
 | `projects.ID` | `projects` record's `id` (uuid) + `legacyId` (int) |
 | `projects.Handle` | `projects.slug` |
 | `projects.Title` | `projects.title` |
@@ -519,5 +646,9 @@ Cascading deletes are not enforced by gitsheets; the API's mutation services del
 | Database tables | gitsheets sheets |
 | `INDEX`, `UNIQUE INDEX` | enforced in-process by the API under the write mutex; backed by in-memory indices built at boot |
 | `FOREIGN KEY ... ON DELETE CASCADE` | atomic multi-record gitsheets commit (see Storage spec) |
+| `events.Handle` / `Title` / `StartTime` / `EndTime` / `LocationName` / `LocationAddress` / `Description` / `Status` | `Event.slug` / `title` / `startsAt` / `endsAt` / `venueName` / `venueAddress` / `description` / `status` (`published` → `scheduled`, `deleted` → not imported) |
+| `event_segments.Title` / `StartTime` / `EndTime` / `LocationName` / `LocationAddress` / `Summary` + `Description` | `Event.agenda[]` items: `title` / `startsAt` / `endsAt` / `venueName` / `venueAddress` / `description` (summary and description concatenated) |
+| _(no laddr equivalent; Launchpads were standalone events)_ | `event-series` sheet — "Launchpad", "Monthly Hack Nights" |
+| Meetup.com RSVPs (never in laddr's DB) | `event-rsvps` sheet |
 | `member_checkins` | _dropped — see [deferred.md](deferred.md)_ |
 | `Emergence\CMS\BlogPost` | _dropped — see [deferred.md](deferred.md)_ |

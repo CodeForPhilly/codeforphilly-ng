@@ -6,8 +6,8 @@ Every user-facing entity has a stable, URL-safe **slug** (called `Handle` in lad
 
 ## Applies To
 
-- [data-model.md](../data-model.md) — `slug` column on `people`, `projects`, `tags`, `projectBuzz`
-- [api/projects.md](../api/projects.md), [api/people.md](../api/people.md), [api/tags.md](../api/tags.md), [api/projects-buzz.md](../api/projects-buzz.md)
+- [data-model.md](../data-model.md) — `slug` column on `people`, `projects`, `tags`, `projectBuzz`, `events`
+- [api/projects.md](../api/projects.md), [api/people.md](../api/people.md), [api/tags.md](../api/tags.md), [api/projects-buzz.md](../api/projects-buzz.md), [api/events.md](../api/events.md)
 - Every screen with a path-segment identifier
 
 ## Format rules
@@ -18,6 +18,10 @@ Every user-facing entity has a stable, URL-safe **slug** (called `Handle` in lad
 | Person | `^[a-z0-9][a-z0-9-]{1,49}$` | 2–50 | `chris`, `janedoe` |
 | Tag | `^[a-z0-9][a-z0-9-]{0,49}$` | 1–50 | `transit`, `flutter`, `civic-engagement` |
 | Buzz | `^[a-z0-9][a-z0-9-]{1,99}$` | 2–100 | `inquirer-praises-foo` |
+| Event | `^[a-z0-9][a-z0-9-_]{1,99}$` | 2–100 | `2026-11-03-hack-night`, `launchpad_2019` |
+| Event series | `^[a-z0-9][a-z0-9-]{1,99}$` | 2–100 | `monthly-hack-nights`, `launchpad` |
+
+Event slugs default to `<YYYY-MM-DD>-<slugified title>` (date in `America/New_York`) so the sheet directory lists chronologically. Underscores are tolerated for the same reason as projects: one backfilled laddr event (`launchpad_2019`) has one. See [events.md](events.md).
 
 Project slugs allow underscores because legacy laddr handles used underscores (`philly_bike_action`, `give_schools_-_needs_board`). New project slugs from the UI default to hyphens; underscores are tolerated for back-compat. Person and tag slugs are hyphens-only — laddr's were already consistent.
 
@@ -39,6 +43,8 @@ Project slugs allow underscores because legacy laddr handles used underscores (`
 | Person | All people (case-insensitive). Includes soft-deleted. |
 | Tag | `(namespace, slug)` — different namespaces can reuse the same slug |
 | Buzz | All buzz across all projects |
+| Event | All events (case-insensitive) |
+| Event series | All series (case-insensitive) |
 
 Uniqueness violation on create or rename → `409 conflict`.
 
@@ -63,6 +69,7 @@ The following are reserved and not allowed for any entity:
 - `new`, `create`, `edit`, `delete`, `restore` — used as path segments in CRUD URLs
 - `me`, `current`, `self` — reserved for "current user" semantics
 - `admin`, `staff`, `system` — reserved
+- `past`, `upcoming`, `all`, `feed`, `series` — reserved; sibling list views, feeds, and sub-collections under a collection route (`/events/past`, `/api/events/feed.ics`, `/events/series/<slug>`)
 - Any string starting with `_` — reserved for system / internal paths
 - Any string that exactly matches an existing top-level route (`projects`, `members`, `tags`, `help-wanted`, `login`, `register`, etc.)
 

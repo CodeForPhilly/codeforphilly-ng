@@ -11,6 +11,7 @@ All endpoints are mounted under `/api`. There is no API version segment in v1 �
 - Requests: `application/json` for bodies; `multipart/form-data` only for file uploads (avatar, buzz image).
 - Responses: `application/json` always.
 - `Accept` headers are honored only insofar as `application/json` is the default; we don't negotiate CSV/RSS in v1 (see [deferred.md](../deferred.md)).
+- The one non-JSON success response: the iCalendar routes in [events.md](events.md) (`GET /api/events/feed.ics`, `GET /api/events/:slug/ics`) respond `text/calendar`. They are dedicated paths, not content negotiation, and their errors still use the JSON envelope.
 
 ## Response envelope
 
@@ -59,7 +60,7 @@ For paginated lists, the `data` is an array and `metadata` includes pagination:
 `error.code` values are stable identifiers clients can switch on:
 
 | Code | HTTP | When |
-|---|---:|---|
+| --- | ---: | --- |
 | `validation_failed` | 422 | Request body or query parameters fail schema validation. `error.fields` carries per-field messages. |
 | `unauthenticated` | 401 | No session, or session expired. |
 | `forbidden` | 403 | Authenticated but not authorized for this action. |
@@ -81,7 +82,7 @@ For paginated lists, the `data` is an array and `metadata` includes pagination:
 Per-endpoint auth requirements appear in each endpoint table. The vocabulary:
 
 | Marker | Meaning |
-|--------|---------|
+| -------- | --------- |
 | `public` | No authentication required. |
 | `user` | Any signed-in person. |
 | `member` | Signed-in person who has a `ProjectMembership` record for the project. |
@@ -97,7 +98,7 @@ When multiple are listed (`maintainer | staff`), any one suffices. Cross-cutting
 List endpoints accept:
 
 | Query param | Type | Default | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `page` | int ≥ 1 | 1 | |
 | `perPage` | int 1–100 | 30 | clamp to 100 |
 
@@ -122,7 +123,7 @@ Unknown sort keys → `422 validation_failed`.
 Each endpoint declares which filters it accepts. Filters are query parameters with conventional names:
 
 | Convention | Example | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `<field>` | `?stage=prototyping` | exact match |
 | `<field>In` | `?stageIn=prototyping,testing` | one-of (comma-separated) |
 | `tag` | `?tag=tech.flutter` | tag handle in laddr format (namespace `.` slug); the API accepts both this and `?tagId=<uuid>` for forward compat |

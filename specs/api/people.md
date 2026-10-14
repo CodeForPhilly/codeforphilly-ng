@@ -204,7 +204,7 @@ Self or staff. Clears `deletedAt`. Person becomes visible again.
 
 ## POST /api/people/:slug/purge
 
-Administrator-only. Atomically hard-deletes the person record and cascades: project-memberships, help-wanted-interest, person tag-assignments, project-updates (authored), project-buzz (posted), and blog-posts (authored). All in one gitsheets commit. Git-revertable.
+Administrator-only. Atomically hard-deletes the person record and cascades: project-memberships, help-wanted-interest, event-rsvps, person tag-assignments, project-updates (authored), project-buzz (posted), and blog-posts (authored). All in one gitsheets commit. Git-revertable.
 
 Unlike the offline spam-prune (which nulls `authorId` on updates), purge DELETES the authored content — it is the on-demand garbage-collection path for spam accounts.
 
@@ -223,7 +223,7 @@ When a deactivated person is referenced in a serialized response (e.g. project m
 { "slug": null, "fullName": "Deactivated user", "avatarUrl": null, "deactivated": true }
 ```
 
-This placeholder shape applies to the `PersonAvatar` reference type used in: project memberships, project-update `author`, project-buzz `postedBy`, help-wanted `postedBy`/`filledBy`, and blog-post `author`.
+This placeholder shape applies to the `PersonAvatar` reference type used in: project memberships, project-update `author`, project-buzz `postedBy`, help-wanted `postedBy`/`filledBy`, blog-post `author`, and event-rsvp `person`.
 
 ## POST /api/people/:slug/account-level
 
