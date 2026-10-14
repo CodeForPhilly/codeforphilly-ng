@@ -6,7 +6,7 @@ import { renderScreen, mockOk } from './test-utils.js';
 import { EventDetail } from '../src/screens/EventDetail.js';
 import { AuthProvider } from '../src/hooks/useAuth.js';
 import type { EventDetail as EventData, EventRsvp } from '../src/lib/api.js';
-import { STAFF_ME, USER_ME, json, makeEvent, makeRsvp } from './event-fixtures.js';
+import { STAFF_ME, USER_ME, json, makeAgendaItem, makeEvent, makeRsvp } from './event-fixtures.js';
 
 interface Call {
   url: string;
@@ -229,6 +229,82 @@ describe('EventDetail', () => {
     );
     expect(screen.getAllByRole('heading', { name: 'Schedule' }).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Welcome & pitches').length).toBeGreaterThan(0);
+  });
+
+  it('"Part of" sits above the H1 and links to the series page', async () => {
+    mockFetch({ event: makeEvent({ series: { slug: 'launchpad', title: 'Launchpad' } }) });
+    render();
+    const link = await screen.findByRole('link', { name: 'Launchpad' });
+    expect(link).toHaveAttribute('href', '/events/series/launchpad');
+    expect(link.closest('p')).toHaveTextContent('Part of Launchpad');
+    const h1 = screen.getByRole('heading', { level: 1 });
+    // DOCUMENT_POSITION_FOLLOWING: the H1 comes after the "Part of" line.
+    expect(link.compareDocumentPosition(h1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('no series and no agenda: no "Part of", no Schedule, no jump link', async () => {
+    mockFetch({ event: makeEvent() });
+    render();
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.queryByText(/Part of/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Schedule' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /See the schedule/ })).not.toBeInTheDocument();
+  });
+
+  it('groups the schedule by Philly day and shows a venue only when it changes', async () => {
+    mockFetch({
+      event: makeEvent({
+        venueName: 'Indy Hall',
+        venueAddress: '709 N 2nd St',
+        // Tue Mar 31 2099 6 PM EDT → Thu Apr 2 9 PM EDT
+        startsAt: '2099-03-31T22:00:00Z',
+        endsAt: '2099-04-03T01:00:00Z',
+        agenda: [
+          makeAgendaItem({
+            startsAt: '2099-03-31T22:00:00Z',
+            endsAt: '2099-04-01T01:00:00Z',
+            title: 'Kickoff',
+          }),
+          makeAgendaItem({
+            startsAt: '2099-04-01T13:00:00Z',
+            endsAt: '2099-04-01T23:00:00Z',
+            title: 'Hacking',
+            venueName: 'City Hall',
+            venueAddress: '1400 JFK Blvd',
+            descriptionHtml: '<p>Bring snacks.</p>',
+          }),
+          makeAgendaItem({
+            startsAt: '2099-04-01T23:00:00Z',
+            endsAt: '2099-04-02T00:30:00Z',
+            title: 'Dinner',
+            venueName: 'City Hall',
+            venueAddress: '1400 JFK Blvd',
+          }),
+          makeAgendaItem({ startsAt: '2099-04-02T01:00:00Z', title: 'Back at base' }),
+        ],
+      }),
+    });
+    render();
+    await screen.findByRole('heading', { level: 1 });
+    // jsdom applies no CSS, so both the main-column and sidebar copies render.
+    const blocks = screen.getAllByRole('heading', { name: 'Schedule' }).map((h) => h.closest('section')!);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toHaveAttribute('id', 'schedule');
+    expect(screen.getByRole('link', { name: /See the schedule/ })).toHaveAttribute('href', '#schedule');
+
+    const block = within(blocks[0]!);
+    const days = block.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+    expect(days).toEqual(['Tuesday, March 31', 'Wednesday, April 1']);
+    expect(block.getByText('6–9pm')).toBeInTheDocument();
+    expect(block.getByText('9am–7pm')).toBeInTheDocument();
+    expect(block.getByText('7–8:30pm')).toBeInTheDocument();
+    expect(block.getByText('Bring snacks.')).toBeInTheDocument();
+
+    // Kickoff is at the event venue (no line); Hacking moves to City Hall
+    // (line); Dinner stays there (suppressed); Back at base returns (line).
+    const venueLinks = block.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('https://maps.google.com'));
+    expect(venueLinks.map((a) => a.textContent)).toEqual(['City Hall', 'Indy Hall']);
+    expect(venueLinks[0]).toHaveAttribute('href', `https://maps.google.com/?q=${encodeURIComponent('City Hall, 1400 JFK Blvd')}`);
   });
 
   it('past event shows the ended banner and no control', async () => {

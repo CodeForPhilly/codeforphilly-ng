@@ -11,6 +11,7 @@ import type {
   BlogPost,
   Event,
   EventRsvp,
+  EventSeries,
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
@@ -28,6 +29,7 @@ import { invalidateFacets } from './memory/facets.js';
 import {
   indexEvent,
   indexEventRsvp,
+  indexEventSeries,
   indexHelpWantedInterest,
   indexHelpWantedRole,
   indexMembership,
@@ -40,6 +42,7 @@ import {
   indexTag,
   indexTagAssignment,
   rsvpKey,
+  unindexEventSeries,
   type InMemoryState,
 } from './memory/state.js';
 
@@ -297,6 +300,24 @@ export class StateApply {
   renameEventSlug(oldSlug: string): this {
     this.#ops.push((state) => {
       state.eventIdBySlug.delete(oldSlug);
+    });
+    return this;
+  }
+
+  upsertEventSeries(series: EventSeries): this {
+    this.#ops.push((state) => indexEventSeries(state, series));
+    return this;
+  }
+
+  removeEventSeries(series: EventSeries): this {
+    this.#ops.push((state) => unindexEventSeries(state, series));
+    return this;
+  }
+
+  /** Drop the old slug's index entry on rename; `upsertEventSeries` adds the new one. */
+  renameEventSeriesSlug(oldSlug: string): this {
+    this.#ops.push((state) => {
+      state.eventSeriesIdBySlug.delete(oldSlug);
     });
     return this;
   }

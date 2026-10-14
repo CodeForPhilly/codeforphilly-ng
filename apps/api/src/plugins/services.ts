@@ -21,6 +21,7 @@ import { BlogPostService } from '../services/blog-post.js';
 import { HelpWantedService } from '../services/help-wanted.js';
 import { EventService } from '../services/event.js';
 import { EventWriteService } from '../services/event.write.js';
+import { EventSeriesService, EventSeriesWriteService } from '../services/event-series.js';
 import { ProjectWriteService } from '../services/project.write.js';
 import { ProjectMembershipWriteService } from '../services/project-membership.write.js';
 import { ProjectUpdateWriteService } from '../services/project-update.write.js';
@@ -48,8 +49,10 @@ declare module 'fastify' {
       blogPosts: BlogPostService;
       helpWanted: HelpWantedService;
       events: EventService;
+      eventSeries: EventSeriesService;
       // Write services
       eventsWrite: EventWriteService;
+      eventSeriesWrite: EventSeriesWriteService;
       projectsWrite: ProjectWriteService;
       projectMembershipsWrite: ProjectMembershipWriteService;
       projectUpdatesWrite: ProjectUpdateWriteService;
@@ -107,7 +110,9 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
     blogPosts: new BlogPostService(state),
     helpWanted: new HelpWantedService(state, fts),
     events: new EventService(state),
+    eventSeries: new EventSeriesService(state),
     eventsWrite: new EventWriteService(state),
+    eventSeriesWrite: new EventSeriesWriteService(state),
     projectsWrite: new ProjectWriteService(state),
     projectMembershipsWrite: new ProjectMembershipWriteService(state),
     projectUpdatesWrite: new ProjectUpdateWriteService(state),

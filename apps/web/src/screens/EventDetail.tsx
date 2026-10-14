@@ -17,11 +17,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownView } from '@/components/MarkdownView';
 import { PersonAvatar } from '@/components/PersonAvatar';
+import { ScheduleBlock } from '@/components/ScheduleBlock';
 import { useAuth } from '@/hooks/useAuth';
 import {
   api,
   ApiError,
-  type EventAgendaItem,
   type EventDetail as EventDetailData,
   type EventRsvpInput,
   type EventRsvpPlan,
@@ -30,8 +30,6 @@ import {
 import { copyWithToast } from '@/lib/clipboard';
 import { groupAttendees } from '@/lib/event-attendees';
 import {
-  agendaDayHeading,
-  formatCompactRange,
   formatEventTime,
   googleCalendarUrl,
   isPastEvent,
@@ -138,68 +136,6 @@ function FollowUp({ plan, project, busy, onSave }: FollowUpProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Schedule (agenda) — rendered only when present and non-empty
-// ---------------------------------------------------------------------------
-
-function Schedule({ agenda, id, className }: { agenda: EventAgendaItem[]; id?: string; className?: string }) {
-  const days: Array<{ key: string; weekday: string; date: string; items: EventAgendaItem[] }> = [];
-  for (const item of agenda) {
-    const h = agendaDayHeading(item.startsAt);
-    const last = days[days.length - 1];
-    if (last && last.key === h.key) last.items.push(item);
-    else days.push({ ...h, items: [item] });
-  }
-  return (
-    <section id={id} className={className}>
-      <h2 className="mb-3 text-xl font-semibold">Schedule</h2>
-      <div className="space-y-5">
-        {days.map((d) => {
-          let prevVenue: string | null = null;
-          return (
-            <div key={d.key}>
-              <h3 className="mb-2 text-sm">
-                <strong>{d.weekday},</strong> {d.date}
-              </h3>
-              <ul className="space-y-3">
-                {d.items.map((item, i) => {
-                  const venue = item.venueName ? [item.venueName, item.venueAddress].filter(Boolean).join(', ') : null;
-                  const showVenue = venue !== null && venue !== prevVenue;
-                  prevVenue = venue ?? prevVenue;
-                  return (
-                    <li key={`${item.startsAt}-${i}`} className="text-sm">
-                      <div className="flex gap-3">
-                        <span className="w-20 shrink-0 text-muted-foreground">
-                          {formatCompactRange(item.startsAt, item.endsAt)}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="font-medium">{item.title}</p>
-                          {item.descriptionHtml && <MarkdownView html={item.descriptionHtml} className="text-sm" />}
-                          {showVenue && (
-                            <a
-                              href={`https://maps.google.com/?q=${encodeURIComponent(venue)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-primary hover:underline"
-                            >
-                              <span aria-hidden="true">📍 </span>
-                              {item.venueName}
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
 
@@ -255,6 +191,7 @@ export function EventDetail() {
   const rsvpsOpen = event.status === 'scheduled' && !past;
   const going = event.viewerRsvp !== null;
   const agenda = event.agenda ?? [];
+  const eventVenue = event.venueName ? { name: event.venueName, address: event.venueAddress } : null;
   const origin = window.location.origin;
 
   const patchEvent = (fn: (e: EventDetailData) => EventDetailData) => {
@@ -431,7 +368,7 @@ export function EventDetail() {
               {formatEventTime(event.startsAt, event.endsAt, { style: 'long' })}
             </p>
             {agenda.length > 0 && (
-              <a href="#schedule" className="text-sm text-primary hover:underline lg:hidden">
+              <a href="#schedule" className="mt-1 inline-block text-sm text-primary hover:underline lg:hidden">
                 See the schedule ↓
               </a>
             )}
@@ -577,12 +514,16 @@ export function EventDetail() {
               </section>
             )}
 
-            {agenda.length > 0 && <Schedule agenda={agenda} id="schedule" className="lg:hidden" />}
+            {agenda.length > 0 && (
+              <ScheduleBlock agenda={agenda} eventVenue={eventVenue} id="schedule" className="lg:hidden" />
+            )}
           </div>
 
           {/* Sidebar */}
           <aside className="space-y-8 lg:col-span-1">
-            {agenda.length > 0 && <Schedule agenda={agenda} className="hidden lg:block" />}
+            {agenda.length > 0 && (
+              <ScheduleBlock agenda={agenda} eventVenue={eventVenue} className="hidden lg:block" />
+            )}
 
             <section id="attendees">
               <h2 className="mb-3 text-lg font-semibold">

@@ -8,6 +8,7 @@ import {
   BlogPostSchema,
   EventRsvpSchema,
   EventSchema,
+  EventSeriesSchema,
   HelpWantedInterestExpressionSchema,
   HelpWantedRoleSchema,
   PersonSchema,
@@ -42,6 +43,7 @@ export const PUBLIC_SHEET_SCHEMAS = {
   'person-evaluations': PersonEvaluationSchema,
   events: EventSchema,
   'event-rsvps': EventRsvpSchema,
+  'event-series': EventSeriesSchema,
 } as const satisfies ValidatorMap;
 
 /**

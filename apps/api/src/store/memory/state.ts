@@ -11,6 +11,7 @@ import type {
   BlogPost,
   Event,
   EventRsvp,
+  EventSeries,
   HelpWantedInterestExpression,
   HelpWantedRole,
   Person,
@@ -41,6 +42,7 @@ export interface InMemoryState {
   helpWantedInterest: Map<string, HelpWantedInterestExpression>;
   events: Map<string, Event>;
   eventRsvps: Map<string, EventRsvp>;
+  eventSeries: Map<string, EventSeries>;
 
   // ---------------------------------------------------------------------------
   // Secondary indices
@@ -139,6 +141,10 @@ export interface InMemoryState {
   rsvpsByPerson: Map<string, Set<string>>;
   /** eventId + personId → rsvpId — the "has this person RSVP'd" test. */
   rsvpIdByEventAndPerson: Map<string, string>;
+  /** eventSeries.slug → eventSeries.id */
+  eventSeriesIdBySlug: Map<string, string>;
+  /** seriesId → Set<eventId> — the series page. */
+  eventsBySeries: Map<string, Set<string>>;
 }
 
 /** Compose the event+person RSVP key. Kept here so call sites stay consistent. */
@@ -165,6 +171,7 @@ export function createEmptyState(): InMemoryState {
     helpWantedInterest: new Map(),
     events: new Map(),
     eventRsvps: new Map(),
+    eventSeries: new Map(),
 
     projectSlugById: new Map(),
     projectIdBySlug: new Map(),
@@ -194,6 +201,8 @@ export function createEmptyState(): InMemoryState {
     rsvpsByEvent: new Map(),
     rsvpsByPerson: new Map(),
     rsvpIdByEventAndPerson: new Map(),
+    eventSeriesIdBySlug: new Map(),
+    eventsBySeries: new Map(),
   };
 }
 
@@ -203,10 +212,29 @@ export function indexEvent(state: InMemoryState, event: Event): void {
   if (old) {
     state.eventIdBySlug.delete(old.slug);
     if (typeof old.legacyId === 'number') state.eventIdByLegacyId.delete(old.legacyId);
+    if (old.seriesId) removeFromSet(state.eventsBySeries, old.seriesId, old.id);
   }
   state.events.set(event.id, event);
   state.eventIdBySlug.set(event.slug, event.id);
   if (typeof event.legacyId === 'number') state.eventIdByLegacyId.set(event.legacyId, event.id);
+  if (event.seriesId) {
+    let bySeries = state.eventsBySeries.get(event.seriesId);
+    if (!bySeries) { bySeries = new Set(); state.eventsBySeries.set(event.seriesId, bySeries); }
+    bySeries.add(event.id);
+  }
+}
+
+/** Add or replace one event series and update its slug index. */
+export function indexEventSeries(state: InMemoryState, series: EventSeries): void {
+  const old = state.eventSeries.get(series.id);
+  if (old) state.eventSeriesIdBySlug.delete(old.slug);
+  state.eventSeries.set(series.id, series);
+  state.eventSeriesIdBySlug.set(series.slug, series.id);
+}
+
+export function unindexEventSeries(state: InMemoryState, series: EventSeries): void {
+  state.eventSeries.delete(series.id);
+  deleteIfOwned(state.eventSeriesIdBySlug, series.slug, series.id);
 }
 
 /** Add or replace one event RSVP and update its secondary indices. */
@@ -476,6 +504,7 @@ export function unindexEvent(state: InMemoryState, event: Event): void {
   if (typeof event.legacyId === 'number') {
     deleteIfOwned(state.eventIdByLegacyId, event.legacyId, event.id);
   }
+  if (event.seriesId) removeFromSet(state.eventsBySeries, event.seriesId, event.id);
 }
 
 export function unindexEventRsvp(state: InMemoryState, rsvp: EventRsvp): void {

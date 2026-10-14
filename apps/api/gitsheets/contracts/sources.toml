@@ -6,6 +6,10 @@ source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b
 adopted = 2026-10-14T03:31:19.303Z
 source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/event-rsvps/v1.json"
 
+["codeforphilly.org/event-series/v1"]
+adopted = 2026-10-14T04:05:39.64Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/67b879d8e2f22942d8d15537b796b9c41255c133/contracts/codeforphilly.org/event-series/v1.json"
+
 ["codeforphilly.org/events/v1"]
 adopted = 2026-10-14T03:31:20.527Z
 source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/events/v1.json"
