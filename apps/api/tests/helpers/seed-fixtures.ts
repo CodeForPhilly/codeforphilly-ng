@@ -38,7 +38,10 @@ export async function seedRawToml(
 ): Promise<void> {
   const wt = await mkdtemp(join(tmpdir(), 'cfp-seed-wt-'));
   try {
-    await execAsync('git', ['clone', bareRepoPath, wt]);
+    // --no-local: transfer a pack instead of copying/hardlinking the
+    // object files one by one, which races with a concurrent writer to the
+    // source repo (#171).
+    await execAsync('git', ['clone', '--no-local', bareRepoPath, wt]);
     await execAsync('git', ['config', 'user.email', 'test@cfp.test'], { cwd: wt });
     await execAsync('git', ['config', 'user.name', 'cfp test'], { cwd: wt });
     await execAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: wt });
@@ -72,7 +75,10 @@ export async function seedRawBlob(
 ): Promise<void> {
   const wt = await mkdtemp(join(tmpdir(), 'cfp-seed-wt-'));
   try {
-    await execAsync('git', ['clone', bareRepoPath, wt]);
+    // --no-local: transfer a pack instead of copying/hardlinking the
+    // object files one by one, which races with a concurrent writer to the
+    // source repo (#171).
+    await execAsync('git', ['clone', '--no-local', bareRepoPath, wt]);
     await execAsync('git', ['config', 'user.email', 'test@cfp.test'], { cwd: wt });
     await execAsync('git', ['config', 'user.name', 'cfp test'], { cwd: wt });
     await execAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: wt });
