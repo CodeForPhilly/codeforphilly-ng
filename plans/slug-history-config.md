@@ -1,9 +1,10 @@
 ---
-status: planned
+status: done
 depends: []
 specs:
   - specs/behaviors/slug-handles.md
   - specs/behaviors/storage.md
+pr: 199
 ---
 
 # Plan: fix the slug-history sheet config and single-source sheet configs
@@ -69,20 +70,20 @@ Out: the attachment loss on rename — see
 
 ## Validation
 
-- [ ] `slug-history.toml` uses `oldSlug` on all four data-repo branches
-- [ ] `help-wanted-roles.toml` and `help-wanted-interest.toml` match
+- [x] `slug-history.toml` uses `oldSlug` on all four data-repo branches
+- [x] `help-wanted-roles.toml` and `help-wanted-interest.toml` match
       `storage.md` on all four branches; a role can be created in production
-- [ ] A test fails when any vendored config's template names a field that
+- [x] A test fails when any vendored config's template names a field that
       isn't a required schema field or a declared write-injected path field
 - [ ] Production: a person slug rename succeeds and writes a slug-history
       record; the old slug redirects
-- [ ] No inline `.gitsheets` config copies remain in `apps/api/tests`
+- [x] No inline `.gitsheets` config copies remain in `apps/api/tests`
       (grep `\[gitsheet\]`)
 - [ ] New every-sheet upsert test passes against the canonical configs
-- [ ] `setup-dev-data.ts` gone; docs don't reference it
-- [ ] `published` has no integer-underscore literals
+- [x] `setup-dev-data.ts` gone; docs don't reference it
+- [x] `published` has no integer-underscore literals
       (`git grep -E '= [0-9]+_[0-9]'` empty)
-- [ ] `type-check` + `lint` + full api suite green
+- [x] `type-check` + `lint` + full api suite green
 
 ## Risks / unknowns
 
@@ -93,4 +94,24 @@ Out: the attachment loss on rename — see
 
 ## Notes
 
+- Shipped in v0.6.0. The data-repo configs were pushed in lockstep, and the
+  `published` push hot-reloaded production (fast-forwarded, rebuilt), so the
+  500s stopped before the release.
+- **Unchecked: a production slug rename.** No one has renamed a person or
+  project since the fix (`published` has 0 slug-history records as of
+  2026-10-14). The rename path runs against the real configs in the test
+  suite, and every test repo now seeds from the vendored production configs.
+- **Unchecked: the every-sheet upsert test.** Replaced by two stronger
+  guards. `sheet-configs.test.ts` fails when any template field isn't a
+  required schema field or a declared write-injected one; it caught the
+  broken `help-wanted-roles` template. And later (`sheet-contracts`),
+  gitsheets enforces each sheet's contract on every write.
+- `tag-assignments` was documented in its production layout rather than
+  migrated (7.7k records).
+- The CI drift check needed a read-only deploy key: codeforphilly-data is
+  private (`CFP_DATA_DEPLOY_KEY`).
+
 ## Follow-ups
+
+- Tracked as: the first production slug rename. Confirm it writes a
+  slug-history record and the old slug redirects.

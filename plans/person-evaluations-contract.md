@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [gitsheets-freshness]
 specs:
   - specs/behaviors/spam-exclusion.md
@@ -43,11 +43,11 @@ path templates, so they would not have caught the slug-history bug.
 
 ## Validation
 
-- [ ] Contract present on all data-repo branches; `git sheet contracts
+- [x] Contract present on all data-repo branches; `git sheet contracts
       verify` clean
 - [x] cfp boot fails with a clear error against a deliberately drifted
       config (test)
-- [ ] Spam pipeline opens against the contract
+- [x] Spam pipeline opens against the contract
 - [x] `type-check` + `lint` + full api suite green
 
 ## Risks / unknowns
@@ -70,4 +70,15 @@ path templates, so they would not have caught the slug-history bug.
 - The contract keeps the old sheet-local schema's exact constraints, adding
   only `$id`, `title` and `description` annotations.
 
+- Superseded in scope by [`sheet-contracts`](sheet-contracts.md), which
+  generalized this to every sheet with this repo as the publisher. The
+  hand-authored `v1` was published as `contracts/…/person-evaluations/v1.json`
+  and retired in favor of the generated `v2`, which every data-repo branch
+  and the spam pipeline now declare. The pipeline declares it on its own
+  sheet; the consumer-side open against the data repo's human votes lives
+  in prune-spam (see Follow-ups).
+
 ## Follow-ups
+
+- Tracked as: open the evaluations sheets in `prune-spam` against the
+  `person-evaluations` contract (noted in PR #204).
