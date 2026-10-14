@@ -34,6 +34,9 @@ export type { Event, EventAgendaItem, EventStatus } from './event.js';
 export { EventRsvpSchema, EVENT_RSVP_PLANS } from './event-rsvp.js';
 export type { EventRsvp, EventRsvpPlan } from './event-rsvp.js';
 
+export { EventSeriesSchema } from './event-series.js';
+export type { EventSeries } from './event-series.js';
+
 export { SlugHistorySchema } from './slug-history.js';
 export type { SlugHistory } from './slug-history.js';
 
