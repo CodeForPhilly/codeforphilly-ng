@@ -4,6 +4,7 @@ depends: [person-evaluations-contract]
 specs:
   - specs/behaviors/storage.md
   - specs/behaviors/spam-exclusion.md
+pr: 212
 ---
 
 # Plan: every public sheet implements an app-published contract
@@ -64,12 +65,12 @@ each).
 
 ## Validation
 
-- [ ] Generated contracts committed for every sheet in
+- [x] Generated contracts committed for every sheet in
       `PUBLIC_SHEET_SCHEMAS`; `check-contracts` passes in CI and fails on
       an edited committed version (test)
-- [ ] Every generated document compiles as a contract (gitsheets
+- [x] Every generated document compiles as a contract (gitsheets
       `contracts verify` in a test repo) and every fixture record conforms
-- [ ] Boot verifies every sheet; a drifted contract plus an invalid record
+- [x] Boot verifies every sheet; a drifted contract plus an invalid record
       fails the boot (test)
 - [ ] `published` adopts every contract: `gitsheets contracts verify` passes
       over all records, and `sources.toml` records the pinned URLs
@@ -89,5 +90,22 @@ each).
   back) bridges production from gitsheets 2.2 first.
 
 ## Notes
+
+- PR #212 merged with `empty`, `fixture` and `legacy-import` adopted
+  (`contracts verify` passes on all three, including the full laddr import
+  on `legacy-import`). Before adoption, all 23k+ `published` records
+  checked clean against the generated contracts.
+- Contracts are generated from the Zod **input** side, so a defaulted
+  field is optional with its `default` declared (gitsheets fills it on
+  write) rather than required.
+- `person-evaluations` moved to a generated v2 (adds the `evaluatedAt`
+  datetime pattern); the hand-authored v1 stays published as
+  `contracts/…/v1.json` and is no longer declared anywhere in the data repo.
+- No structural fallback (`declared` mode), per Chris: the data repo moves
+  in lockstep with the app.
+- Contracts caught three invalid test fixtures on their first run.
+- Remaining before `done`: adopt on `published` together with the release
+  carrying #212, boot sandbox and live, and re-adopt v2 in the spam
+  pipeline (CodeForPhilly/codeforphilly-spam-detection#1).
 
 ## Follow-ups
