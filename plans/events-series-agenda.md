@@ -70,7 +70,9 @@ a series filter on `GET /api/events`; listing series on the index.
 6. **Web.** `EventSeries` screen; `ScheduleSidebar` component shared by the
    detail page (and reusable by the series page later); series combobox
    (shadcn `Command`) and a schedule row editor on `EventEdit`; the
-   `?series=<slug>` prefill.
+   `?series=<slug>` prefill. Duplicate mode (`?from=`) copies the source's
+   agenda rows shifted one month into the editor (deferred from
+   [`events-core`](events-core.md), which copies the series only).
 7. **Tests.** Agenda range validation, sorting on write, series delete
    guard, slug-history on series rename, `.ics` schedule text, duplicate
    shifting every agenda item, detail page Schedule placement at two
@@ -87,7 +89,8 @@ a series filter on `GET /api/events`; listing series on the index.
 - [ ] Event detail shows "Part of <series>" and, for an event with agenda,
   the day-grouped Schedule with venue lines only where the venue changes.
 - [ ] Duplicating an event keeps its series and shifts each agenda item one
-  month.
+  month, with the rows visible in the editor before save (deferred from
+  [`events-core`](events-core.md)).
 - [ ] `.ics` `DESCRIPTION` carries the schedule text for an agenda event and
   nothing extra for a plain one.
 - [ ] `npm run type-check && npm run lint && npm test` clean.

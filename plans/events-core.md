@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/data-model.md
@@ -15,6 +15,7 @@ specs:
   - specs/api/conventions.md
   - specs/api/people.md
 issues: [194]
+pr: 207
 ---
 
 # Plan: Events and RSVPs
@@ -120,36 +121,36 @@ recurrence, capacity, cover images, Slack announcements.
 
 ## Validation
 
-- [ ] `GET /api/events` returns upcoming-by-end-time ascending; `when=past`
+- [x] `GET /api/events` returns upcoming-by-end-time ascending; `when=past`
   descending; drafts only for staff.
-- [ ] `PUT …/rsvp` creates (201) then updates (200) and never duplicates;
+- [x] `PUT …/rsvp` creates (201) then updates (200) and never duplicates;
   `DELETE` withdraws; both answer `409 rsvp_closed` for draft, cancelled,
   and ended events.
-- [ ] The follow-up round-trips: `plan = project` + slug stores both,
+- [x] The follow-up round-trips: `plan = project` + slug stores both,
   `plan = newcomer` clears `projectId`, `plan = project` without a slug is
   `422`; the detail page groups attendees by project, then "New to Code for
   Philly", "Looking for a project", "Not sure yet".
-- [ ] Confirmation email carries a `text/calendar` attachment whose `UID` is
+- [x] Confirmation email carries a `text/calendar` attachment whose `UID` is
   `<id>@codeforphilly.org` and whose `SEQUENCE` matches the record.
-- [ ] Changing `startsAt` on a scheduled event with RSVPs bumps
+- [x] Changing `startsAt` on a scheduled event with RSVPs bumps
   `icsSequence` and fires `notifyEventUpdated` once per attendee; changing
   `description` does neither.
-- [ ] `cancel` sets `cancelledAt`, keeps RSVPs, emails attendees with
+- [x] `cancel` sets `cancelledAt`, keeps RSVPs, emails attendees with
   `STATUS:CANCELLED`; `DELETE` refuses with `has_rsvps` when RSVPs exist.
-- [ ] Renaming an event slug moves `event-rsvps/<old>/…` to
+- [x] Renaming an event slug moves `event-rsvps/<old>/…` to
   `event-rsvps/<new>/…` in the same commit and writes `SlugHistory`.
-- [ ] `GET /api/events/feed.ics` lists scheduled and cancelled events from
+- [x] `GET /api/events/feed.ics` lists scheduled and cancelled events from
   the last 90 days onward and never a draft; validates in a calendar client.
-- [ ] `/events`, `/events/past`, `/events/:slug`, `/events/new`,
+- [x] `/events`, `/events/past`, `/events/:slug`, `/events/new`,
   `/events/:slug/edit` render per their screen specs in a browser; times
   show `America/New_York` with the zone abbreviation regardless of the
   browser zone.
-- [ ] Home page shows the strip with an inline RSVP on the soonest event and
+- [x] Home page shows the strip with an inline RSVP on the soonest event and
   hides the strip when nothing is upcoming.
-- [ ] `/calendar`, `/events/*past`, `/events/*upcoming`, `/events/*all` 301
+- [x] `/calendar`, `/events/*past`, `/events/*upcoming`, `/events/*all` 301
   to their targets.
-- [ ] Person purge removes the person's event-rsvps.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] Person purge removes the person's event-rsvps.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 
 ## Risks / unknowns
 
@@ -170,8 +171,54 @@ recurrence, capacity, cover images, Slack announcements.
 
 ## Notes
 
-(Populated at closeout.)
+- **The feed was validated by content, not in a calendar client.** The
+  `.ics` text is checked line-by-line in `tests/ics.test.ts` (UID, SEQUENCE,
+  folding at 75 octets, escaping, STATUS). Nobody subscribed a real
+  calendar app to it yet; do that on sandbox before announcing the
+  `webcal://` link.
+- **Develop moved under this plan.** Seven PRs landed mid-build (gitsheets
+  2.7, incremental hot reload, vendored sheet configs, legacy-handle
+  normalization). Consequences: `store/sheet-indices.ts` and
+  `scripts/setup-dev-data.ts` no longer exist, so steps 2–3 above became
+  "vendor `events.toml` / `event-rsvps.toml` into `apps/api/gitsheets/` and
+  register the sheets with the incremental-reload handlers (with
+  `unindex*` inverses)"; `event` joined `LegacyHandleEntity` with
+  underscores allowed so the redirect plugin can resolve `launchpad_2019`.
+- **RSVP records carry `eventSlug` and `personSlug`.** Like every
+  composite-path sheet, the write service injects the path-template fields
+  and the schema is `passthrough()`; the sheet-config guard test lists them
+  under `WRITE_INJECTED_PATH_FIELDS`. A slug rename rewrites every RSVP file
+  under the new event slug in the same commit.
+- **Direct `queryAll()` after a `transact` is cached.** The rename test
+  asserts the moved files via `git ls-tree` on the bare repo instead.
+- **`agenda` is already accepted and validated by `POST`/`PATCH`** (range,
+  sort, ≤ 50) and serialized with `descriptionHtml`; only the form editor
+  and series are left to `events-series-agenda`.
+- **`past`, `upcoming`, `all`, `feed`, `series`, `events`, `calendar` are
+  reserved slugs for every entity**, per slug-handles.md's "any entity"
+  rule. Backfilled records are unaffected (the check runs on user input).
+- **Regenerating `.gitsheets/schemas` also refreshed `ProjectBuzz` and
+  `TagAssignment`**, which had drifted from their Zod sources before this
+  plan.
+- **Data repo:** sheet configs merged as codeforphilly-data #6 (`empty`),
+  #7 (`fixture`), #8 (`published`). No fixture event records were added
+  there — the dev seed used here was a throwaway script; add fixture events
+  when the series plan needs them.
+- **Web resolutions worth knowing:** a multi-day range crossing a DST change
+  labels both ends; the one-month shift clamps Jan 31 → Feb 28; the "Delete"
+  control is always shown to staff and disabled with a tooltip (spec aligned
+  in this PR); canonical URLs in Copy link / Google / webcal come from
+  `window.location`, so sandbox links point at sandbox.
+- **Browser check** on a seeded dev repo covered the index, detail (anonymous
+  and signed-in RSVP + follow-up), and home strip; it caught a null
+  `description` crash on the detail page, fixed here.
 
 ## Follow-ups
 
-(Populated at closeout.)
+- Deferred to [`events-series-agenda`](events-series-agenda.md) — duplicate
+  mode copies the source event's series but not its agenda, because there is
+  no agenda editor to review the copied rows in yet.
+- Tracked as: subscribe a real calendar client (Google Calendar, Apple
+  Calendar) to the sandbox `webcal://` feed before the link is announced.
+- Tracked as: add one upcoming and one past fixture event (with RSVPs) to
+  codeforphilly-data `fixture` so dev boots show the screens populated.
