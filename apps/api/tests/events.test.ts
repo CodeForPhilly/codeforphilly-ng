@@ -313,6 +313,17 @@ describe('RSVP', () => {
     expect(withProject.statusCode).toBe(201);
     expect(withProject.json().data.rsvp).toMatchObject({ plan: 'project', project: { slug: fixtures.projectSlug } });
 
+    // The project Jane named now leads her picker on *other* events
+    // (viewerRecentProjects, specs/api/events.md); not on this one, and
+    // never for anonymous callers.
+    const other = await createEvent(hackNight(14));
+    const otherDetail = await app!.inject({ method: 'GET', url: `/api/events/${other.slug}`, headers: { cookie: jane } });
+    expect(otherDetail.json().data.viewerRecentProjects).toEqual([{ slug: fixtures.projectSlug, title: expect.any(String) }]);
+    const sameDetail = await app!.inject({ method: 'GET', url: `/api/events/${slug}`, headers: { cookie: jane } });
+    expect(sameDetail.json().data.viewerRecentProjects).toEqual([]);
+    const anonDetail = await app!.inject({ method: 'GET', url: `/api/events/${other.slug}` });
+    expect(anonDetail.json().data.viewerRecentProjects).toEqual([]);
+
     const noSlug = await app!.inject({
       method: 'PUT',
       url: `/api/events/${slug}/rsvp`,

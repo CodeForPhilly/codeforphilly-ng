@@ -14,6 +14,8 @@ interface Call {
   body?: string;
 }
 
+const PROJECT_TITLES: Record<string, string> = { squadquest: 'SquadQuest', alpha: 'Alpha', zeta: 'Zeta' };
+
 function mockFetch(opts: { me?: unknown; event: EventData; rsvps?: EventRsvp[]; rsvpResponse?: () => Promise<Response> }) {
   const calls: Call[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(((input: string, init?: RequestInit) => {
@@ -25,10 +27,11 @@ function mockFetch(opts: { me?: unknown; event: EventData; rsvps?: EventRsvp[]; 
     if (input.includes('/rsvps')) return json(mockOk(opts.rsvps ?? []));
     if (input.endsWith('/rsvp') && method === 'PUT') {
       if (opts.rsvpResponse) return opts.rsvpResponse();
-      const body = JSON.parse((init?.body as string) || '{}') as { plan?: string };
+      const body = JSON.parse((init?.body as string) || '{}') as { plan?: string; projectSlug?: string };
+      const project = body.projectSlug ? { slug: body.projectSlug, title: PROJECT_TITLES[body.projectSlug] ?? body.projectSlug } : null;
       return json(
         mockOk({
-          rsvp: makeRsvp('Member Person', { plan: (body.plan ?? null) as EventRsvp['plan'] }),
+          rsvp: makeRsvp('Member Person', { plan: (body.plan ?? null) as EventRsvp['plan'], project }),
           rsvpCount: opts.event.rsvpCount + 1,
           confirmationDelivered: true,
         }),
@@ -131,6 +134,68 @@ describe('EventDetail', () => {
     expect(await screen.findByText('You’re going ✓')).toBeInTheDocument();
     expect(screen.getByText('I’m coming to work on SquadQuest')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Can’t make it?' })).toBeInTheDocument();
+  });
+
+  it('project picker: opened empty with nobody named yet shows only the hint; typing searches and Enter saves', async () => {
+    const user = userEvent.setup();
+    const calls = mockFetch({
+      me: USER_ME,
+      event: makeEvent({ viewerRsvp: { plan: null, project: null, createdAt: '2026-10-02T00:00:00Z' } }),
+      rsvps: [makeRsvp('Ada Lovelace', { plan: 'newcomer' })],
+    });
+    render();
+    await user.click(await screen.findByRole('button', { name: 'I’m coming to work on [Pick a project ▾]' }));
+
+    const box = screen.getByRole('combobox', { name: 'Pick a project' });
+    expect(box).toHaveAttribute('placeholder', 'Type a project name');
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    expect(screen.queryByText('Teams already coming')).not.toBeInTheDocument();
+    expect(calls.some((c) => c.url.startsWith('/api/projects'))).toBe(false);
+
+    await user.type(box, 'squad');
+    const option = await screen.findByRole('option', { name: 'SquadQuest' });
+    expect(option).toBeInTheDocument();
+    const search = calls.find((c) => c.url.startsWith('/api/projects'));
+    expect(search?.url).toContain('q=squad');
+    expect(search?.url).toContain('perPage=8');
+
+    await user.keyboard('{Enter}');
+    await waitFor(() => {
+      const put = calls.find((c) => c.method === 'PUT');
+      expect(put?.body).toBe(JSON.stringify({ plan: 'project', projectSlug: 'squadquest' }));
+    });
+    expect(await screen.findByText('I’m coming to work on SquadQuest')).toBeInTheDocument();
+  });
+
+  it('project picker: opened empty offers the viewer’s recent projects, then teams other attendees named, without listing the catalog', async () => {
+    const user = userEvent.setup();
+    const calls = mockFetch({
+      me: USER_ME,
+      event: makeEvent({
+        viewerRsvp: { plan: null, project: null, createdAt: '2026-10-02T00:00:00Z' },
+        // Named on a previous event; also named by Ada here, so it shows once, under "Your recent projects".
+        viewerRecentProjects: [{ slug: 'squadquest', title: 'SquadQuest' }, { slug: 'alpha', title: 'Alpha' }],
+      }),
+      rsvps: [
+        makeRsvp('Ada Lovelace', { plan: 'project', project: { slug: 'alpha', title: 'Alpha' }, updatedAt: '2026-10-01T00:00:00Z' }),
+        makeRsvp('Grace Hopper', { plan: 'project', project: { slug: 'zeta', title: 'Zeta' }, updatedAt: '2026-10-03T00:00:00Z' }),
+        makeRsvp('Linus T', { plan: 'project', project: { slug: 'alpha', title: 'Alpha' }, updatedAt: '2026-10-02T00:00:00Z' }),
+      ],
+    });
+    render();
+    await screen.findByRole('heading', { name: /Going/ });
+    await user.click(await screen.findByRole('button', { name: 'I’m coming to work on [Pick a project ▾]' }));
+
+    expect(screen.getByText('Your recent projects')).toBeInTheDocument();
+    expect(screen.getByText('Teams already coming')).toBeInTheDocument();
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['SquadQuest', 'Alpha', 'Zeta']);
+    expect(calls.some((c) => c.url.startsWith('/api/projects'))).toBe(false);
+
+    await user.click(screen.getByRole('option', { name: 'Alpha' }));
+    await waitFor(() => {
+      const put = calls.find((c) => c.method === 'PUT');
+      expect(put?.body).toBe(JSON.stringify({ plan: 'project', projectSlug: 'alpha' }));
+    });
   });
 
   it('cancelled: banner with note, no RSVP control, "Had planned to go" heading', async () => {

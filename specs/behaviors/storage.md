@@ -293,6 +293,7 @@ Search hits `title + summary + overview` for projects and `fullName + bio` for p
 
 - Throwaway: never persisted, rebuilt on every restart. Boot cost is acceptable at civic scale (<1s for our corpus).
 - Engine choice: SQLite FTS5 has built-in ranking, prefix matching, and BM25 scoring — equivalent to what Postgres `tsvector` would give us.
+- Matching: each word of `q` must match, and the **last word matches as a prefix** — the query is what someone has typed so far, so `civic eng` finds "Civic Engagement Launchpad" and `hack` finds "Hackathon" and "DataHack". Earlier words are whole tokens. Results come back in relevance order, with a match in the name (project title, person's name, role title) ranking above the same match in body text.
 - Fallback: for v1 we may ship with **MiniSearch** (a few KB of JS, no native deps) and escalate to SQLite FTS5 only if MiniSearch's ranking is insufficient. Either choice is invisible to callers — the `?q=` API doesn't change.
 
 ## Sync to GitHub

@@ -17,12 +17,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownView } from '@/components/MarkdownView';
 import { PersonAvatar } from '@/components/PersonAvatar';
+import { ProjectPicker, type ProjectChoice, type ProjectSuggestionGroup } from '@/components/ProjectPicker';
 import { ScheduleBlock } from '@/components/ScheduleBlock';
 import { useAuth } from '@/hooks/useAuth';
 import {
   api,
   ApiError,
   type EventDetail as EventDetailData,
+  type EventRsvp,
   type EventRsvpInput,
   type EventRsvpPlan,
   type SuccessEnvelope,
@@ -49,19 +51,41 @@ const PLAN_LABELS: Record<Exclude<EventRsvpPlan, 'project'>, string> = {
 interface FollowUpProps {
   plan: EventRsvpPlan | null;
   project: { slug: string; title: string } | null;
+  groups: readonly ProjectSuggestionGroup[];
   busy: boolean;
   onSave: (input: EventRsvpInput) => Promise<void>;
 }
 
-function FollowUp({ plan, project, busy, onSave }: FollowUpProps) {
+/**
+ * The picker's opened-but-empty suggestions (screens/event-detail.md): the
+ * viewer's own recent projects from other events first, then the projects
+ * other attendees of this event named, newest answer first; a project
+ * appears once, in the first group it belongs to.
+ */
+export function suggestionGroups(
+  recent: readonly ProjectChoice[],
+  rsvps: readonly EventRsvp[],
+  viewerSlug: string | null | undefined,
+): ProjectSuggestionGroup[] {
+  const seen = new Set<string>();
+  const take = (list: readonly ProjectChoice[]): ProjectChoice[] =>
+    list.filter((p) => (seen.has(p.slug) ? false : (seen.add(p.slug), true)));
+  const mine = take(recent);
+  const teams = take(
+    [...rsvps]
+      .filter((r) => r.project && r.person?.slug !== viewerSlug)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((r) => ({ slug: r.project!.slug, title: r.project!.title })),
+  );
+  return [
+    { label: 'Your recent projects', items: mine },
+    { label: 'Teams already coming', items: teams },
+  ].filter((g) => g.items.length > 0);
+}
+
+function FollowUp({ plan, project, groups, busy, onSave }: FollowUpProps) {
   const [changing, setChanging] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  const projectsQ = useQuery({
-    queryKey: ['projects', { perPage: 100, sort: 'title' }],
-    queryFn: () => api.projects.list({ perPage: 100, sort: 'title' }),
-    enabled: pickerOpen,
-  });
 
   const save = async (input: EventRsvpInput) => {
     await onSave(input);
@@ -100,26 +124,14 @@ function FollowUp({ plan, project, busy, onSave }: FollowUpProps) {
           {PLAN_LABELS.no_project}
         </button>
         {pickerOpen ? (
-          <label className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2">
             <span>I&rsquo;m coming to work on</span>
-            <select
-              className="rounded-md border border-input bg-background px-2 py-1.5"
-              defaultValue=""
-              aria-label="Pick a project"
-              onChange={(e) => {
-                if (e.target.value) void save({ plan: 'project', projectSlug: e.target.value });
-              }}
-            >
-              <option value="" disabled>
-                {projectsQ.isLoading ? 'Loading projects…' : 'Pick a project'}
-              </option>
-              {(projectsQ.data?.data ?? []).map((p) => (
-                <option key={p.slug} value={p.slug}>
-                  {p.title}
-                </option>
-              ))}
-            </select>
-          </label>
+            <ProjectPicker
+              groups={groups}
+              disabled={busy}
+              onPick={(p) => void save({ plan: 'project', projectSlug: p.slug })}
+            />
+          </div>
         ) : (
           <button type="button" className={choiceClass} onClick={() => setPickerOpen(true)}>
             I&rsquo;m coming to work on [Pick a project ▾]
@@ -470,6 +482,7 @@ export function EventDetail() {
                   <FollowUp
                     plan={event.viewerRsvp?.plan ?? null}
                     project={event.viewerRsvp?.project ?? null}
+                    groups={suggestionGroups(event.viewerRecentProjects, rsvps, person?.slug)}
                     busy={rsvpBusy}
                     onSave={saveFollowUp}
                   />

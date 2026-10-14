@@ -17,6 +17,7 @@ import {
   type EventResponse,
   type EventRsvpResponse,
   type EventSummaryResponse,
+  type ProjectRef,
 } from './serializers/event.js';
 
 export type EventWhen = 'upcoming' | 'past' | 'all';
@@ -78,6 +79,30 @@ export class EventService {
     return id ? (this.#state.eventRsvps.get(id) ?? null) : null;
   }
 
+  /**
+   * Projects the caller named on their RSVPs to other events, most recently
+   * answered first, de-duplicated, at most eight — the follow-up picker's
+   * first suggestions (specs/api/events.md#get-apieventsslug).
+   */
+  viewerRecentProjects(eventId: string, caller: CallerSession | undefined): ProjectRef[] {
+    if (!caller) return [];
+    const ids = this.#state.rsvpsByPerson.get(caller.id) ?? new Set<string>();
+    const named = [...ids]
+      .map((id) => this.#state.eventRsvps.get(id))
+      .filter((r): r is EventRsvp => r !== undefined && r.eventId !== eventId && r.plan === 'project' && !!r.projectId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const out: ProjectRef[] = [];
+    const seen = new Set<string>();
+    for (const r of named) {
+      const p = this.#state.projects.get(r.projectId!);
+      if (!p || p.deletedAt || seen.has(p.id)) continue;
+      seen.add(p.id);
+      out.push({ slug: p.slug, title: p.title });
+      if (out.length === 8) break;
+    }
+    return out;
+  }
+
   /** Going RSVPs for an event, oldest first. */
   rsvpsFor(eventId: string): EventRsvp[] {
     const ids = this.#state.rsvpsByEvent.get(eventId) ?? new Set<string>();
@@ -114,6 +139,7 @@ export class EventService {
     return serializeEvent(event, {
       rsvpCount,
       viewerRsvp: this.viewerRsvp(event.id, caller),
+      viewerRecentProjects: this.viewerRecentProjects(event.id, caller),
       projectLookup: (id) => this.#state.projects.get(id),
       series: this.seriesRef(event),
       permissions: computeEventPermissions(caller, event, rsvpCount, now),

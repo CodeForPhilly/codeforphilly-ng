@@ -396,6 +396,8 @@ export interface EventSummary {
 
 /** The full `Event` shape (named EventDetail to avoid the DOM `Event` global). */
 export interface EventDetail extends EventSummary {
+  /** Projects the viewer named on RSVPs to other events, newest first; `[]` when anonymous. */
+  readonly viewerRecentProjects: ReadonlyArray<{ readonly slug: string; readonly title: string }>;
   readonly description: string | null;
   readonly descriptionHtml: string;
   readonly cancellationNote: string | null;
