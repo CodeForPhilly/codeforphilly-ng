@@ -69,7 +69,7 @@ Across the top of the content area, before the title:
 
 2. **Share**
    - "Copy link" (copies `https://<host>/events/<slug>`)
-   - "Share to Slack" — same mechanism as the project page
+   - "Share to Slack" — same mechanism as the project page; the copied message is `<title> — <when>: <canonical URL>`
 
 3. **Details**
    - "Added" relative time with absolute tooltip

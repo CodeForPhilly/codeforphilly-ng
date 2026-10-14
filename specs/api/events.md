@@ -78,12 +78,13 @@ The event as a single-`VEVENT` `VCALENDAR`. Available for `scheduled` and `cance
 
 ### Response — 200
 
-Sorted by `createdAt` ascending (first to RSVP first). Clients group per [behaviors/events.md#the-follow-up-what-are-you-coming-to-do](../behaviors/events.md#the-follow-up-what-are-you-coming-to-do).
+Sorted by `createdAt` ascending (first to RSVP first). Clients group per [behaviors/events.md#the-follow-up-what-are-you-coming-to-do](../behaviors/events.md#the-follow-up-what-are-you-coming-to-do). A paginated envelope like every other list.
 
 ```json
 {
   "success": true,
-  "data": [ EventRsvp, ... ]
+  "data": [ EventRsvp, ... ],
+  "metadata": { "page": 1, "perPage": 100, "totalItems": 14, "totalPages": 1 }
 }
 ```
 
