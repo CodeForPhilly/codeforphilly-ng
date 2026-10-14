@@ -33,6 +33,7 @@ import {
   indexBlogPost,
   indexEvent,
   indexEventRsvp,
+  indexEventSeries,
   indexHelpWantedInterest,
   indexPersonEvaluation,
   indexHelpWantedRole,
@@ -172,8 +173,10 @@ function buildState(base: number, slugs: { project: string; buzz: string; oldSlu
   indexHelpWantedRole(state, role);
   indexHelpWantedInterest(state, makeInterest(base + 10, role.id, person.id));
   indexSlugHistory(state, makeSlugHistory(base + 11, project.id, slugs.oldSlug, slugs.project));
+  const series = { id: uuid(base + 14), slug: `${slugs.project}-series`, title: 'Series', createdAt: NOW, updatedAt: NOW };
+  indexEventSeries(state, series);
   const event = makeEvent(base + 12, `${slugs.project}-hack-night`, 8);
-  indexEvent(state, event);
+  indexEvent(state, { ...event, seriesId: series.id });
   indexEventRsvp(state, makeRsvp(base + 13, event.id, person.id));
   indexPersonEvaluation(state, {
     personSlug: person.slug,

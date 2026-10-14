@@ -179,6 +179,20 @@ export function computeEventPermissions(
   };
 }
 
+export interface EventSeriesPermissions {
+  readonly canEdit: boolean;
+  /** Staff, and only while no event references the series. */
+  readonly canDelete: boolean;
+}
+
+export function computeEventSeriesPermissions(
+  caller: CallerSession | undefined,
+  eventCount: number,
+): EventSeriesPermissions {
+  const staff = isStaff(caller);
+  return { canEdit: staff, canDelete: staff && eventCount === 0 };
+}
+
 export function computeHelpWantedPermissions(
   caller: CallerSession | undefined,
   role: HelpWantedRole,

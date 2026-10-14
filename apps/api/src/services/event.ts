@@ -102,12 +102,20 @@ export class EventService {
   // serialized reads
   // ---------------------------------------------------------------------------
 
+  /** `{ slug, title }` of the event's series, or null. */
+  seriesRef(event: Event): { slug: string; title: string } | null {
+    if (!event.seriesId) return null;
+    const s = this.#state.eventSeries.get(event.seriesId);
+    return s ? { slug: s.slug, title: s.title } : null;
+  }
+
   serialize(event: Event, caller: CallerSession | undefined, now: Date = new Date()): EventResponse {
     const rsvpCount = this.rsvpCount(event.id);
     return serializeEvent(event, {
       rsvpCount,
       viewerRsvp: this.viewerRsvp(event.id, caller),
       projectLookup: (id) => this.#state.projects.get(id),
+      series: this.seriesRef(event),
       permissions: computeEventPermissions(caller, event, rsvpCount, now),
     });
   }
@@ -117,6 +125,7 @@ export class EventService {
       rsvpCount: this.rsvpCount(event.id),
       viewerRsvp: this.viewerRsvp(event.id, caller),
       projectLookup: (id) => this.#state.projects.get(id),
+      series: this.seriesRef(event),
     });
   }
 
