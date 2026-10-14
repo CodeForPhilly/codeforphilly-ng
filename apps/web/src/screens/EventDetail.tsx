@@ -17,12 +17,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownView } from '@/components/MarkdownView';
 import { PersonAvatar } from '@/components/PersonAvatar';
+import { ProjectPicker, type ProjectChoice } from '@/components/ProjectPicker';
 import { ScheduleBlock } from '@/components/ScheduleBlock';
 import { useAuth } from '@/hooks/useAuth';
 import {
   api,
   ApiError,
   type EventDetail as EventDetailData,
+  type EventRsvp,
   type EventRsvpInput,
   type EventRsvpPlan,
   type SuccessEnvelope,
@@ -49,19 +51,32 @@ const PLAN_LABELS: Record<Exclude<EventRsvpPlan, 'project'>, string> = {
 interface FollowUpProps {
   plan: EventRsvpPlan | null;
   project: { slug: string; title: string } | null;
+  suggestions: readonly ProjectChoice[];
   busy: boolean;
   onSave: (input: EventRsvpInput) => Promise<void>;
 }
 
-function FollowUp({ plan, project, busy, onSave }: FollowUpProps) {
+/**
+ * Projects other attendees said they're coming to work on, newest answer
+ * first, de-duplicated — the picker's opened-but-empty suggestions
+ * (screens/event-detail.md). The viewer's own answer is not a suggestion.
+ */
+export function suggestedProjects(rsvps: readonly EventRsvp[], viewerSlug: string | null | undefined): ProjectChoice[] {
+  const seen = new Set<string>();
+  return [...rsvps]
+    .filter((r) => r.project && r.person?.slug !== viewerSlug)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .flatMap((r) => {
+      const p = r.project!;
+      if (seen.has(p.slug)) return [];
+      seen.add(p.slug);
+      return [{ slug: p.slug, title: p.title }];
+    });
+}
+
+function FollowUp({ plan, project, suggestions, busy, onSave }: FollowUpProps) {
   const [changing, setChanging] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  const projectsQ = useQuery({
-    queryKey: ['projects', { perPage: 100, sort: 'title' }],
-    queryFn: () => api.projects.list({ perPage: 100, sort: 'title' }),
-    enabled: pickerOpen,
-  });
 
   const save = async (input: EventRsvpInput) => {
     await onSave(input);
@@ -100,26 +115,15 @@ function FollowUp({ plan, project, busy, onSave }: FollowUpProps) {
           {PLAN_LABELS.no_project}
         </button>
         {pickerOpen ? (
-          <label className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2">
             <span>I&rsquo;m coming to work on</span>
-            <select
-              className="rounded-md border border-input bg-background px-2 py-1.5"
-              defaultValue=""
-              aria-label="Pick a project"
-              onChange={(e) => {
-                if (e.target.value) void save({ plan: 'project', projectSlug: e.target.value });
-              }}
-            >
-              <option value="" disabled>
-                {projectsQ.isLoading ? 'Loading projects…' : 'Pick a project'}
-              </option>
-              {(projectsQ.data?.data ?? []).map((p) => (
-                <option key={p.slug} value={p.slug}>
-                  {p.title}
-                </option>
-              ))}
-            </select>
-          </label>
+            <ProjectPicker
+              suggestions={suggestions}
+              suggestionsLabel="Teams already coming"
+              disabled={busy}
+              onPick={(p) => void save({ plan: 'project', projectSlug: p.slug })}
+            />
+          </div>
         ) : (
           <button type="button" className={choiceClass} onClick={() => setPickerOpen(true)}>
             I&rsquo;m coming to work on [Pick a project ▾]
@@ -470,6 +474,7 @@ export function EventDetail() {
                   <FollowUp
                     plan={event.viewerRsvp?.plan ?? null}
                     project={event.viewerRsvp?.project ?? null}
+                    suggestions={suggestedProjects(rsvps, person?.slug)}
                     busy={rsvpBusy}
                     onSave={saveFollowUp}
                   />
