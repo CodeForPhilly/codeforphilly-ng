@@ -55,6 +55,16 @@ export class InMemoryRevocationStore implements RevocationStore {
     }
   }
 
+  /**
+   * Re-populate from the `revocations` sheet's current read snapshot — at
+   * boot and after a hot reload moves the data branch.
+   */
+  async loadFromSheet(store: PublicStore): Promise<void> {
+    const records: Revocation[] = [];
+    for await (const record of store.revocations.query()) records.push(record);
+    this.load(records);
+  }
+
   isRevoked(jti: string): boolean {
     return this.#byJti.has(jti);
   }

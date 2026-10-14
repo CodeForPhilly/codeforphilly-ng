@@ -9,18 +9,18 @@
  *     - Auth: `Authorization: Bearer <CFP_DATA_RELOAD_SECRET>` —
  *       constant-time compare, length-checked first to avoid a different
  *       early-exit timing side channel
- *     - Body: optional `{ branch?: string, commitHash?: string }`
+ *     - Body: optional `{ branch?: string, commitHash?: string }`; a
+ *       `branch` other than `CFP_DATA_BRANCH` is rejected with 400
  *     - Behavior:
  *         1. If `commitHash` is given AND already an ancestor of local
  *            HEAD, return 200 noChanges without touching the lock or
  *            the network (handles self-trigger from push-daemon pushes).
- *         2. Otherwise call `fastify.reconcileDataRepo({ branch })`
- *            under the data-repo lock.
- *         3. If outcome === 'in-sync', skip the rebuild and return
- *            200 noChanges.
- *         4. Otherwise rebuild the in-memory state + FTS index in place,
- *            invalidate the facet cache, and return 200 with
- *            `rebuilt: true`.
+ *         2. Otherwise call `fastify.reconcileDataRepo()`, which fetches,
+ *            then reconciles under the repository write lock.
+ *         3. If the reconcile moved the branch, rebuild the in-memory
+ *            state + FTS index in place inside that same lock (so no write
+ *            can land between the ref move and the swap) and return 200
+ *            with `rebuilt: true`; otherwise return 200 noChanges.
  *
  * The route is registered unconditionally — when `CFP_DATA_RELOAD_SECRET`
  * is unset, requests get a 503 at request time. This keeps the
@@ -35,7 +35,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { errorResponse, ok } from '../lib/response.js';
 import { reloadInMemoryStateAndFts } from '../store/memory/reload.js';
-import type { ReconcileOutcome } from '../store/reconcile.js';
+import type { ReconcileOutcome, ReconcileResult } from '../store/reconcile.js';
 
 const exec = promisify(execFile);
 
@@ -124,15 +124,22 @@ export async function internalRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       // ---- Resolve effective branch ----
+      // Only the served branch can be reconciled: the public store reads
+      // HEAD, so reconciling any other ref would desync silently.
       const body: ReloadBody = request.body ?? {};
-      const branch = body.branch ?? fastify.config.CFP_DATA_BRANCH;
+      const branch = fastify.config.CFP_DATA_BRANCH;
       if (!branch) {
+        return reply
+          .code(400)
+          .send(errorResponse('bad_request', 'CFP_DATA_BRANCH is unset', traceId));
+      }
+      if (body.branch !== undefined && body.branch !== branch) {
         return reply
           .code(400)
           .send(
             errorResponse(
               'bad_request',
-              'branch is required when CFP_DATA_BRANCH is unset',
+              `branch must be the served branch (${branch})`,
               traceId,
             ),
           );
@@ -188,13 +195,33 @@ export async function internalRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
 
-      // ---- Reconcile under the data-repo lock ----
-      const result = await fastify.reconcileDataRepo({ branch });
+      // ---- Reconcile + rebuild under the repository write lock ----
+      let result: ReconcileResult;
+      try {
+        result = await fastify.reconcileDataRepo({
+          onMoved: () => reloadInMemoryStateAndFts(fastify),
+        });
+      } catch (err) {
+        // A throw from the rebuild leaves the in-memory state + FTS index
+        // possibly partially mutated. Log loudly so the operator knows a
+        // pod restart is warranted, then 500 the request.
+        fastify.log.error(
+          { err: err instanceof Error ? err.message : String(err), branch },
+          'hot-reload: reconcile or in-memory rebuild failed — pod may be in an undefined state, restart required',
+        );
+        return reply.code(500).send(
+          errorResponse(
+            'internal_error',
+            'Hot-reload rebuild failed — pod restart required',
+            traceId,
+          ),
+        );
+      }
 
-      if (result.outcome === 'in-sync') {
+      if (result.newCommit === result.oldCommit) {
         fastify.log.info(
           { branch, commit: result.newCommit, outcome: result.outcome },
-          'hot-reload: nothing to do (in-sync after fetch)',
+          'hot-reload: nothing to rebuild (branch did not move)',
         );
         return reply.send(
           ok({
@@ -204,32 +231,6 @@ export async function internalRoutes(fastify: FastifyInstance): Promise<void> {
             newCommit: result.newCommit,
             durationMs: Date.now() - startedAt,
           }),
-        );
-      }
-
-      // ---- Rebuild ----
-      try {
-        await reloadInMemoryStateAndFts(fastify);
-      } catch (err) {
-        // The in-memory state + FTS index may be partially mutated.
-        // Log loudly so the operator knows a pod restart is warranted,
-        // then 500 the request.
-        fastify.log.error(
-          {
-            err: err instanceof Error ? err.message : String(err),
-            branch,
-            outcome: result.outcome,
-            oldCommit: result.oldCommit,
-            newCommit: result.newCommit,
-          },
-          'hot-reload: in-memory rebuild failed AFTER reconcile — pod is in an undefined state, restart required',
-        );
-        return reply.code(500).send(
-          errorResponse(
-            'internal_error',
-            'Hot-reload rebuild failed — pod restart required',
-            traceId,
-          ),
         );
       }
 

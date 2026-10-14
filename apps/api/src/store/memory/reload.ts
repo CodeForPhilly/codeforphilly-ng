@@ -24,8 +24,6 @@ import type { FastifyInstance } from 'fastify';
 import { invalidateFacets } from './facets.js';
 import { loadInMemoryState } from './loader.js';
 import type { InMemoryState } from './state.js';
-import { openPublicStore } from '../public.js';
-import { wireSheetIndices } from '../sheet-indices.js';
 
 /**
  * Replace the contents of `target`'s Maps with `source`'s Maps. The
@@ -45,42 +43,36 @@ function replaceMapContents<K, V>(target: Map<K, V>, source: Map<K, V>): void {
 
 /**
  * Build a fresh `InMemoryState` from the public store and swap it into
- * the running Fastify instance. The FTS index is reloaded from the same
- * fresh state, and the facet cache is invalidated.
+ * the running Fastify instance, then reload the revocation set and the FTS
+ * index from the same snapshot and invalidate the facet cache.
+ *
+ * The caller must already have refreshed the public store to the new HEAD
+ * (`fastify.reconcileDataRepo` does, under the repository write lock).
  */
 export async function reloadInMemoryStateAndFts(
   fastify: FastifyInstance,
 ): Promise<void> {
-  // Step 1: re-open the public store. Gitsheets caches a `dataTree`
-  // snapshot per Sheet at openStore time, so the existing
-  // `fastify.store.public` is bound to the pre-fast-forward commit's
-  // tree and would queryAll the OLD records. Open against the new HEAD.
-  const repoPath = fastify.config.CFP_DATA_REPO_PATH;
-  const { store: freshPublic } = await openPublicStore(repoPath);
-  await wireSheetIndices(freshPublic);
+  // Step 1: build the fresh in-memory state. If this throws (validator
+  // failure on a new record, etc.), the live state is untouched and the
+  // caller surfaces the error.
+  const fresh = await loadInMemoryState(fastify.store.public);
 
-  // Step 2: build the fresh in-memory state from the new store. If this
-  // throws (validator failure on a new record, etc.), the live state is
-  // untouched and the caller surfaces the error.
-  const fresh = await loadInMemoryState(freshPublic);
-
-  // Step 3: mutate the live state in place. Each entry below replaces
+  // Step 2: mutate the live state in place. Each entry below replaces
   // one Map in the live state object. This block must not `await` —
   // services reading the state during this window would see a partially
   // updated snapshot.
   swapInPlace(fastify.inMemoryState, fresh);
 
-  // Step 4: swap the public-store reference so direct readers
-  // (revocation sweeper, etc.) see the new dataTree. The repository
-  // handle stays the same; only the Sheet snapshots are replaced.
-  fastify.store.swapPublic(freshPublic);
+  // Step 3: revocations live outside InMemoryState; reload them from the
+  // same snapshot so a revocation pushed upstream takes effect.
+  await fastify.revocations.loadFromSheet(fastify.store.public);
 
-  // Step 5: reload the FTS index. If this throws, the in-memory Maps
+  // Step 4: reload the FTS index. If this throws, the in-memory Maps
   // already match `fresh`, but the FTS index will be in an inconsistent
   // state. The route handler logs loudly and returns 5xx.
   fastify.fts.reload(fresh);
 
-  // Step 6: drop the cached facet roll-ups so the next request recomputes.
+  // Step 5: drop the cached facet roll-ups so the next request recomputes.
   invalidateFacets();
 }
 

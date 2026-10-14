@@ -88,6 +88,46 @@ export interface ReconcileOptions {
   readonly logger: ReconcileLogger;
   /** Override the wall clock — used for conflict-branch naming in tests. */
   readonly now?: () => Date;
+  /**
+   * Skip the fetch: the caller already ran {@link fetchRemoteBranch} (the
+   * API does, outside the repository write lock, so a slow network never
+   * blocks writes).
+   */
+  readonly skipFetch?: boolean;
+  /**
+   * Publish `branch` after an ahead or rebased outcome. Defaults to a direct
+   * `git push`; the API hands the commit to the gitsheets push daemon instead
+   * so every push of the working branch goes through one place.
+   */
+  readonly push?: (commit: string) => Promise<void> | void;
+}
+
+/**
+ * Fetch `<remote>/<branch>` into `refs/remotes/<remote>/<branch>`. Returns
+ * false (after logging) when the fetch fails.
+ *
+ * Explicit refspec — never trust the remote's implicit refspec, which a
+ * single-branch `git clone --branch X` writes narrowly and breaks later
+ * `git fetch origin Y`.
+ */
+export async function fetchRemoteBranch(opts: {
+  readonly repoPath: string;
+  readonly branch: string;
+  readonly remote?: string;
+  readonly logger: ReconcileLogger;
+}): Promise<boolean> {
+  const remote = opts.remote ?? 'origin';
+  const refspec = `+refs/heads/${opts.branch}:refs/remotes/${remote}/${opts.branch}`;
+  try {
+    await git(opts.repoPath, 'fetch', '--prune', remote, refspec);
+    return true;
+  } catch (err) {
+    opts.logger.warn(
+      { err: describe(err), remote, branch: opts.branch },
+      'data-repo fetch failed; continuing with local state',
+    );
+    return false;
+  }
 }
 
 interface GitExecResult {
@@ -328,20 +368,12 @@ export async function reconcileDataRepo(
   const oldCommit = (await git(repoPath, 'rev-parse', 'HEAD')).stdout.trim();
 
   // ---- Fetch ----
-  // Explicit refspec — never trust the remote's implicit refspec, which a
-  // single-branch `git clone --branch X` writes narrowly and breaks later
-  // `git fetch origin Y`. This is the first of the two latent shell bugs
-  // obsoleted by moving into Node.
-  const refspec = `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`;
-  try {
-    await git(repoPath, 'fetch', '--prune', remote, refspec);
-  } catch (err) {
-    logger.warn(
-      { err: describe(err), remote, branch },
-      'data-repo fetch failed; continuing with local state',
-    );
+  if (!opts.skipFetch && !(await fetchRemoteBranch({ repoPath, branch, remote, logger }))) {
     return { outcome: 'fetch-failed', oldCommit, newCommit: oldCommit };
   }
+  const push = opts.push ?? (async (): Promise<void> => {
+    await git(repoPath, 'push', remote, branch);
+  });
 
   // ---- Compare HEAD vs <remote>/<branch> ----
   const remoteRef = `${remote}/${branch}`;
@@ -386,8 +418,8 @@ export async function reconcileDataRepo(
       'data-repo ahead of remote — pushing',
     );
     try {
-      await git(repoPath, 'push', remote, branch);
-      logger.info({ branch, commit: oldCommit }, 'data-repo push succeeded');
+      await push(oldCommit);
+      logger.info({ branch, commit: oldCommit }, 'data-repo push handed off');
     } catch (err) {
       // Non-fatal: the push daemon retries with backoff. Worst case
       // operator intervention happens after the API is up.
@@ -494,8 +526,8 @@ export async function reconcileDataRepo(
     'data-repo rebase clean — pushing',
   );
   try {
-    await git(repoPath, 'push', remote, branch);
-    logger.info({ branch, commit: newCommit }, 'data-repo push succeeded after rebase');
+    await push(newCommit);
+    logger.info({ branch, commit: newCommit }, 'data-repo push handed off after rebase');
   } catch (err) {
     logger.warn(
       { err: describe(err), branch },
