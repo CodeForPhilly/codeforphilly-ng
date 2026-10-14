@@ -35,13 +35,18 @@ The web layer catches these patterns and 301s to the canonical URL:
 
 | Legacy URL | Resolved as | Lookup |
 | ---------- | ----------- | ------ |
-| `/projects/:slug` | Current canonical | direct match (slugs preserved) |
+| `/projects/:slug` | Current canonical | direct match, else [legacy handle normalization](./slug-handles.md#legacy-handle-normalization) |
 | `/projects?ID=<n>` | `/projects/:slug` | `projects.legacyId = n` |
-| `/people/:username` | `/members/:slug` | username = slug; static rewrite |
-| `/members/:slug` | unchanged | – |
+| `/people/:username` | `/members/:slug` | static rewrite, then [legacy handle normalization](./slug-handles.md#legacy-handle-normalization) on `/members/` |
+| `/members/:slug` | unchanged, else normalized | [legacy handle normalization](./slug-handles.md#legacy-handle-normalization) |
 | `/project-updates?ProjectID=<n>` | `/projects/:slug` | by `legacyId` |
 | `/project-buzz/<slug>` | `/projects/:projectSlug/buzz/<buzzSlug>` | buzz slugs preserved |
 | `/tags/<handle>` | `/tags/<namespace>/<slug>` | split on `.` |
+| `/events/*past` | `/events/past` | static rewrite |
+| `/events/*upcoming`, `/events/*all` | `/events` | static rewrite |
+| `/events/<handle>` | unchanged | the four laddr events are backfilled with their handles as slugs ([events.md](events.md#legacy-urls)) |
+| `/events/<handle>/segments/<segHandle>` | `/events/<handle>#schedule` | segments became agenda items on the event; no page of their own |
+| `/calendar` | `/events` | static rewrite (not a laddr URL; the issue asked for the alias) |
 
 Patterns not listed (e.g., `/checkin`, `/bigscreen`) return 410 Gone with an explanation page (see [deferred.md](../deferred.md) for why those URLs no longer exist).
 

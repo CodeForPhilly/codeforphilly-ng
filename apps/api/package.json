@@ -11,13 +11,13 @@
     "type-check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "script:scrub-data": "tsx scripts/scrub-data.ts",
-    "script:setup-dev-data": "tsx scripts/setup-dev-data.ts",
     "script:import-laddr": "tsx scripts/import-laddr.ts",
     "script:import-laddr-credentials": "tsx scripts/import-laddr-credentials.ts",
     "script:reconcile": "tsx scripts/reconcile.ts",
     "script:cutover-dry-run": "tsx scripts/cutover-dry-run.ts",
     "script:cutover-mailout": "tsx scripts/cutover-mailout.ts",
-    "script:prune-spam": "tsx scripts/prune-spam.ts"
+    "script:prune-spam": "tsx scripts/prune-spam.ts",
+    "check:sheet-configs": "tsx scripts/check-sheet-configs.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1048.0",
@@ -35,7 +35,7 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
     "fastify": "^5.8.5",
-    "gitsheets": "^2.2.0",
+    "gitsheets": "^2.7.0",
     "jose": "^6.2.3",
     "postmark": "^5.1.0",
     "samlify": "^2.13.0",

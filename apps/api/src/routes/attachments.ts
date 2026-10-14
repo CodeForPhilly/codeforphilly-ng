@@ -1,29 +1,28 @@
 /**
  * Attachment serving.
  *
- *   GET /api/attachments/*  →  stream the gitsheets attachment at the
- *                              path captured by the wildcard segment
+ *   GET /api/attachments/*  →  the gitsheets attachment at the path captured
+ *                              by the wildcard segment
  *
- * Reads via `git cat-file blob HEAD:<key>` against the bare data clone,
- * piping stdout directly into the Fastify reply for streaming. Per
- * specs/behaviors/storage.md → "Attachments": "Web serves attachments
- * via a streamed GET /api/attachments/<key> route with cache headers."
+ * Per specs/behaviors/storage.md → "Attachments": the key is the attachment's
+ * path in the data tree, `<sheet>/<record path>/<name>`. It resolves through
+ * the sheet's `getAttachment()`, which reads the blob hash in-core from the
+ * sheet's read snapshot. That snapshot is fresh after our own commits
+ * (gitsheets auto-refresh) and after a hot reload (`store.public.refresh()`).
  *
- * Bypasses gitsheets' `Sheet.getAttachment()` API in favor of direct git
- * plumbing because:
- *   1. The attachment key IS the HEAD-tree path (per spec) — parsing it
- *      back into (sheet, record, name) and re-resolving via the sheet API
- *      is redundant.
- *   2. Standing Sheet handles cache `dataTree` at openStore time
- *      (documented in storage.md → "Direct gitsheets reads after a
- *      transact"); plumbing reads from current HEAD on every request,
- *      so attachment updates are visible immediately without a
- *      Store.swapPublic().
+ * The blob hash is the `ETag`, so a revalidation is answered with 304 without
+ * reading the blob at all.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { spawn } from 'node:child_process';
 
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
+import { PUBLIC_SHEET_SCHEMAS } from '../store/public.js';
+
+type SheetName = keyof typeof PUBLIC_SHEET_SCHEMAS;
+
+function isSheetName(name: string): name is SheetName {
+  return Object.hasOwn(PUBLIC_SHEET_SCHEMAS, name);
+}
 
 /**
  * Minimum-viable extension → Content-Type table. The set we care about
@@ -51,11 +50,9 @@ function inferContentType(key: string): string {
 
 /**
  * Validate a wildcard-captured attachment key. Returns the key on success;
- * throws ApiValidationError on shape violations. Defense in depth — git
- * cat-file with a ref:path argument is itself resistant to shell exploits
- * (no shell interpolation; the path is a single argv), but rejecting
- * obviously-malformed keys up front gives clearer error messages and
- * sidesteps any sheet/path-template-related edge cases.
+ * throws ApiValidationError on shape violations. Defense in depth — the key
+ * only ever resolves inside a sheet's tree, but rejecting obviously-malformed
+ * keys up front gives clearer error messages.
  */
 function validateKey(raw: string): string {
   if (raw.length === 0) {
@@ -85,8 +82,6 @@ function validateKey(raw: string): string {
 }
 
 export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> {
-  const repoPath = fastify.config.CFP_DATA_REPO_PATH;
-
   fastify.get(
     '/api/attachments/*',
     {
@@ -96,7 +91,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
         // Wildcard params get folded into params['*']; document the response
         // shape but skip strict param validation (the route does its own).
         response: {
-          200: { type: 'string', description: 'Binary blob; streamed as the response body.' },
+          200: { type: 'string', description: 'Binary blob.' },
         },
       },
     },
@@ -104,76 +99,28 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
       const raw = (request.params as Record<string, string>)['*'] ?? '';
       const key = validateKey(raw);
 
-      // `git cat-file blob HEAD:<path>` writes the blob to stdout and exits
-      // 0 on success, non-zero (with a "fatal:" message on stderr) if the
-      // path doesn't resolve in HEAD. We branch on exit code below.
-      const child = spawn('git', ['cat-file', 'blob', `HEAD:${key}`], {
-        cwd: repoPath,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      // <sheet>/<record path>/<name>; the record path may itself contain `/`.
+      const segments = key.split('/');
+      const sheetName = segments[0] ?? '';
+      if (segments.length < 3 || !isSheetName(sheetName)) {
+        throw new ApiNotFoundError(`attachment not found: ${key}`);
+      }
+      const name = segments[segments.length - 1] as string;
+      const recordPath = segments.slice(1, -1).join('/');
 
-      const stderrChunks: Buffer[] = [];
-      child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+      const sheet = fastify.store.public[sheetName];
+      const blob = await sheet.getAttachment(recordPath, name);
+      if (!blob) throw new ApiNotFoundError(`attachment not found: ${key}`);
 
-      // Wait for either:
-      //   - first stdout data → success, set headers and pipe
-      //   - exit before any stdout → failure, translate to 4xx/5xx
-      // Race-style with a single resolve.
-      const exited = new Promise<number>((resolve) => {
-        child.on('close', (code) => resolve(code ?? -1));
-      });
-
-      const firstData = new Promise<Buffer | null>((resolve) => {
-        let resolved = false;
-        const onData = (chunk: Buffer): void => {
-          if (!resolved) {
-            resolved = true;
-            child.stdout.off('data', onData);
-            resolve(chunk);
-          }
-        };
-        child.stdout.on('data', onData);
-        // If the child exits without ever emitting stdout, resolve null.
-        child.on('close', () => {
-          if (!resolved) {
-            resolved = true;
-            resolve(null);
-          }
-        });
-      });
-
-      const first = await firstData;
-      if (first === null) {
-        const code = await exited;
-        const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
-        // git cat-file's stderr for a missing path looks like:
-        //   fatal: path '<key>' does not exist in 'HEAD'
-        //   fatal: Not a valid object name HEAD:<key>
-        // Both are 404-shaped; any other non-zero exit is unexpected.
-        if (code !== 0 && /not (?:a valid|exist)|fatal:/i.test(stderr)) {
-          throw new ApiNotFoundError(`attachment not found: ${key}`);
-        }
-        throw new Error(`git cat-file failed (exit ${code}): ${stderr || 'no stderr'}`);
+      const etag = `"${blob.hash}"`;
+      reply
+        .header('ETag', etag)
+        .header('Cache-Control', 'public, max-age=3600');
+      if (request.headers['if-none-match'] === etag) {
+        return reply.code(304).send();
       }
 
-      // First chunk arrived → take over the raw response so we can write
-      // the buffered first chunk + pipe the rest. `reply.hijack()` tells
-      // Fastify "I'll send the response myself" — headers must be set
-      // directly on reply.raw from this point on.
-      reply.hijack();
-      reply.raw.writeHead(200, {
-        'Content-Type': inferContentType(key),
-        'Cache-Control': 'public, max-age=3600',
-      });
-      reply.raw.write(first);
-      child.stdout.pipe(reply.raw);
-
-      // Resolve when the child finishes flushing — without this, Fastify's
-      // handler-promise resolves immediately and may close the socket.
-      await new Promise<void>((resolve, reject) => {
-        child.stdout.on('end', () => resolve());
-        child.on('error', reject);
-      });
+      return reply.type(inferContentType(key)).send(await blob.read());
     },
   );
 }

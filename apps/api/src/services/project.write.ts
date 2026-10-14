@@ -26,6 +26,7 @@ import {
 import { requireAuth } from '../auth/require.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput } from './tag.write.js';
+import { rekeyAttachment, restoreAttachments, takeAttachments } from './slug-rename.js';
 
 export interface CreateProjectInput {
   readonly title: string;
@@ -280,15 +281,20 @@ export class ProjectWriteService {
       featured: input.featured ?? existing.featured,
       featuredImageKey:
         input.featuredImageKey === undefined
-          ? (existing.featuredImageKey ?? null)
+          ? (slugRename
+              ? rekeyAttachment(existing.featuredImageKey, 'projects', slugRename.oldSlug, slugRename.newSlug)
+              : existing.featuredImageKey) ?? null
           : input.featuredImageKey,
       updatedAt: now,
     });
 
     const stateApply = new StateApply();
 
+    let attachments: Awaited<ReturnType<typeof takeAttachments>> = null;
     if (slugRename) {
-      // Delete the old path first, then upsert at the new path.
+      // Delete the old path first, then upsert at the new path, carrying
+      // the record's attachments across (delete removes them).
+      attachments = await takeAttachments(tx.public.projects, existing);
       await tx.public.projects.delete(existing);
       // SlugHistory record
       const history = {
@@ -306,6 +312,7 @@ export class ProjectWriteService {
     }
 
     await tx.public.projects.upsert(updated);
+    await restoreAttachments(tx.public.projects, updated, attachments);
     stateApply.upsertProject(updated);
 
     // Tag replacement (per-namespace)

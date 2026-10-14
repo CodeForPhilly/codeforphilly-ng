@@ -324,3 +324,100 @@ export function indexPersonEvaluation(state: InMemoryState, record: PersonEvalua
   }
   set.add(key);
 }
+
+// ---------------------------------------------------------------------------
+// Unindexing — the exact inverse of each index* above, so applying a commit
+// diff (unindex the old version, index the new one) leaves the state equal to
+// a full load of the new tree. Empty secondary Sets are deleted, since a full
+// load never creates them. Used by the incremental hot reload.
+// ---------------------------------------------------------------------------
+
+function removeFromSet<K>(map: Map<K, Set<string>>, key: K, id: string): void {
+  const set = map.get(key);
+  if (!set) return;
+  set.delete(id);
+  if (set.size === 0) map.delete(key);
+}
+
+/** Delete `key` from `map` only if it still points at `id`. */
+function deleteIfOwned<K>(map: Map<K, string>, key: K, id: string): void {
+  if (map.get(key) === id) map.delete(key);
+}
+
+export function unindexSlugHistory(state: InMemoryState, record: SlugHistory): void {
+  const key = slugHistoryKey(record.entityType, record.oldSlug);
+  if (state.slugHistory.get(key)?.newSlug === record.newSlug) state.slugHistory.delete(key);
+}
+
+export function unindexProject(state: InMemoryState, project: Project): void {
+  state.projects.delete(project.id);
+  state.projectSlugById.delete(project.id);
+  deleteIfOwned(state.projectIdBySlug, project.slug, project.id);
+  if (typeof project.legacyId === 'number') {
+    deleteIfOwned(state.projectIdByLegacyId, project.legacyId, project.id);
+  }
+}
+
+export function unindexPerson(state: InMemoryState, person: Person): void {
+  state.people.delete(person.id);
+  state.personSlugById.delete(person.id);
+  deleteIfOwned(state.personIdBySlug, person.slug, person.id);
+}
+
+export function unindexTag(state: InMemoryState, tag: Tag): void {
+  state.tags.delete(tag.id);
+  deleteIfOwned(state.tagIdByHandle, `${tag.namespace}.${tag.slug}`, tag.id);
+}
+
+export function unindexTagAssignment(state: InMemoryState, ta: TagAssignment): void {
+  state.tagAssignments.delete(ta.id);
+  removeFromSet(state.tagAssignmentsByTaggable, ta.taggableId, ta.id);
+  removeFromSet(state.tagAssignmentsByTag, ta.tagId, ta.id);
+}
+
+export function unindexMembership(state: InMemoryState, m: ProjectMembership): void {
+  state.projectMemberships.delete(m.id);
+  removeFromSet(state.membershipsByProject, m.projectId, m.id);
+  removeFromSet(state.membershipsByPerson, m.personId, m.id);
+}
+
+export function unindexProjectUpdate(state: InMemoryState, update: ProjectUpdate): void {
+  state.projectUpdates.delete(update.id);
+  removeFromSet(state.updatesByProject, update.projectId, update.id);
+  deleteIfOwned(state.updateByProjectAndNumber, `${update.projectId}:${update.number}`, update.id);
+}
+
+export function unindexProjectBuzz(state: InMemoryState, buzz: ProjectBuzz): void {
+  state.projectBuzz.delete(buzz.id);
+  removeFromSet(state.buzzByProject, buzz.projectId, buzz.id);
+  deleteIfOwned(state.buzzByProjectAndSlug, `${buzz.projectId}:${buzz.slug}`, buzz.id);
+  deleteIfOwned(state.buzzIdBySlug, buzz.slug, buzz.id);
+}
+
+export function unindexBlogPost(state: InMemoryState, post: BlogPost): void {
+  state.blogPosts.delete(post.id);
+  deleteIfOwned(state.blogPostIdBySlug, post.slug, post.id);
+  if (typeof post.legacyId === 'number') {
+    deleteIfOwned(state.blogPostIdByLegacyId, post.legacyId, post.id);
+  }
+}
+
+export function unindexHelpWantedRole(state: InMemoryState, role: HelpWantedRole): void {
+  state.helpWantedRoles.delete(role.id);
+  removeFromSet(state.helpWantedByProject, role.projectId, role.id);
+}
+
+export function unindexHelpWantedInterest(
+  state: InMemoryState,
+  expr: HelpWantedInterestExpression,
+): void {
+  state.helpWantedInterest.delete(expr.id);
+  removeFromSet(state.interestByRole, expr.roleId, expr.id);
+  deleteIfOwned(state.interestByRoleAndPerson, `${expr.roleId}:${expr.personId}`, expr.id);
+}
+
+export function unindexPersonEvaluation(state: InMemoryState, record: PersonEvaluation): void {
+  const key = `${record.personSlug}/${record.evaluator}`;
+  state.personEvaluations.delete(key);
+  removeFromSet(state.evaluationsByPerson, record.personSlug, key);
+}

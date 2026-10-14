@@ -61,12 +61,7 @@ async function sessionMiddlewarePlugin(fastify: FastifyInstance): Promise<void> 
 
   // Load revocation state from gitsheets + session metadata from private store at boot
   fastify.addHook('onReady', async () => {
-    const allRevocations: import('@cfp/shared/schemas').Revocation[] = [];
-    const revocationsSheet = fastify.store.public.revocations;
-    for await (const record of revocationsSheet.query()) {
-      allRevocations.push(record);
-    }
-    revocations.load(allRevocations);
+    await revocations.loadFromSheet(fastify.store.public);
 
     await sessionMetadata.load(fastify.store.private);
   });

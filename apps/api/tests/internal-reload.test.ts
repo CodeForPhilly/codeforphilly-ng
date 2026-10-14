@@ -32,7 +32,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
 import { buildApp } from '../src/app.js';
+import { mintSessionFor } from '../src/auth/issue.js';
 import { createPrivateStorageDir } from './helpers/test-full-repo.js';
+import { writeSheetConfigs } from './helpers/sheet-configs.js';
 
 const exec = promisify(execFile);
 
@@ -41,21 +43,6 @@ const VALID_SECRET = 'test-reload-secret-at-least-32-chars-long!!';
 
 // Sheet configs — mirrors test-full-repo.ts. Inlined so we can drop them
 // into the bare remote + into the local clone at controlled commits.
-const SHEET_CONFIGS: Record<string, string> = {
-  'people': `[gitsheet]\nroot = 'people'\npath = '\${{ slug }}'\n`,
-  'projects': `[gitsheet]\nroot = 'projects'\npath = '\${{ slug }}'\n`,
-  'project-memberships': `[gitsheet]\nroot = 'project-memberships'\npath = '\${{ projectSlug }}/\${{ personSlug }}'\n`,
-  'project-updates': `[gitsheet]\nroot = 'project-updates'\npath = '\${{ projectSlug }}/\${{ number }}'\n`,
-  'project-buzz': `[gitsheet]\nroot = 'project-buzz'\npath = '\${{ projectSlug }}/\${{ slug }}'\n`,
-  'blog-posts': `[gitsheet]\nroot = 'blog-posts'\npath = '\${{ slug }}'\n\n[gitsheet.format]\ntype = 'markdown'\nbody = 'body'\n`,
-  'help-wanted-roles': `[gitsheet]\nroot = 'help-wanted-roles'\npath = '\${{ projectSlug }}/\${{ id }}'\n`,
-  'help-wanted-interest': `[gitsheet]\nroot = 'help-wanted-interest'\npath = '\${{ roleId }}/\${{ personSlug }}'\n`,
-  'tags': `[gitsheet]\nroot = 'tags'\npath = '\${{ namespace }}/\${{ slug }}'\n`,
-  'tag-assignments': `[gitsheet]\nroot = 'tag-assignments'\npath = '\${{ tagId }}/\${{ taggableType }}/\${{ taggableId }}'\n`,
-  'slug-history': `[gitsheet]\nroot = 'slug-history'\npath = '\${{ entityType }}/\${{ oldSlug }}'\n`,
-  'revocations': `[gitsheet]\nroot = 'revocations'\npath = '\${{ jti }}'\n`,
-  'person-evaluations': `[gitsheet]\nroot = 'person-evaluations'\npath = '\${{ personSlug }}/\${{ evaluator }}'\n`,
-};
 
 interface Rig {
   /** Path to the local working tree (CFP_DATA_REPO_PATH). */
@@ -93,10 +80,7 @@ async function createRig(): Promise<Rig> {
   await git(seed, 'config', 'commit.gpgsign', 'false');
   await git(seed, 'config', 'core.hooksPath', '/dev/null');
 
-  await exec('mkdir', ['-p', join(seed, '.gitsheets')]);
-  for (const [name, contents] of Object.entries(SHEET_CONFIGS)) {
-    await writeFile(join(seed, '.gitsheets', `${name}.toml`), contents);
-  }
+  await writeSheetConfigs(seed);
   await git(seed, 'add', '.gitsheets');
   await git(seed, 'commit', '-m', 'initial: gitsheets sheet configs');
 
@@ -548,5 +532,136 @@ describe('POST /api/_internal/reload-data — short-circuit + reconcile', () => 
     const slugAfter = await app.inject({ method: 'GET', url: '/projects/alpha-v1' });
     expect(slugAfter.statusCode).toBe(301);
     expect(slugAfter.headers.location).toBe('/projects/alpha-v2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gitsheets 2.7 freshness: refresh + repository write lock
+// ---------------------------------------------------------------------------
+
+const ADMIN_ID = '01951a3c-0000-7000-8000-00000000ad01';
+
+async function advanceRemoteWithAdmin(rig: Rig): Promise<string> {
+  return advanceRemote(rig, 'seed: admin', async (wt) => {
+    await exec('mkdir', ['-p', join(wt, 'people')]);
+    await writeFile(
+      join(wt, 'people', 'boss.toml'),
+      [
+        `id = '${ADMIN_ID}'`,
+        `slug = 'boss'`,
+        `fullName = 'Boss'`,
+        `accountLevel = 'administrator'`,
+        `createdAt = '2026-05-19T00:00:00Z'`,
+        `updatedAt = '2026-05-19T00:00:00Z'`,
+        '',
+      ].join('\n'),
+    );
+    await git(wt, 'add', 'people/boss.toml');
+  });
+}
+
+describe('POST /api/_internal/reload-data — freshness + locking', () => {
+  it('rejects a branch other than the served branch with 400', async () => {
+    app = await buildTestApp({ CFP_DATA_RELOAD_SECRET: VALID_SECRET });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/_internal/reload-data',
+      headers: { authorization: `Bearer ${VALID_SECRET}` },
+      payload: { branch: 'some-other-branch' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('serves records a boot-time fast-forward brought in', async () => {
+    // The remote moves before boot; boot reconcile fast-forwards the local
+    // clone after the store has opened, so the store must be refreshed
+    // before the in-memory state loads.
+    await advanceRemoteWithProject(rig, {
+      id: '01951a3c-0000-7000-8000-00000000b001',
+      slug: 'boot-ff',
+      title: 'Boot FF',
+    });
+    app = await buildTestApp({ CFP_DATA_RELOAD_SECRET: VALID_SECRET });
+
+    const res = await app.inject({ method: 'GET', url: '/api/projects/boot-ff' });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('reloads revocations pushed upstream', async () => {
+    app = await buildTestApp({ CFP_DATA_RELOAD_SECRET: VALID_SECRET });
+    const jti = 'upstream-revoked-jti';
+    expect(app.revocations.isRevoked(jti)).toBe(false);
+
+    const head = await advanceRemote(rig, 'seed: revocation', async (wt) => {
+      await exec('mkdir', ['-p', join(wt, 'revocations')]);
+      await writeFile(
+        join(wt, 'revocations', `${jti}.toml`),
+        [
+          `jti = '${jti}'`,
+          `personId = '${ADMIN_ID}'`,
+          `revokedAt = '2026-05-19T00:00:00Z'`,
+          `expiresAt = '2099-01-01T00:00:00Z'`,
+          '',
+        ].join('\n'),
+      );
+      await git(wt, 'add', `revocations/${jti}.toml`);
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/_internal/reload-data',
+      headers: { authorization: `Bearer ${VALID_SECRET}` },
+      payload: { commitHash: head },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(app.revocations.isRevoked(jti)).toBe(true);
+  });
+
+  it('serializes a write issued during a hot reload; neither change is lost', async () => {
+    await advanceRemoteWithAdmin(rig);
+    await advanceRemoteWithProject(rig, {
+      id: '01951a3c-0000-7000-8000-00000000b002',
+      slug: 'edited-during-reload',
+      title: 'Edited During Reload',
+      summary: 'Before.',
+    });
+    app = await buildTestApp({ CFP_DATA_RELOAD_SECRET: VALID_SECRET });
+    const { accessToken } = await mintSessionFor(
+      ADMIN_ID,
+      'administrator',
+      'test-jwt-signing-key-at-least-32-chars!!',
+    );
+
+    const upstreamHead = await advanceRemoteWithProject(rig, {
+      id: '01951a3c-0000-7000-8000-00000000b003',
+      slug: 'arrived-upstream',
+      title: 'Arrived Upstream',
+    });
+
+    const [reload, write] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/api/_internal/reload-data',
+        headers: { authorization: `Bearer ${VALID_SECRET}` },
+        payload: { commitHash: upstreamHead },
+      }),
+      app.inject({
+        method: 'PATCH',
+        url: '/api/projects/edited-during-reload',
+        headers: { cookie: `cfp_session=${accessToken}` },
+        payload: { summary: 'After.' },
+      }),
+    ]);
+    expect(reload.statusCode).toBe(200);
+    expect(write.statusCode).toBe(200);
+
+    const edited = await app.inject({ method: 'GET', url: '/api/projects/edited-during-reload' });
+    expect(edited.json<{ data: { summary: string } }>().data.summary).toBe('After.');
+    const upstream = await app.inject({ method: 'GET', url: '/api/projects/arrived-upstream' });
+    expect(upstream.statusCode).toBe(200);
+
+    const tree = await git(rig.local, 'show', 'HEAD:projects/edited-during-reload.toml');
+    expect(tree).toContain('After.');
+    await git(rig.local, 'merge-base', '--is-ancestor', upstreamHead, 'HEAD');
   });
 });

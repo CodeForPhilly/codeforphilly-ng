@@ -1,0 +1,12 @@
+[gitsheet]
+path = "${{ personSlug }}/${{ evaluator }}"
+root = "person-evaluations"
+
+# One spam verdict per (person, evaluator). On this repo's branches the only
+# writer is the site: staff votes with evaluator = "human-<voterSlug>" (see
+# codeforphilly-ng specs/api/moderation.md). Machine evaluators (heuristic,
+# LLM) live in the private codeforphilly-spam-detection repo. The record
+# shape is the versioned contract below, which both repos and the site open
+# the sheet against; change it by adopting a new version (…/v2), never by
+# editing v1.
+implements = ["codeforphilly.org/person-evaluations/v1"]

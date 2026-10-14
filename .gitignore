@@ -18,7 +18,7 @@ build/
 # it ships in the code repo so contributors can load a fake-data baseline.
 private-storage/
 
-# Dev data repo created by `npm run -w apps/api script:setup-dev-data`.
+# Local data-repo clone, if placed inside this repo.
 # Resolved relative to apps/api/ per .env.example's CFP_DATA_REPO_PATH default.
 apps/codeforphilly-data/
 codeforphilly-data/
@@ -39,3 +39,6 @@ codeforphilly-data/
 # Logs
 *.log
 npm-debug.log*
+
+# Lavish review artifacts
+.lavish/

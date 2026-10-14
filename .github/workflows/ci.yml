@@ -35,5 +35,23 @@ jobs:
       - name: Test
         run: npm test
 
+      # Tests seed from apps/api/gitsheets/; fail if that copy drifts from
+      # the data repo's `empty` branch, which production configs descend from.
+      # codeforphilly-data is private: this needs a read-only deploy key in
+      # CFP_DATA_DEPLOY_KEY, and warns instead of failing without one.
+      - name: Check sheet configs against codeforphilly-data
+        env:
+          CFP_DATA_DEPLOY_KEY: ${{ secrets.CFP_DATA_DEPLOY_KEY }}
+        run: |
+          if [ -z "$CFP_DATA_DEPLOY_KEY" ]; then
+            echo "::warning title=Sheet-config drift check skipped::CFP_DATA_DEPLOY_KEY is not set, so CI can't read the private codeforphilly-data repo."
+            exit 0
+          fi
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$CFP_DATA_DEPLOY_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          ssh-keyscan github.com >> "$HOME/.ssh/known_hosts"
+          npm run -w apps/api check:sheet-configs
+
       - name: Build
         run: npm run build

@@ -8,6 +8,8 @@
  * - Snapshot has a single commit
  * - Deliberate-leak detection (injected email → script throws / exits non-zero)
  * - Record count parity (source vs snapshot)
+ * - blog-posts written as markdown with attachments; person avatars dropped
+ * - canonical TOML (arrays kept) and no path collisions on missing fields
  * - buildSlugMap collision-safety and determinism
  */
 
@@ -21,16 +23,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   buildSlugMap,
-  parseFlatToml,
   rewriteMentions,
   scrubPersonRecord,
   scrubProjectRecord,
   scrubRepo,
-  toToml,
   verifySnapshot,
 } from '../scripts/scrub-data.js';
 import { faker } from '@faker-js/faker';
 import { createTestRepo, seed } from './helpers/test-repo.js';
+import { seedRawToml } from './helpers/seed-fixtures.js';
 
 const exec = promisify(execFile);
 
@@ -257,14 +258,14 @@ describe('scrubProjectRecord', () => {
     expect(scrubbed['chatChannel']).toBe('chat-my-project');
   });
 
-  it('clears featuredImageKey', () => {
+  it('keeps featuredImageKey (project attachments follow the snapshot)', () => {
     const rec = {
       id: uuid(1), slug: 'my-project', title: 'My Project',
       featuredImageKey: 'projects/my-project/hero.jpg',
       createdAt: NOW, updatedAt: NOW, stage: 'bootstrapping',
     };
     const scrubbed = scrubProjectRecord(rec, slugMap);
-    expect('featuredImageKey' in scrubbed).toBe(false);
+    expect(scrubbed['featuredImageKey']).toBe('projects/my-project/hero.jpg');
   });
 
   it('preserves project slug unchanged', () => {
@@ -274,38 +275,6 @@ describe('scrubProjectRecord', () => {
     };
     const scrubbed = scrubProjectRecord(rec, slugMap);
     expect(scrubbed['slug']).toBe('my-project');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Unit tests: toToml / parseFlatToml round-trip
-// ---------------------------------------------------------------------------
-
-describe('toToml', () => {
-  it('omits null and undefined values', () => {
-    const rec = { a: 'hello', b: null, c: undefined, d: 42 };
-    const toml = toToml(rec);
-    expect(toml).not.toContain('b');
-    expect(toml).not.toContain('c');
-    expect(toml).toContain('a = "hello"');
-    expect(toml).toContain('d = 42');
-  });
-
-  it('uses multi-line strings for values containing newlines', () => {
-    const rec = { bio: 'line one\nline two' };
-    const toml = toToml(rec);
-    expect(toml).toContain('"""');
-  });
-
-  it('round-trips via parseFlatToml', () => {
-    const rec = { id: uuid(1), slug: 'test', fullName: 'Test User', legacyId: 99, active: true };
-    const toml = toToml(rec);
-    const parsed = parseFlatToml(toml);
-    expect(parsed['id']).toBe(rec.id);
-    expect(parsed['slug']).toBe(rec.slug);
-    expect(parsed['fullName']).toBe(rec.fullName);
-    expect(parsed['legacyId']).toBe(99);
-    expect(parsed['active']).toBe(true);
   });
 });
 
@@ -599,6 +568,123 @@ describe('scrubRepo', () => {
       // Target should have no .toml files (git repo is init'd but nothing committed)
       const files = await walkTomlFiles(targetTmp.path);
       expect(files).toHaveLength(0);
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  it(
+    'writes blog-posts in the markdown format and preserves their attachments',
+    async () => {
+      const { repo, path, cleanup } = await createTestRepo(['people', 'blog-posts']);
+      sourceTmp = { path, cleanup };
+      const image = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
+      const post = {
+        id: uuid(10), slug: 'launch-night', title: 'Launch night',
+        body: '# Launch night\n\n![photo](image-1.jpg)\n',
+        publishedAt: NOW, createdAt: NOW, updatedAt: NOW,
+      };
+      await repo.transact({ message: 'seed', author: { name: 't', email: 't@cfp.test' } }, async (tx) => {
+        await tx.sheet('people').upsert({ id: uuid(1), slug: 'alice', fullName: 'Alice Smith', accountLevel: 'user', createdAt: NOW, updatedAt: NOW });
+        await tx.sheet('people').setAttachments({ slug: 'alice' }, { 'avatar.jpg': image });
+        await tx.sheet('blog-posts').upsert(post);
+        await tx.sheet('blog-posts').setAttachments(post, { 'image-1.jpg': image });
+      });
+      targetTmp = await makeTmp();
+
+      const result = await scrubRepo({ source: path, target: targetTmp.path, seed: 'md-test' });
+      expect(result.sourceCounts['blog-posts']).toBe(1);
+
+      const tree = (await exec('git', ['ls-tree', '-r', '--name-only', 'HEAD'], { cwd: targetTmp.path })).stdout
+        .split('\n').filter(Boolean);
+      expect(tree).toContain('blog-posts/launch-night.md');
+      expect(tree).not.toContain('blog-posts/launch-night.toml');
+      const md = await readFile(join(targetTmp.path, 'blog-posts/launch-night.md'), 'utf-8');
+      expect(md.startsWith('+++\n')).toBe(true);
+      expect(md).toContain('# Launch night');
+
+      // Blog media follows the post byte-for-byte...
+      const copied = await readFile(join(targetTmp.path, 'blog-posts/launch-night/image-1.jpg'));
+      expect(copied.equals(image)).toBe(true);
+      // ...but person avatars (photos of real people) never do.
+      expect(tree.some((p) => p.startsWith('people/') && !p.endsWith('.toml'))).toBe(false);
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  it(
+    'writes canonical TOML, keeping array fields',
+    async () => {
+      const { repo, path, cleanup } = await createTestRepo(['people', 'person-evaluations']);
+      sourceTmp = { path, cleanup };
+      await seed(repo, 'people', [
+        { id: uuid(1), slug: 'alice', fullName: 'Alice Smith', accountLevel: 'user', createdAt: NOW, updatedAt: NOW },
+      ]);
+      await repo.transact({ message: 'seed', author: { name: 't', email: 't@cfp.test' } }, async (tx) => {
+        await tx.sheet('person-evaluations').upsert({
+          personSlug: 'ghost', evaluator: 'human-staff', verdict: 'legit', confidence: 1,
+          flags: ['real-project', 'met-in-person'], evaluatedAt: NOW,
+        });
+      });
+      targetTmp = await makeTmp();
+
+      await scrubRepo({ source: path, target: targetTmp.path, seed: 'toml-test' });
+      const content = await readFile(join(targetTmp.path, 'person-evaluations/ghost/human-staff.toml'), 'utf-8');
+      expect(content).toContain('flags = [');
+      expect(content).toContain('real-project');
+      // Byte-identical to the source's canonical serialization.
+      const sourceBytes = (await exec('git', ['--git-dir', path, 'show', 'HEAD:person-evaluations/ghost/human-staff.toml'])).stdout;
+      expect(content).toBe(sourceBytes);
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  it(
+    'verification names the repo path of a leaking record (markdown body included)',
+    async () => {
+      const { repo, path, cleanup } = await createTestRepo(['people', 'blog-posts']);
+      sourceTmp = { path, cleanup };
+      await repo.transact({ message: 'seed', author: { name: 't', email: 't@cfp.test' } }, async (tx) => {
+        await tx.sheet('people').upsert({ id: uuid(1), slug: 'alice', fullName: 'Alice Smith', accountLevel: 'user', createdAt: NOW, updatedAt: NOW });
+        await tx.sheet('blog-posts').upsert({
+          id: uuid(10), slug: 'contact', title: 'Contact', body: 'Write to hello@real-org.com\n',
+          publishedAt: NOW, createdAt: NOW, updatedAt: NOW,
+        });
+      });
+      targetTmp = await makeTmp();
+      await expect(
+        scrubRepo({ source: path, target: targetTmp.path, seed: 'leak-md' }),
+      ).rejects.toThrow(/Email-like pattern found in blog-posts\/contact\.md/);
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  it(
+    'refuses to collapse records missing a path-template field onto one path',
+    async () => {
+      const { repo, path, cleanup } = await createTestRepo(['people', 'project-memberships']);
+      sourceTmp = { path, cleanup };
+      await seed(repo, 'people', [
+        { id: uuid(1), slug: 'alice', fullName: 'Alice Smith', accountLevel: 'user', createdAt: NOW, updatedAt: NOW },
+      ]);
+      // Two memberships whose on-disk records lack `personSlug` (the second
+      // path-template field). Rendering `''` for it would land both at
+      // project-memberships/proj/.toml, silently dropping one.
+      for (const n of [1, 2]) {
+        await seedRawToml(
+          path,
+          `project-memberships/proj/legacy-${n}.toml`,
+          `id = "${uuid(20 + n)}"\npersonId = "${uuid(30 + n)}"\nprojectId = "${uuid(40)}"\nprojectSlug = "proj"\nrole = "Member"\n`,
+          `seed raw membership ${n}`,
+        );
+      }
+      targetTmp = await makeTmp();
+
+      await expect(
+        scrubRepo({ source: path, target: targetTmp.path, seed: 'collide-test' }),
+      ).rejects.toThrow(/Sheet "project-memberships": cannot write record/);
+
+      // Nothing was committed to the target.
+      await expect(exec('git', ['rev-parse', '--verify', 'HEAD'], { cwd: targetTmp.path })).rejects.toThrow();
     },
     INTEGRATION_TIMEOUT,
   );

@@ -26,7 +26,11 @@ import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { reconcileDataRepo, type ReconcileLogger } from '../src/store/reconcile.js';
+import {
+  fetchRemoteBranch,
+  reconcileDataRepo,
+  type ReconcileLogger,
+} from '../src/store/reconcile.js';
 
 const exec = promisify(execFile);
 
@@ -276,6 +280,46 @@ describe('reconcileDataRepo', () => {
     // Remote was pushed to.
     const remoteAfter = await git(rig.bare, 'rev-parse', 'main');
     expect(remoteAfter).toBe(newHead);
+  });
+
+  it('hands ahead and rebased pushes to the push option instead of pushing itself', async () => {
+    const remoteBefore = await git(rig.bare, 'rev-parse', 'main');
+    await advanceLocal(rig, 'local-only.txt', 'L\n', 'local: independent change');
+    await advanceRemote(rig, 'remote-only.txt', 'R\n', 'remote: independent change');
+    const remoteHead = await git(rig.bare, 'rev-parse', 'main');
+    expect(remoteHead).not.toBe(remoteBefore);
+
+    const pushed: string[] = [];
+    const { logger } = makeLogger();
+    const result = await reconcileDataRepo({
+      repoPath: rig.local,
+      branch: 'main',
+      logger,
+      push: (commit) => {
+        pushed.push(commit);
+      },
+    });
+
+    expect(result.outcome).toBe('rebased');
+    expect(pushed).toEqual([result.newCommit]);
+    // The remote was left alone — the push option owns publishing.
+    expect(await git(rig.bare, 'rev-parse', 'main')).toBe(remoteHead);
+  });
+
+  it('skips the fetch when skipFetch is set', async () => {
+    const { logger } = makeLogger();
+    expect(await fetchRemoteBranch({ repoPath: rig.local, branch: 'main', logger })).toBe(true);
+    await advanceRemote(rig, 'remote-only.txt', 'R\n', 'remote: unseen change');
+
+    const result = await reconcileDataRepo({
+      repoPath: rig.local,
+      branch: 'main',
+      logger,
+      skipFetch: true,
+    });
+
+    // Without a fetch the remote-tracking ref still matches local HEAD.
+    expect(result.outcome).toBe('in-sync');
   });
 
   it('"conflict-escaped" when diverged with a rebase conflict', async () => {

@@ -1,36 +1,21 @@
 /**
  * Test helper: create a full gitsheets data repo.
  *
- * Creates a temporary git repo with all the .gitsheets/*.toml sheet configs
- * required by openPublicStore(). Path templates match specs/behaviors/storage.md.
+ * Creates a temporary git repo seeded with the canonical .gitsheets/*.toml
+ * sheet configs (apps/api/gitsheets/, see helpers/sheet-configs.ts).
  *
  * Used by api-skeleton tests (and any future tests) that boot the full app
  * via buildApp() and need a real gitsheets-backed data repo.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-const execFileAsync = promisify(execFile);
+import { writeSheetConfigs } from './sheet-configs.js';
 
-/** Sheet configs matching specs/behaviors/storage.md#sheet-layout. */
-const SHEET_CONFIGS: Record<string, string> = {
-  'people': `[gitsheet]\nroot = 'people'\npath = '\${{ slug }}'\n`,
-  'projects': `[gitsheet]\nroot = 'projects'\npath = '\${{ slug }}'\n`,
-  'project-memberships': `[gitsheet]\nroot = 'project-memberships'\npath = '\${{ projectSlug }}/\${{ personSlug }}'\n`,
-  'project-updates': `[gitsheet]\nroot = 'project-updates'\npath = '\${{ projectSlug }}/\${{ number }}'\n`,
-  'project-buzz': `[gitsheet]\nroot = 'project-buzz'\npath = '\${{ projectSlug }}/\${{ slug }}'\n`,
-  'blog-posts': `[gitsheet]\nroot = 'blog-posts'\npath = '\${{ slug }}'\n\n[gitsheet.format]\ntype = 'markdown'\nbody = 'body'\n`,
-  'help-wanted-roles': `[gitsheet]\nroot = 'help-wanted-roles'\npath = '\${{ projectSlug }}/\${{ id }}'\n`,
-  'help-wanted-interest': `[gitsheet]\nroot = 'help-wanted-interest'\npath = '\${{ roleId }}/\${{ personSlug }}'\n`,
-  'tags': `[gitsheet]\nroot = 'tags'\npath = '\${{ namespace }}/\${{ slug }}'\n`,
-  'tag-assignments': `[gitsheet]\nroot = 'tag-assignments'\npath = '\${{ tagId }}/\${{ taggableType }}/\${{ taggableId }}'\n`,
-  'slug-history': `[gitsheet]\nroot = 'slug-history'\npath = '\${{ entityType }}/\${{ oldSlug }}'\n`,
-  'revocations': `[gitsheet]\nroot = 'revocations'\npath = '\${{ jti }}'\n`,
-  'person-evaluations': `[gitsheet]\nroot = 'person-evaluations'\npath = '\${{ personSlug }}/\${{ evaluator }}'\n`,
-};
+const execFileAsync = promisify(execFile);
 
 export interface FullTestRepo {
   readonly path: string;
@@ -63,10 +48,7 @@ export async function createFullDataRepo(): Promise<FullTestRepo> {
   await seedGit('config', 'core.hooksPath', '/dev/null');
   await seedGit('commit', '--allow-empty', '-m', 'initial');
 
-  await mkdir(join(seedDir, '.gitsheets'), { recursive: true });
-  for (const [name, config] of Object.entries(SHEET_CONFIGS)) {
-    await writeFile(join(seedDir, '.gitsheets', `${name}.toml`), config);
-  }
+  await writeSheetConfigs(seedDir);
   await seedGit('add', '.gitsheets');
   await seedGit('commit', '-m', 'chore: add all gitsheets sheet configs');
 

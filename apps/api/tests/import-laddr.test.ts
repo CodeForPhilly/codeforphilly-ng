@@ -7,7 +7,7 @@
  * dev (see plans/laddr-import-via-json.md).
  */
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -33,6 +33,7 @@ import {
   type TranslateCtx,
 } from '../scripts/import-laddr/translators.js';
 import type { RawBlogPost } from '../scripts/import-laddr/json-fetcher.js';
+import { writeSheetConfigs } from './helpers/sheet-configs.js';
 
 const exec = promisify(execFile);
 
@@ -721,40 +722,7 @@ async function makeRepo(): Promise<{ path: string; cleanup: () => Promise<void> 
   // importer opens the gitsheets store at boot, which requires every sheet
   // declared on the validator map (PublicValidators) to have a corresponding
   // .gitsheets/<name>.toml. Mirrors the upstream codeforphilly-data repo.
-  await mkdir(join(seedDir, '.gitsheets'), { recursive: true });
-  const sheets: Array<[string, string]> = [
-    ['people', "root = 'people'\npath = '${{ slug }}'\n"],
-    ['projects', "root = 'projects'\npath = '${{ slug }}'\n"],
-    ['tags', "root = 'tags'\npath = '${{ namespace }}/${{ slug }}'\n"],
-    [
-      'project-memberships',
-      "root = 'project-memberships'\npath = '${{ projectSlug }}/${{ personSlug }}'\n",
-    ],
-    [
-      'project-updates',
-      "root = 'project-updates'\npath = '${{ projectSlug }}/${{ number }}'\n",
-    ],
-    ['project-buzz', "root = 'project-buzz'\npath = '${{ projectSlug }}/${{ slug }}'\n"],
-    [
-      'blog-posts',
-      "root = 'blog-posts'\npath = '${{ slug }}'\n\n[gitsheet.format]\ntype = 'markdown'\nbody = 'body'\n",
-    ],
-    [
-      'tag-assignments',
-      "root = 'tag-assignments'\npath = '${{ taggableType }}/${{ taggableId }}/${{ tagId }}'\n",
-    ],
-    ['help-wanted-roles', "root = 'help-wanted-roles'\npath = '${{ projectSlug }}/${{ slug }}'\n"],
-    [
-      'help-wanted-interest',
-      "root = 'help-wanted-interest'\npath = '${{ roleId }}/${{ personId }}'\n",
-    ],
-    ['slug-history', "root = 'slug-history'\npath = '${{ entityType }}/${{ slug }}'\n"],
-    ['revocations', "root = 'revocations'\npath = '${{ jti }}'\n"],
-    ['person-evaluations', "root = 'person-evaluations'\npath = '${{ personSlug }}/${{ evaluator }}'\n"],
-  ];
-  for (const [name, body] of sheets) {
-    await writeFile(join(seedDir, '.gitsheets', `${name}.toml`), `[gitsheet]\n${body}`);
-  }
+  await writeSheetConfigs(seedDir);
   await run('add', '.gitsheets');
   await run('commit', '-m', 'initial empty branch');
   await run('branch', '-M', 'empty'); // rename initial branch
@@ -961,13 +929,19 @@ describe('importLaddrFromJson — orchestrator', () => {
       });
       expect(report.commitHash).not.toBeNull();
 
-      const log = await exec('git', ['log', '-1', '--format=%an <%ae>%n---%n%B'], { cwd: repo });
+      // The snapshot lands on legacy-import through gitsheets; HEAD is untouched.
+      const branchTip = await exec('git', ['rev-parse', 'refs/heads/legacy-import'], { cwd: repo });
+      expect(branchTip.stdout.trim()).toBe(report.commitHash);
+      const head = await exec('git', ['symbolic-ref', 'HEAD'], { cwd: repo });
+      expect(head.stdout.trim()).toBe('refs/heads/empty');
+
+      const log = await exec('git', ['log', '-1', '--format=%an <%ae>%n---%n%B', 'legacy-import'], { cwd: repo });
       expect(log.stdout).toContain('Code for Philly API <api@users.noreply.codeforphilly.org>');
       expect(log.stdout).toContain('Action: import.laddr.json');
       expect(log.stdout).toContain('Source-Host: example.test');
       expect(log.stdout).toContain('Run-At: 2026-05-18T00:00:00.000Z');
 
-      const tree = await exec('git', ['ls-tree', '-r', '--name-only', 'HEAD'], { cwd: repo });
+      const tree = await exec('git', ['ls-tree', '-r', '--name-only', 'legacy-import'], { cwd: repo });
       const paths = tree.stdout.split('\n').filter(Boolean);
 
       // people/<slug>.toml — gitsheets path templates resolve `${{ slug }}`
@@ -993,9 +967,9 @@ describe('importLaddrFromJson — orchestrator', () => {
       expect(paths).toContain('project-buzz/transit-app/transit-app-on-tv.toml');
 
       // gitsheets writes commits directly to the git object DB without
-      // touching the working tree. Read blob contents via `git show HEAD:<path>`.
+      // touching the working tree. Read blob contents via `git show legacy-import:<path>`.
       const showBlob = async (path: string): Promise<string> =>
-        (await exec('git', ['show', `HEAD:${path}`], { cwd: repo })).stdout;
+        (await exec('git', ['show', `legacy-import:${path}`], { cwd: repo })).stdout;
 
       // Stage lowercased
       const projToml = await showBlob('projects/transit-app.toml');
@@ -1043,7 +1017,7 @@ describe('importLaddrFromJson — orchestrator', () => {
       });
       expect(report.commitHash).not.toBeNull();
 
-      const tree = await exec('git', ['ls-tree', '-r', '--name-only', 'HEAD'], { cwd: repo });
+      const tree = await exec('git', ['ls-tree', '-r', '--name-only', 'legacy-import'], { cwd: repo });
       const paths = tree.stdout.split('\n').filter(Boolean);
       // alice has a photo → original + thumbnail attachments
       expect(paths).toContain('people/alice/avatar.jpg');
@@ -1051,7 +1025,7 @@ describe('importLaddrFromJson — orchestrator', () => {
       // bob has no photo → no avatar attachments
       expect(paths).not.toContain('people/bob/avatar.jpg');
 
-      const aliceToml = await exec('git', ['show', 'HEAD:people/alice.toml'], { cwd: repo });
+      const aliceToml = await exec('git', ['show', 'legacy-import:people/alice.toml'], { cwd: repo });
       expect(aliceToml.stdout).toContain('avatarKey = "people/alice/avatar.jpg"');
     } finally {
       await cleanup();

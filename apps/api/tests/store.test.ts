@@ -20,6 +20,8 @@ import { Store } from '../src/store/store.js';
 import { openPublicStore } from '../src/store/public.js';
 import { createTestRepo } from './helpers/test-repo.js';
 import { createFullDataRepo } from './helpers/test-full-repo.js';
+import { seedRawBlob, seedRawToml } from './helpers/seed-fixtures.js';
+import { PERSON_EVALUATIONS_CONTRACT_NAME } from '@cfp/shared';
 
 const exec = promisify(execFile);
 
@@ -107,14 +109,11 @@ describe('public store (gitsheets)', () => {
     }
   });
 
-  it('drops null/undefined-valued keys before writing (gitsheets 2.x marshal contract)', async () => {
-    // gitsheets 2.x (Rust core) throws when asked to marshal a null- or
-    // undefined-valued field to TOML; 1.4.1 silently dropped such keys. Our
-    // Zod schemas use `.nullable().optional()` and write services normalize
-    // cleared fields to `?? null`, so openPublicStore's validator wrapper must
-    // strip those keys — keeping the on-disk form byte-identical to 1.4.1
-    // (an absent optional field is simply an absent TOML key). See
-    // apps/api/src/store/public.ts → stripNullish / asValidator.
+  it('drops null/undefined-valued keys when writing (gitsheets marshal contract)', async () => {
+    // Our Zod schemas use `.nullable().optional()` and write services
+    // normalize cleared fields to `?? null`. gitsheets (≥ 2.3) drops
+    // null/undefined-valued keys when marshalling, so an absent optional
+    // field is simply an absent TOML key on disk. This pins that contract.
     const repo = await createFullDataRepo();
     try {
       const { store } = await openPublicStore(repo.path);
@@ -166,6 +165,51 @@ describe('public store (gitsheets)', () => {
 // -------------------------------------------------------------------------
 // Tests: Store (dual-store coordination)
 // -------------------------------------------------------------------------
+
+describe('person-evaluations contract at boot', () => {
+  it('refuses to open a data repo whose evaluations break the contract', async () => {
+    const repo = await createFullDataRepo();
+    try {
+      // A namesake contract with different bytes misses rung 1 (identity),
+      // so gitsheets validates every record (rung 2) — and this one has a
+      // verdict the contract doesn't allow.
+      const contractPath = `.gitsheets/contracts/${PERSON_EVALUATIONS_CONTRACT_NAME}.toml`;
+      const vendored = (await exec('git', ['show', `HEAD:${contractPath}`], { cwd: repo.path }))
+        .stdout;
+      await seedRawBlob(
+        repo.path,
+        contractPath,
+        Buffer.from(vendored.replace('title = "Person evaluation"', 'title = "Drifted"')),
+        'test: drift the vendored contract',
+      );
+      await seedRawToml(
+        repo.path,
+        'person-evaluations/jane/human-boss.toml',
+        [
+          `personSlug = "jane"`,
+          `evaluator = "human-boss"`,
+          `verdict = "maybe"`,
+          `flags = []`,
+          `evaluatedAt = "2026-05-20T00:00:00Z"`,
+        ].join('\n'),
+        'test: an evaluation outside the contract',
+      );
+
+      await expect(openPublicStore(repo.path)).rejects.toThrow(/contract/i);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  it('opens a data repo that declares the identical contract', async () => {
+    const repo = await createFullDataRepo();
+    try {
+      await expect(openPublicStore(repo.path)).resolves.toBeDefined();
+    } finally {
+      await repo.cleanup();
+    }
+  });
+});
 
 describe('Store (dual-store coordination)', () => {
   let privateStoreDir: string;

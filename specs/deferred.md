@@ -14,9 +14,9 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 
 ### Event check-ins (Meetup.com integration)
 
-- **What:** `member_checkins` table, `/checkin` endpoint, current-meetup card on the home page, "top members" list.
-- **Why:** Meetup.com's API and pricing make this hard to maintain. The community no longer uses Meetup.com as the source of truth — meetups are coordinated in Slack and via Eventbrite/Google Calendar. SquadQuest (a Code for Philly project) covers the "RSVP to events" use case better.
-- **What replaces it:** Nothing in v1. If we want a check-in flow back, it should be reframed around the actual event source (Slack channel auto-detection, or an Eventbrite/iCal feed).
+- **What:** `member_checkins` table, `/checkin` endpoint, current-meetup card on the home page, "top members" list — all keyed by Meetup.com event IDs pulled live from Meetup's iCal feed.
+- **Why:** Meetup.com is being displaced, not integrated. Events now live on the site with their own RSVPs ([behaviors/events.md](behaviors/events.md)), and the RSVP window stays open through the end of the event, which covers the "I'm here" case that check-ins served. The "top members" leaderboard is not coming back.
+- **What replaces it:** Site-native events and RSVPs, including the attendee list grouped by project that check-ins used to provide.
 
 ### Big Screen mode (`/bigscreen`)
 
@@ -64,6 +64,43 @@ When a deferred item is promoted, move it from this file into the relevant spec,
 - **Replaced by:** The gitsheets commit log itself — every record edit is a commit with author, timestamp, and diff. See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log). No separate history tables needed.
 
 ## Deferred
+
+### Private RSVPs
+
+- **What:** A way to RSVP without appearing on the public attendee list.
+- **Why deferred:** RSVP records live in the public data repo, and the attendee list is the feature ([behaviors/events.md](behaviors/events.md#rsvps-are-public)). A "hide me" flag on the public record would be a promise the storage can't keep.
+- **When promoted:** Keep the public record as the only thing the attendee list reads, and add a *supplemental* private RSVP record in the private store ([behaviors/private-storage.md](behaviors/private-storage.md)) for members who choose "RSVP privately". Private RSVPs count toward `rsvpCount` only as an aggregate ("14 going · 2 private"), receive the same confirmation and reminder emails, and never produce a public file. The reminder sweep would read both stores.
+
+### Per-session RSVPs on multi-day events
+
+- **What:** RSVPing to one agenda item of a big event ("just the Showcase Night") rather than the whole thing.
+- **Why deferred:** Agenda items are embedded in the event record and carry no identity ([data-model.md](data-model.md#agenda-items)). The four historical Launchpads are the only events that ever had sessions, and they handled per-session tickets off-site.
+- **When promoted:** Make each session its own flat `Event` in the same `EventSeries`. The series page already renders them as a day-grouped schedule; nothing about the record shape changes.
+
+### Event recurrence
+
+- **What:** "Every first Tuesday" rules that generate occurrences.
+- **Why deferred:** One explicit record per occurrence (duplicate-and-adjust) is the stated principle in [behaviors/events.md](behaviors/events.md#principles). Revisit only if staff are visibly burned by monthly duplication.
+
+### Event capacity, waitlists, and guests
+
+- **What:** A cap on RSVPs with a waitlist, and "+1" guest counts.
+- **Why deferred:** Hack nights don't sell out. Adding a cap would also need a waitlist promotion email and a "spot opened" flow; the shape is obvious when a venue imposes a limit.
+
+### Event cover images
+
+- **What:** A banner image per event on cards and the detail page, as Meetup shows.
+- **Why deferred:** Needs the general attachment-upload path; cards read fine with the date block. Add `imageKey` on `Event` when wanted, served like `featuredImageKey`.
+
+### Event announcements to Slack
+
+- **What:** Post to `#announcements` (or a configured channel) when an event is published, and a reminder when it's a day out.
+- **Why deferred:** Depends on the Slack posting integration that [#195](https://github.com/CodeForPhilly/codeforphilly-ng/issues/195) is re-evaluating. The publish and reminder hooks in [behaviors/events.md](behaviors/events.md) are the obvious attachment points.
+
+### Calendar grid view and event search
+
+- **What:** A month-grid rendering of `/events`; events in the header typeahead.
+- **Why deferred:** With roughly one event a month, the grouped list is denser and clearer, and the `webcal://` feed puts events in the member's own calendar. Promote if the list outgrows a screen.
 
 ### Project comments
 

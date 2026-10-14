@@ -38,7 +38,7 @@ export interface StoreTransactOptions extends TransactionOptions {
  * final writes per the writeOrder policy per specs/behaviors/private-storage.md.
  */
 export class Store {
-  #public: PublicStore;
+  readonly #public: PublicStore;
   readonly #private: PrivateStore;
 
   constructor(publicStore: PublicStore, privateStore: PrivateStore) {
@@ -52,27 +52,6 @@ export class Store {
 
   get private(): PrivateStore {
     return this.#private;
-  }
-
-  /**
-   * Replace the public-store snapshot.
-   *
-   * gitsheets `Sheet` objects cache the `dataTree` they were opened
-   * against and never refresh — direct `sheet.query*()` calls after a
-   * commit (or any working-tree-changing op) read from the pre-commit
-   * tree. The `transact` path itself is unaffected because `repo.transact`
-   * builds a fresh workspace from HEAD on every call, and route handlers
-   * read from the typed in-memory `Store` (kept in lockstep by
-   * `StateApply.upsert*`).
-   *
-   * Use this to swap in a freshly-opened `PublicStore` after an out-of-band
-   * reconcile or hot-reload has advanced HEAD. See
-   * specs/behaviors/storage.md → "Direct gitsheets reads after a transact"
-   * for the limitation on sheets not loaded into the typed Store
-   * (`slug-history`, `revocations`).
-   */
-  swapPublic(newPublic: PublicStore): void {
-    this.#public = newPublic;
   }
 
   /**
