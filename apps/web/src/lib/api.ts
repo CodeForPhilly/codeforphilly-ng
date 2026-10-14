@@ -440,8 +440,45 @@ export interface CreateEventInput {
   onlineUrl?: string | null;
   meetupUrl?: string | null;
   seriesSlug?: string | null;
+  agenda?: EventAgendaItemInput[];
   status?: 'draft' | 'scheduled';
 }
+
+/** An agenda row as POST/PATCH accept it (data-model.md#agenda-items). */
+export interface EventAgendaItemInput {
+  startsAt: string;
+  endsAt?: string | null;
+  title: string;
+  venueName?: string | null;
+  venueAddress?: string | null;
+  description?: string | null;
+}
+
+/** The list shape of GET /api/event-series. */
+export interface EventSeries {
+  readonly id: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly descriptionHtml: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** GET /api/event-series/:slug — the series plus its events split by time. */
+export interface EventSeriesDetail extends EventSeries {
+  readonly upcoming: EventSummary[];
+  readonly past: EventSummary[];
+  readonly permissions: { readonly canEdit: boolean; readonly canDelete: boolean };
+}
+
+export interface CreateEventSeriesInput {
+  title: string;
+  slug?: string;
+  description?: string | null;
+}
+
+export type UpdateEventSeriesInput = Partial<CreateEventSeriesInput>;
 
 export type UpdateEventInput = Partial<Omit<CreateEventInput, 'status'>>;
 
@@ -956,6 +993,21 @@ export const api = {
       }),
     remove: (slug: string): Promise<void> =>
       request(`/api/events/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
+  },
+  eventSeries: {
+    list: (params: { page?: number; perPage?: number } = {}): Promise<PaginatedEnvelope<EventSeries>> =>
+      request(`/api/event-series${buildQuery(params)}`),
+    get: (slug: string): Promise<SuccessEnvelope<EventSeriesDetail>> =>
+      request(`/api/event-series/${encodeURIComponent(slug)}`),
+    create: (input: CreateEventSeriesInput): Promise<SuccessEnvelope<EventSeries>> =>
+      request(`/api/event-series`, { method: 'POST', body: JSON.stringify(input) }),
+    update: (slug: string, input: UpdateEventSeriesInput): Promise<SuccessEnvelope<EventSeries>> =>
+      request(`/api/event-series/${encodeURIComponent(slug)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }),
+    remove: (slug: string): Promise<void> =>
+      request(`/api/event-series/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
   },
   helpWanted: {
     list: (params: HelpWantedListParams = {}): Promise<PaginatedEnvelope<HelpWantedRoleResponse>> =>
