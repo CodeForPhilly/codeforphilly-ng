@@ -55,6 +55,8 @@ export interface EventSummaryResponse {
 export interface EventResponse extends EventSummaryResponse {
   /** Projects the caller named on RSVPs to other events, newest first (specs/api/events.md). */
   readonly viewerRecentProjects: ProjectRef[];
+  /** The last ten distinct projects anyone named on any RSVP, newest first. */
+  readonly recentProjects: ProjectRef[];
   readonly description: string | null;
   readonly descriptionHtml: string;
   readonly agenda: EventAgendaItemResponse[];
@@ -132,7 +134,11 @@ function serializeAgendaItem(item: EventAgendaItem): EventAgendaItemResponse {
 
 export function serializeEvent(
   event: Event,
-  opts: SerializeEventOptions & { readonly permissions: EventPermissions; readonly viewerRecentProjects: ProjectRef[] },
+  opts: SerializeEventOptions & {
+    readonly permissions: EventPermissions;
+    readonly viewerRecentProjects: ProjectRef[];
+    readonly recentProjects: ProjectRef[];
+  },
 ): EventResponse {
   return {
     ...serializeEventSummary(event, opts),
@@ -142,6 +148,7 @@ export function serializeEvent(
     agenda: (event.agenda ?? []).map(serializeAgendaItem),
     cancellationNote: event.cancellationNote ?? null,
     viewerRecentProjects: opts.viewerRecentProjects,
+    recentProjects: opts.recentProjects,
     permissions: opts.permissions,
   };
 }

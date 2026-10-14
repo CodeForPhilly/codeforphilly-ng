@@ -398,6 +398,8 @@ export interface EventSummary {
 export interface EventDetail extends EventSummary {
   /** Projects the viewer named on RSVPs to other events, newest first; `[]` when anonymous. */
   readonly viewerRecentProjects: ReadonlyArray<{ readonly slug: string; readonly title: string }>;
+  /** The last ten distinct projects anyone named on any RSVP, newest first. */
+  readonly recentProjects: ReadonlyArray<{ readonly slug: string; readonly title: string }>;
   readonly description: string | null;
   readonly descriptionHtml: string;
   readonly cancellationNote: string | null;
