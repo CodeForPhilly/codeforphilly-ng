@@ -190,6 +190,20 @@ function segmentText(s: LaddrSegment): string | null {
   );
 }
 
+/**
+ * laddr's four event handles in slug form (specs/behaviors/events.md#legacy-urls).
+ * The handles are a closed set, so the map is static; the legacy redirect
+ * plugin carries the same map.
+ */
+const SERIES_SLUGS: Record<string, string> = {
+  "launchpad-2018": "launchpad-2018",
+  launchpad_2019: "launchpad-2019",
+  datahack2020: "data-hack-2020",
+  "launchpad-2023": "launchpad-2023",
+};
+const seriesSlug = (handle: string): string =>
+  SERIES_SLUGS[handle] ?? handle.toLowerCase().replace(/_/g, "-");
+
 /** Words that add nothing when a slug is cut short after them. */
 const SLUG_TRAILING_RE = /-(?:and|or|of|the|a|an|to|for|with|at|in|on|\d+)$/;
 
@@ -312,7 +326,7 @@ async function main(): Promise<void> {
   // own records are matched by (series, day) and may be re-slugged.
   const backfillSeriesIds = new Set(
     existingSeries
-      .filter((s) => programs.some((p) => p.Handle.toLowerCase() === s.slug))
+      .filter((s) => programs.some((p) => seriesSlug(p.Handle) === s.slug))
       .map((s) => s.id),
   );
   const usedSlugs = new Set(
@@ -337,7 +351,7 @@ async function main(): Promise<void> {
     const warn = (m: string): void => {
       warnings.push(`${p.Handle}: ${m}`);
     };
-    const slug = p.Handle.toLowerCase();
+    const slug = seriesSlug(p.Handle);
     const segments = (
       JSON.parse(
         await readFile(join(jsonDir!, `segments-${p.Handle}.json`), "utf8"),

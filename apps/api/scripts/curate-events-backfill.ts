@@ -190,8 +190,8 @@ Past projects have brought transparency to the people who influence elections, v
 [![DigitalOcean](/api/attachments/event-series/launchpad-2018/media-1269.png)](https://www.digitalocean.com)`,
   });
 
-  await patchSeries("launchpad_2019", {
-    description: `![Launchpad 2019: Phundamentals](/api/attachments/event-series/launchpad_2019/media-1501.jpg)
+  await patchSeries("launchpad-2019", {
+    description: `![Launchpad 2019: Phundamentals](/api/attachments/event-series/launchpad-2019/media-1501.jpg)
 
 Code for Philly's Launchpad is a multi-event hackathon over the course of a month, for project teams of multi-disciplinary volunteers to form and collaborate with community stakeholders and subject matter experts alike. Projects investigate opportunities for civic progress and prototype new solutions using user-centered design, open data, and open source technology.
 
@@ -212,10 +212,10 @@ The proposals around these shared needs, and the projects that formed from them,
 
 ## Thank you to our sponsors
 
-![Technically](/api/attachments/event-series/launchpad_2019/media-1507.gif) ![Esri](/api/attachments/event-series/launchpad_2019/media-1508.png) ![PromptWorks](/api/attachments/event-series/launchpad_2019/media-1509.png) ![Linode](/api/attachments/event-series/launchpad_2019/media-1510.png) ![Vistar Media](/api/attachments/event-series/launchpad_2019/media-1521.png) ![Excite Center](/api/attachments/event-series/launchpad_2019/media-1533.png) ![The Meet Group](/api/attachments/event-series/launchpad_2019/media-1540.png)`,
+![Technically](/api/attachments/event-series/launchpad-2019/media-1507.gif) ![Esri](/api/attachments/event-series/launchpad-2019/media-1508.png) ![PromptWorks](/api/attachments/event-series/launchpad-2019/media-1509.png) ![Linode](/api/attachments/event-series/launchpad-2019/media-1510.png) ![Vistar Media](/api/attachments/event-series/launchpad-2019/media-1521.png) ![Excite Center](/api/attachments/event-series/launchpad-2019/media-1533.png) ![The Meet Group](/api/attachments/event-series/launchpad-2019/media-1540.png)`,
   });
 
-  await patchSeries("datahack2020", {
+  await patchSeries("data-hack-2020", {
     title: "2020 Data Hack",
     description: `## What the hack?
 
@@ -237,11 +237,11 @@ Participants were not required to attend every event: hack nights gave teams a s
 
 Presenting sponsor:
 
-[![AT&T](/api/attachments/event-series/datahack2020/media-1403.png)](https://www.att.com/)
+[![AT&T](/api/attachments/event-series/data-hack-2020/media-1403.png)](https://www.att.com/)
 
 With additional support from:
 
-[![CompassRed](/api/attachments/event-series/datahack2020/media-1582.png)](http://www.compassred.com)`,
+[![CompassRed](/api/attachments/event-series/data-hack-2020/media-1582.png)](http://www.compassred.com)`,
   });
 
   await patchSeries("launchpad-2023", {
@@ -276,8 +276,8 @@ The 2023 Launchpad ran from March 31 to May 10. Volunteers of all kinds were wel
 
   // ---------------------------------------------------------- Launchpad 2018
   await patchEvent("2018-04-27-kickoff-weekend-brainstorming", {
-    title: "Brainstorming Night",
-    slug: "2018-04-27-brainstorming-night",
+    title: "Launchpad Brainstorming Night",
+    slug: "2018-04-27-launchpad-brainstorming-night",
     ...CITY_HALL,
     description: `An evening of brainstorming and discussion at the historic heart of our city. Bringing together Philadelphians from all over the city, coders and non-coders alike, we put our heads together to create and discuss project ideas. Some of the best ideas come from those closest to the civic challenge — that means you!
 
@@ -286,8 +286,8 @@ Past projects have brought transparency to the people who influence elections, v
 A unique chance to gather within the modern-day heart of our local government: City Hall's Caucus Room.`,
   });
   await patchEvent("2018-04-28-kickoff-weekend-work-day", {
-    title: "Opening Work Day",
-    slug: "2018-04-28-opening-work-day",
+    title: "Launchpad Work Day",
+    slug: "2018-04-28-launchpad-work-day",
     ...INNOVATION_LAB,
     description: `Teams organize around the ideas presented the night before. The day includes structured project design, opportunity discovery, and team collaboration workshops, so projects new and returning can make the most of their time, energy, and impact. The City of Philadelphia's Innovation Management Corps partnered with us to facilitate some of the Saturday and in-month workshops.`,
     agenda: [
@@ -320,6 +320,8 @@ A unique chance to gather within the modern-day heart of our local government: C
     ],
   });
   await patchEvent("2018-05-22-demo-night", {
+    title: "Launchpad Demo Night",
+    slug: "2018-05-22-launchpad-demo-night",
     endsAt: ny("2018-05-22", "20:30"),
     venueName: "Harrisburg University – Philadelphia",
     venueAddress: "1500 Market St, Philadelphia, PA 19102",
@@ -329,13 +331,14 @@ A unique chance to gather within the modern-day heart of our local government: C
 
   // ---------------------------------------------------------- Launchpad 2019
   await patchEvent("2019-09-06-friday-night-kick-off", {
-    title: "Friday Night Kickoff",
-    slug: "2019-09-06-friday-night-kickoff",
+    title: "Launchpad Kickoff Night",
+    slug: "2019-09-06-launchpad-kickoff-night",
     description:
       "A night of project brainstorming in the City Council Caucus Room at City Hall.",
   });
   await patchEvent("2019-09-07-opening-work-day", {
-    title: "Opening Work Day",
+    title: "Launchpad Work Day",
+    slug: "2019-09-07-launchpad-work-day",
     ...PROMPTWORKS,
     description: `Join a team, pick a civic problem worth solving, get to work!
 
@@ -373,11 +376,15 @@ Brainstorming night was fun, but now it's time to get to work. The day is filled
       "A project work day, plus a workshop on preparing your demo for Demo Night.",
   });
   await patchEvent("2019-10-01-demo-night", {
+    title: "Launchpad Demo Night",
+    slug: "2019-10-01-launchpad-demo-night",
     description: "Teams present their work and celebrate with the community.",
   });
 
   // ---------------------------------------------------------- Data Hack 2020
   await patchEvent("2020-02-07-partner-presentations", {
+    title: "Data Hack Kickoff Night",
+    slug: "2020-02-07-data-hack-kickoff-night",
     description:
       "Partner organizations present what they do and why the hack's questions matter to them, then the organizers walk through how the hack will run.",
     agenda: [
@@ -390,6 +397,8 @@ Brainstorming night was fun, but now it's time to get to work. The day is filled
     ],
   });
   await patchEvent("2020-02-08-hackathon-kickoff", {
+    title: "Data Hack Work Day",
+    slug: "2020-02-08-data-hack-work-day",
     description:
       "Form a team, choose a question, and plan your analysis. Lunch is provided.",
     agenda: [
@@ -416,6 +425,8 @@ Brainstorming night was fun, but now it's time to get to work. The day is filled
     await patchEvent(slug, { description: HACK_NIGHT_2020, ...venue });
   }
   await patchEvent("2020-03-17-team-presentations", {
+    title: "Data Hack Presentations",
+    slug: "2020-03-17-data-hack-presentations",
     description: `Teams present their analyses to the partner organizations and the community.
 
 ## Getting in
@@ -427,6 +438,8 @@ You are welcome to use Azavea's in-office bicycle storage room if you bike to th
 
   // ---------------------------------------------------------- Launchpad 2023
   await patchEvent("2023-03-31-friday-night-kickoff", {
+    title: "Launchpad Kickoff Night",
+    slug: "2023-03-31-launchpad-kickoff-night",
     description: `A kickoff night for civic tech enthusiasts to brainstorm open source solutions around this year's theme, "third places."
 
 **Dinner will be served!**
@@ -454,6 +467,8 @@ Enter City Hall from the northeast corner, across the street from the Notary Hot
     ],
   });
   await patchEvent("2023-04-01-opening-work-day", {
+    title: "Launchpad Work Day",
+    slug: "2023-04-01-launchpad-work-day",
     ...INNOVATION_LAB,
     description: `Join a team, pick a civic problem worth solving, get to work!
 
@@ -507,6 +522,8 @@ Breakfast, lunch, and dinner will be served.`,
     });
   }
   await patchEvent("2023-05-10-showcase-night", {
+    title: "Launchpad Showcase Night",
+    slug: "2023-05-10-launchpad-showcase-night",
     description:
       "Teams demo their work and the community celebrates a month of building. Dinner will be served.",
   });

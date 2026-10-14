@@ -402,9 +402,18 @@ describe('PATCH /api/events/:slug', () => {
     expect(ics.headers['content-disposition']).toBe(`attachment; filename="${slug}.ics"`);
   });
 
-  it('renames the slug, moves RSVP files, writes slug history, and 301s the old URL', async () => {
-    const { slug, id } = await createEvent(hackNight(7, { slug: 'hack-night-old' }));
+  it('renames the slug, moves RSVP files and images, writes slug history, and 301s the old URL', async () => {
+    const year = hackNight(7).startsAt.slice(0, 4);
+    const { slug, id } = await createEvent(
+      hackNight(7, { slug: 'hack-night-old', description: `![flyer](/api/attachments/events/${year}/hack-night-old/flyer.png)` }),
+    );
     await app!.inject({ method: 'PUT', url: `/api/events/${slug}/rsvp`, headers: { cookie: await janeCookie() } });
+    await app!.store.public.transact(
+      { message: 'test: attach flyer', author: { name: 'test', email: 'test@cfp.test' } },
+      async (tx) => {
+        await tx.events.setAttachments({ slug, startsAt: hackNight(7).startsAt } as never, { 'flyer.png': Buffer.from('PNG') });
+      },
+    );
 
     const res = await app!.inject({
       method: 'PATCH',
@@ -420,7 +429,9 @@ describe('PATCH /api/events/:slug', () => {
     // The committed tree moved the RSVP file under the new slug (direct
     // gitsheets reads are cached after a transact, so inspect git itself).
     const tree = await committedPaths();
-    const year = hackNight(7).startsAt.slice(0, 4);
+    expect(tree).toContain(`events/${year}/hack-night-new/flyer.png`);
+    expect(tree).not.toContain(`events/${year}/hack-night-old/flyer.png`);
+    expect(res.json().data.descriptionHtml).toContain(`/api/attachments/events/${year}/hack-night-new/flyer.png`);
     expect(tree).toContain(`event-rsvps/${year}/hack-night-new/${fixtures.personSlug}.toml`);
     expect(tree).not.toContain(`event-rsvps/${year}/hack-night-old/${fixtures.personSlug}.toml`);
     expect(tree).toContain(`events/${year}/hack-night-new.md`);
@@ -550,6 +561,9 @@ describe('calendar feed and legacy URLs', () => {
       ['/events/*upcoming', '/events'],
       ['/events/*all', '/events'],
       ['/events/launchpad-2023/segments/friday_night_kickoff-2023', '/events/series/launchpad-2023'],
+      // laddr's handles map statically to slug-form series slugs.
+      ['/events/launchpad_2019/segments/OpeningWorkDay', '/events/series/launchpad-2019'],
+      ['/events/datahack2020/segments/hack-night', '/events/series/data-hack-2020'],
     ];
     for (const [from, to] of cases) {
       const res = await app!.inject({ method: 'GET', url: from });

@@ -57,6 +57,21 @@ const GONE_HTML = `<!DOCTYPE html>
 
 const GONE_PATHS = new Set(['/checkin', '/bigscreen']);
 
+/**
+ * laddr's four event handles → the series slugs they backfilled into
+ * (specs/behaviors/events.md#legacy-urls). laddr's handles were inconsistent
+ * (`launchpad_2019`, `datahack2020`) and legacy handle normalization keeps
+ * underscores for events, so the closed set maps statically.
+ */
+const LADDR_SERIES_SLUGS: Readonly<Record<string, string>> = {
+  'launchpad-2018': 'launchpad-2018',
+  launchpad_2019: 'launchpad-2019',
+  datahack2020: 'data-hack-2020',
+  'launchpad-2023': 'launchpad-2023',
+};
+const laddrSeriesSlug = (handle: string): string =>
+  LADDR_SERIES_SLUGS[handle.toLowerCase()] ?? handle;
+
 /** Strip the query off a URL string, returning { path, query } (query keeps the leading ?). */
 function splitUrl(url: string): { path: string; query: string } {
   const idx = url.indexOf('?');
@@ -109,19 +124,22 @@ async function legacyRedirectPlugin(fastify: FastifyInstance): Promise<void> {
 
     // A laddr "event" was a whole program, backfilled as a series
     // (specs/behaviors/events.md#legacy-urls):
-    //   /events/<handle>/segments/<seg> → /events/series/<handle>
-    //   /events/<handle>                → /events/series/<handle>   (when <handle>
-    //                                      is a live series slug and no event owns it)
+    //   /events/<handle>/segments/<seg> → /events/series/<slug>
+    //   /events/<handle>                → /events/series/<slug>   (when <slug>
+    //                                      is a live series and no event owns <handle>)
+    // The four laddr handles are a closed set and map statically; anything
+    // else is tried as a series slug as-is.
     const segmentMatch = /^\/events\/([^/*]+)\/segments(\/.*)?$/.exec(path);
     if (segmentMatch) {
-      await sendRedirect(reply, `/events/series/${segmentMatch[1]}${query}`);
+      await sendRedirect(reply, `/events/series/${laddrSeriesSlug(segmentMatch[1] as string)}${query}`);
       return;
     }
     const programMatch = /^\/events\/([^/*]+)\/?$/.exec(path);
     if (programMatch) {
       const handle = programMatch[1] as string;
-      if (state.eventSeriesIdBySlug.has(handle) && !state.eventIdBySlug.has(handle)) {
-        await sendRedirect(reply, `/events/series/${handle}${query}`);
+      const slug = laddrSeriesSlug(handle);
+      if (state.eventSeriesIdBySlug.has(slug) && !state.eventIdBySlug.has(handle)) {
+        await sendRedirect(reply, `/events/series/${slug}${query}`);
         return;
       }
     }

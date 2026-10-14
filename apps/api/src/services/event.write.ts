@@ -35,6 +35,7 @@ import { rsvpKey } from '../store/memory/state.js';
 import { StateApply } from '../store/state-apply.js';
 import type { DualStoreTx } from '../store/store.js';
 import { isRsvpOpen } from './permissions.js';
+import { relinkAttachments, restoreAttachments, takeAttachments } from './slug-rename.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -228,9 +229,19 @@ export class EventWriteService {
           ? null
           : this.#seriesOrThrow(input.seriesSlug).id;
 
+    // The record's path changes with its slug or the year it is partitioned
+    // under; its attachment folder and the image links in its text follow.
+    const pathChanged = slugChanged || partitionChanged;
+    const oldPath = `${partitionYear(existing.startsAt)}/${existing.slug}`;
+    const newPath = `${partitionYear(base.startsAt)}/${newSlug}`;
+    const relink = <T extends string | null | undefined>(text: T): T =>
+      pathChanged ? relinkAttachments(text, 'events', oldPath, newPath) : text;
+
     const updated: Event = EventSchema.parse({
       ...existing,
       ...base,
+      description: relink(base.description),
+      agenda: base.agenda.map((item) => ({ ...item, description: relink(item.description) })),
       slug: newSlug,
       seriesId,
       icsSequence: (existing.icsSequence ?? 0) + (calendarChanged ? 1 : 0),
@@ -238,13 +249,14 @@ export class EventWriteService {
     });
 
     const stateApply = new StateApply();
+    let attachments: Awaited<ReturnType<typeof takeAttachments>> = null;
 
-    if (slugChanged || partitionChanged) {
-      // The record's path changed (its slug, or the year it is partitioned
-      // under): delete the old file and move every RSVP file with it in
-      // this same commit (specs/api/events.md#patch-apieventsslug,
+    if (pathChanged) {
+      // Delete the old file and move every RSVP file with it in this same
+      // commit (specs/api/events.md#patch-apieventsslug,
       // specs/behaviors/storage.md#sheet-layout). Slug history only for a
       // rename — the partition is invisible in URLs.
+      attachments = await takeAttachments(tx.public.events, existing);
       await tx.public.events.delete(existing);
       if (slugChanged) {
         const changedAt = nowIso();
@@ -272,6 +284,7 @@ export class EventWriteService {
     }
 
     await tx.public.events.upsert(updated, MARKDOWN_UPSERT);
+    await restoreAttachments(tx.public.events, updated, attachments);
     stateApply.upsertEvent(updated);
     return { event: updated, previous: existing, changes, stateApply };
   }

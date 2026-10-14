@@ -171,17 +171,49 @@ describe('event series', () => {
     expect((await app!.inject({ method: 'GET', url: '/api/event-series/launchpad', headers: { cookie: await staff() } })).statusCode).toBe(404);
   });
 
-  it('renames with slug history and 301s the old series URL', async () => {
-    await staffJson('POST', '/api/event-series', { title: 'Hack Nights' });
+  it('renames with slug history, keeps its images, and 301s the old series URL', async () => {
+    await staffJson('POST', '/api/event-series', {
+      title: 'Hack Nights',
+      description: 'Logo: ![logo](/api/attachments/event-series/hack-nights/logo.png)',
+    });
     await staffJson('POST', '/api/events', eventBody(7, { seriesSlug: 'hack-nights' }));
+    await app!.store.public.transact(
+      { message: 'test: attach logo', author: { name: 'test', email: 'test@cfp.test' } },
+      async (tx) => {
+        await tx['event-series'].setAttachments({ slug: 'hack-nights' } as never, { 'logo.png': Buffer.from('PNG') });
+      },
+    );
     const res = await staffJson('PATCH', '/api/event-series/hack-nights', { slug: 'monthly-hack-nights', title: 'Monthly Hack Nights' });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().data.slug).toBe('monthly-hack-nights');
+    // The attachment folder moved with the record and the description's link follows
+    // (specs/behaviors/slug-handles.md: a rename changes the handle and nothing else).
+    const { stdout: tree } = await execFileAsync('git', ['--git-dir', dataRepo.path, 'ls-tree', '-r', '--name-only', 'main']);
+    expect(tree.split('\n')).toContain('event-series/monthly-hack-nights/logo.png');
+    expect(tree.split('\n')).not.toContain('event-series/hack-nights/logo.png');
+    expect(res.json().data.descriptionHtml).toContain('/api/attachments/event-series/monthly-hack-nights/logo.png');
+    expect((await app!.inject({ method: 'GET', url: '/api/attachments/event-series/monthly-hack-nights/logo.png' })).statusCode).toBe(200);
     const redirect = await app!.inject({ method: 'GET', url: '/events/series/hack-nights' });
     expect(redirect.statusCode).toBe(301);
     expect(redirect.headers['location']).toBe('/events/series/monthly-hack-nights');
     const ev = await app!.inject({ method: 'GET', url: '/api/events' });
     expect(ev.json().data[0].series.slug).toBe('monthly-hack-nights');
+  });
+});
+
+describe('laddr handles', () => {
+  it("301 /events/<handle> to the series the program backfilled into, through the static map", async () => {
+    await staffJson('POST', '/api/event-series', { title: 'Launchpad 2019: Phundamentals', slug: 'launchpad-2019' });
+    await staffJson('POST', '/api/event-series', { title: '2020 Data Hack', slug: 'data-hack-2020' });
+    for (const [from, to] of [
+      ['/events/launchpad_2019', '/events/series/launchpad-2019'],
+      ['/events/datahack2020', '/events/series/data-hack-2020'],
+      ['/events/launchpad-2019', '/events/series/launchpad-2019'],
+    ]) {
+      const res = await app!.inject({ method: 'GET', url: from! });
+      expect(res.statusCode, from).toBe(301);
+      expect(res.headers['location'], from).toBe(to);
+    }
   });
 });
 
