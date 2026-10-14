@@ -77,6 +77,26 @@ const noopFts: FtsEngine = {
   searchBlogPosts: () => [],
 };
 
+describe('ProjectService search order', () => {
+  it('a query with no explicit sort lists in relevance order; an explicit sort wins', () => {
+    const { state } = setupState();
+    const all = [...state.projects.values()].filter((p) => !p.deletedAt);
+    const byRelevance = all.map((p) => p.slug).reverse();
+    const fts: FtsEngine = { ...noopFts, searchProjects: () => byRelevance };
+    const service = new ProjectService(state, fts);
+
+    const relevance = service.list({ q: 'anything' });
+    if ('error' in relevance) throw new Error(relevance.error);
+    expect(relevance.items.map((p) => p.slug)).toEqual(byRelevance);
+
+    const titled = service.list({ q: 'anything', sort: 'title' });
+    if ('error' in titled) throw new Error(titled.error);
+    expect(titled.items.map((p) => p.slug)).toEqual(
+      [...all].sort((a, b) => a.title.localeCompare(b.title)).map((p) => p.slug),
+    );
+  });
+});
+
 function setupState(): {
   state: InMemoryState;
   service: ProjectService;

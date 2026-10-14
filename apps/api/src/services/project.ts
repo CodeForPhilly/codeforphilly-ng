@@ -84,9 +84,12 @@ export class ProjectService {
     // ---- Resolve all filter inputs ----
 
     let ftsSlugs: Set<string> | null = null;
+    /** Relevance rank per slug — the order a search without an explicit sort keeps. */
+    let ftsRank: Map<string, number> | null = null;
     if (opts.q) {
       const slugs = this.#fts.searchProjects(opts.q);
       ftsSlugs = new Set(slugs);
+      if (!opts.sort) ftsRank = new Map(slugs.map((slug, i) => [slug, i]));
     }
 
     let memberPersonId: string | undefined;
@@ -221,7 +224,12 @@ export class ProjectService {
     // ---- Main listing ----
 
     const filtered = allProjects.filter(buildMatcher());
-    filtered.sort((a, b) => compareProjects(a, b, sortSpec));
+    // A search with no explicit sort lists by relevance (specs/api/projects.md);
+    // otherwise by the sort spec (default -updatedAt).
+    const rank = ftsRank;
+    filtered.sort((a, b) =>
+      rank ? (rank.get(a.slug) ?? Infinity) - (rank.get(b.slug) ?? Infinity) : compareProjects(a, b, sortSpec),
+    );
     const totalItems = filtered.length;
 
     const page = Math.max(1, opts.page ?? 1);
