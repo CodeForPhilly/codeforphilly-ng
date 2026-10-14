@@ -1,9 +1,10 @@
 ---
-status: planned
+status: done
 depends: []
 specs:
   - specs/behaviors/slug-handles.md
   - specs/behaviors/legacy-id-mapping.md
+pr: 198
 ---
 
 # Plan: permanent redirects for pre-normalization legacy handles
@@ -52,11 +53,11 @@ Out:
 
 ## Validation
 
-- [ ] `normalizeLegacyHandle` unit tests cover case, `.`, `_` (person vs.
+- [x] `normalizeLegacyHandle` unit tests cover case, `.`, `_` (person vs.
       project), leading punctuation, truncation, and the `s` prefix
-- [ ] Importer uses the shared function; the existing importer tests are
+- [x] Importer uses the shared function; the existing importer tests are
       green and unchanged
-- [ ] Redirect tests: `/projects/Apps_for_Philly` → 301
+- [x] Redirect tests: `/projects/Apps_for_Philly` → 301
       `/projects/apps_for_philly`; `/projects/sheldon.md/edit` → 301
       `/projects/sheldon-md/edit`; `/members/Jane_Doe?x=1` → 301
       `/members/jane-doe?x=1`; `/people/Jane_Doe` reaches the canonical member
@@ -65,7 +66,7 @@ Out:
       redirected
 - [ ] Production spot check: the 66 changed project handles from the
       2026-09-08 import all 301 to their canonical slug
-- [ ] `type-check` + `lint` + full api suite green
+- [x] `type-check` + `lint` + full api suite green
 
 ## Risks / unknowns
 
@@ -74,4 +75,16 @@ Out:
 
 ## Notes
 
+- The production spot check stays unchecked until a release carrying this
+  ships. Run it with the project-handle list from legacy laddr
+  (`codeforphilly.live.k8s.phl.io/projects?format=json`).
+- Buzz's live check changed from "never live" to `buzzIdBySlug.has()`. Buzz
+  slugs are globally unique, so the old comment's concern didn't apply.
+- `/people/<Legacy>` takes two 301s (static rewrite, then normalization).
+  Not folded.
+- Person usernames weren't measured. Pulling the legacy people list is a
+  bulk personal-data download.
+
 ## Follow-ups
+
+- Tracked as: production spot check after the next release (see Notes).
