@@ -4,7 +4,7 @@ depends: [gitsheets-freshness]
 specs:
   - specs/behaviors/storage.md
 awaits:
-  - "JarvusInnovations/gitsheets — opt-in repo.sync() fetch/replay primitive + repo.isAncestor (issue TBD) — replaces store/reconcile.ts"
+  - "https://github.com/JarvusInnovations/gitsheets/issues/301 — opt-in repo.sync() fetch/replay primitive + repo.isAncestor — replaces store/reconcile.ts"
 ---
 
 # Plan: replace hand-rolled reconcile with upstream `repo.sync()`
@@ -49,7 +49,7 @@ spec already defines, and map upstream outcomes onto it.
 
 ## Validation
 
-- [ ] Upstream issue filed and linked here
+- [x] Upstream issue filed and linked here (gitsheets#301)
 - [ ] The existing reconcile test matrix (ff, replay, escape-hatch,
       in-sync) passes unchanged against `repo.sync()`
 - [ ] No `merge-tree`, `commit-tree`, `update-ref` or `merge-base` left in

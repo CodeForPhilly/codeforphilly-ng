@@ -4,7 +4,7 @@ depends: [slug-history-config]
 specs:
   - specs/behaviors/slug-handles.md
 awaits:
-  - "JarvusInnovations/gitsheets — rename-on-upsert moves the record's attachment folder, or sheet.move() (issue TBD)"
+  - "https://github.com/JarvusInnovations/gitsheets/issues/302 — rename-on-upsert moves the record's attachment folder, or sheet.move()"
 ---
 
 # Plan: slug renames keep attachments
