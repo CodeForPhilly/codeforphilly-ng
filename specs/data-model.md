@@ -454,7 +454,7 @@ Used for the 30-day per-person-per-role rate cap on `POST /express-interest` (se
 A single gathering at one venue over one contiguous span: a hack night, a workshop, one day of a hackathon. Staff-authored; members RSVP. Rules in [behaviors/events.md](behaviors/events.md). Events are **flat** — one record is one thing you can RSVP to. Two optional structures hang off it: a link to an [EventSeries](#eventseries-new) ("Launchpad 2018", "Monthly Hack Nights") and an embedded **agenda** of time slots within the event. A program that moves between venues or spans days is a series of events, not one event.
 
 **Sheet:** `events`
-**Path template:** `events/${year}/${slug}.md` where `year` is rendered from `startsAt` (`${{ startsAt.slice(0, 4) }}` — the UTC year)
+**Path template:** `events/${year}/${slug}.md` where `year` is rendered from `startsAt` by gitsheets' native date bucketing (`${{ startsAt: YYYY }}` — the UTC year)
 **Format:** `markdown` — the `description` field is the file body, after `+++` TOML frontmatter, like blog posts
 
 The sheet is partitioned by year because monthly events accrete forever; within a year the default slug is date-first (`2026-11-03-hack-night`) so the directory lists chronologically when browsed in the data repo. The slug stays globally unique — the year is a storage partition, not part of the URL.

@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 depends: [events-series-agenda]
 specs:
   - specs/data-model.md
@@ -47,15 +47,19 @@ which now depends on this plan).
 
 ## Approach
 
-1. **Configs.** `events.toml`: `path = '${{ startsAt.slice(0, 4) }}/${{ slug }}'`
+1. **Configs.** `events.toml`: `path = '${{ startsAt: YYYY }}/${{ slug }}'`
+   (gitsheets' native date bucket, which also lets range filters prune
+   partitions)
    plus `[gitsheet.format] type = 'markdown', body = 'description'`.
    `event-series.toml`: same format block, path unchanged.
    `event-rsvps.toml`: `path = '${{ year }}/${{ eventSlug }}/${{ personSlug }}'`.
    One commit per data branch (empty, fixture, legacy-import), PRs, then
    mirror `empty`'s `.gitsheets/` into `apps/api/gitsheets/`. Contract
    documents unchanged; `gitsheets contracts verify` before each push.
-2. **Write path.** `withRsvpPath` adds `year` (the event's partition year,
-   `startsAt.slice(0, 4)`) next to `eventSlug` and `personSlug`; the sheet
+2. **Write path.** `withRsvpPath` adds `year` (the event's partition year —
+   the UTC year of `startsAt`, identical to what the native bucket renders
+   because every stored timestamp is a `Z` string) next to `eventSlug` and
+   `personSlug`; the sheet
    guard test lists it under `WRITE_INJECTED_PATH_FIELDS['event-rsvps']`.
    Event writes need nothing: gitsheets renders the year from `startsAt`
    and splits `description` into the body on write, joins on read.
@@ -92,7 +96,7 @@ which now depends on this plan).
   frontmatter strings. Confirm gitsheets serializes an array of tables
   with multi-line strings in frontmatter cleanly (blog posts have no
   nested arrays).
-- **Year partition is UTC.** `startsAt.slice(0, 4)` is the UTC year, so a
+- **Year partition is UTC.** `${{ startsAt: YYYY }}` is the UTC year, so a
   New Year's Eve evening in Philadelphia files under the next year. It is
   a storage partition, invisible in URLs; accepted for determinism.
 
