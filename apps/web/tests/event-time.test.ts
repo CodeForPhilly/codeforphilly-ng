@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addMinutesToWallClock,
+  agendaDayHeading,
   eventDateBlock,
   eventMonthHeading,
   formatCompactRange,
@@ -67,6 +68,21 @@ describe('list helpers', () => {
     expect(formatCompactRange('2026-11-03T23:00:00Z', '2026-11-04T02:00:00Z')).toBe('6–9pm');
     expect(formatCompactRange('2026-11-03T14:00:00Z', '2026-11-04T00:00:00Z')).toBe('9am–7pm');
     expect(formatCompactRange('2026-11-03T23:30:00Z', null)).toBe('6:30pm');
+    // 6:00–8:30 PM EST: start drops its minutes and meridiem, end keeps both.
+    expect(formatCompactRange('2026-11-03T23:00:00Z', '2026-11-04T01:30:00Z')).toBe('6–8:30pm');
+    // 11:30 AM–1 PM EST crosses noon, so both ends carry a meridiem.
+    expect(formatCompactRange('2026-11-03T16:30:00Z', '2026-11-03T18:00:00Z')).toBe('11:30am–1pm');
+  });
+
+  it('agenda day heading in Philly time', () => {
+    // 2023-03-31T22:00Z is Friday 6 PM EDT.
+    expect(agendaDayHeading('2023-03-31T22:00:00Z')).toEqual({
+      key: '2023-03-31',
+      weekday: 'Friday',
+      date: 'March 31',
+    });
+    // 03:00Z on Apr 1 is still Friday, March 31 in Philly.
+    expect(agendaDayHeading('2023-04-01T03:00:00Z')).toMatchObject({ key: '2023-03-31', weekday: 'Friday' });
   });
 });
 

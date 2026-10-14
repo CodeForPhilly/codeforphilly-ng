@@ -1,4 +1,4 @@
-import type { EventDetail, EventRsvp, EventSummary } from '../src/lib/api.js';
+import type { EventAgendaItem, EventDetail, EventRsvp, EventSeriesDetail, EventSummary } from '../src/lib/api.js';
 
 export const STAFF_ME = {
   data: {
@@ -65,4 +65,33 @@ export function json(body: unknown, status = 200): Promise<Response> {
   return Promise.resolve(
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }),
   );
+}
+
+export function makeAgendaItem(overrides: Partial<EventAgendaItem> = {}): EventAgendaItem {
+  return {
+    startsAt: '2099-11-03T23:00:00Z',
+    endsAt: null,
+    title: 'Agenda item',
+    venueName: null,
+    venueAddress: null,
+    description: null,
+    descriptionHtml: null,
+    ...overrides,
+  };
+}
+
+export function makeSeries(overrides: Partial<EventSeriesDetail> = {}): EventSeriesDetail {
+  return {
+    id: 's-1',
+    slug: 'monthly-hack-nights',
+    title: 'Monthly Hack Nights',
+    description: 'First Tuesday of every month.',
+    descriptionHtml: '<p>First Tuesday of every month.</p>',
+    upcoming: [],
+    past: [],
+    permissions: { canEdit: false, canDelete: false },
+    createdAt: '2026-10-01T00:00:00Z',
+    updatedAt: '2026-10-01T00:00:00Z',
+    ...overrides,
+  };
 }

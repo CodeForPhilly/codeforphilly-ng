@@ -18,6 +18,7 @@ import { HelpWantedIndex } from '@/screens/HelpWantedIndex';
 import { EventsIndex } from '@/screens/EventsIndex';
 import { EventDetail } from '@/screens/EventDetail';
 import { EventEdit } from '@/screens/EventEdit';
+import { EventSeries } from '@/screens/EventSeries';
 import { ProjectUpdatesFeed } from '@/screens/ProjectUpdatesFeed';
 import { ProjectBuzzFeed } from '@/screens/ProjectBuzzFeed';
 import { BlogIndex } from '@/screens/BlogIndex';
@@ -56,6 +57,8 @@ const router = createBrowserRouter([
       { path: '/events', element: <EventsIndex /> },
       { path: '/events/past', element: <EventsIndex /> },
       { path: '/events/new', element: <EventEdit mode="create" /> },
+      // Before /events/:slug so the series path wins.
+      { path: '/events/series/:slug', element: <EventSeries /> },
       { path: '/events/:slug', element: <EventDetail /> },
       { path: '/events/:slug/edit', element: <EventEdit mode="edit" /> },
       { path: '/calendar', element: <Navigate to="/events" replace /> },
