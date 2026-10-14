@@ -110,12 +110,14 @@ Each entity lives in one sheet. The path template determines how records are sto
 | ProjectMembership | `project-memberships` | `project-memberships/${projectSlug}/${personSlug}.toml` |
 | ProjectUpdate | `project-updates` | `project-updates/${projectSlug}/${number}.toml` |
 | ProjectBuzz | `project-buzz` | `project-buzz/${projectSlug}/${slug}.toml` |
+| BlogPost | `blog-posts` | `blog-posts/${slug}.md` (markdown format, body in `body`) |
 | HelpWantedRole | `help-wanted-roles` | `help-wanted-roles/${projectSlug}/${id}.toml` |
 | HelpWantedInterestExpression | `help-wanted-interest` | `help-wanted-interest/${roleId}/${personSlug}.toml` |
 | Tag | `tags` | `tags/${namespace}/${slug}.toml` |
-| TagAssignment | `tag-assignments` | `tag-assignments/${tagId}/${taggableType}/${taggableId}.toml` |
+| TagAssignment | `tag-assignments` | `tag-assignments/${taggableType}/${taggableId}/${tagId}.toml` |
 | SlugHistory | `slug-history` | `slug-history/${entityType}/${oldSlug}.toml` |
 | Revocation | `revocations` | `revocations/${jti}.toml` |
+| PersonEvaluation | `person-evaluations` | `person-evaluations/${personSlug}/${evaluator}.toml` |
 | LegacyPasswordCredential | `legacy-password-credentials` | `legacy-password-credentials/${personId}.toml` |
 
 ### Why these path shapes
@@ -124,7 +126,11 @@ The path template is the only "index" gitsheets provides natively. Choose it to 
 
 - **Composite paths** (`${projectSlug}/${personSlug}.toml`) make "list everything for this parent" a single directory scan. Reverse lookups ("which projects is this person in?") use an in-memory index built at boot.
 - **Time-partitioned paths** keep directory size bounded for sheets that grow monotonically. None of the v1 sheets currently use time partitioning, but the pattern is reserved for future high-volume sheets (e.g., webhook ingestion logs).
-- **Polymorphic paths** (`tag-assignments/${tagId}/${taggableType}/${taggableId}.toml`) make "tags on this thing" require an inverted in-memory index. The forward direction ("things with this tag") is the dominant query and matches the path template.
+- **Polymorphic paths** (`tag-assignments/${taggableType}/${taggableId}/${tagId}.toml`) make "tags on this thing" a single directory scan; "things with this tag" uses an in-memory index.
+
+Every `${field}` in a path template must be a field every record of that sheet carries. A template naming a field the record lacks makes every upsert throw, aborting the whole transaction. Some fields exist only to render the path (`projectSlug`, `personSlug` on child records) and are added by the write services.
+
+The data repo's `empty` branch is the source of truth for the `.gitsheets/*.toml` configs. The API vendors a copy at `apps/api/gitsheets/`; tests seed every test data repo from it, and CI fails when the copy and `empty` diverge.
 
 ### Record format
 
