@@ -83,8 +83,12 @@ const AUTHOR = { name: 'Code for Philly API', email: 'api@users.noreply.codeforp
 
 const HOUR = 60 * 60 * 1000;
 const iso = (epoch: number): string => new Date(epoch * 1000).toISOString();
-/** laddr stored CRLF line endings; records keep LF. */
-const lf = (text: string): string => text.replace(/\r\n?/g, '\n');
+/**
+ * laddr stored CRLF line endings and its renderer accepted `###Heading`
+ * with no space, which GFM shows literally; records keep LF and a space.
+ */
+const lf = (text: string): string =>
+  text.replace(/\r\n?/g, '\n').replace(/^(#{1,6})(?=[^#\s])/gm, '$1 ');
 
 /**
  * Laddr media links in these descriptions are both absolute
