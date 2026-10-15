@@ -3,7 +3,7 @@ status: done
 depends: [gitsheets-freshness]
 specs:
   - specs/behaviors/storage.md
-pr:
+pr: 251
 ---
 
 # Plan: replace hand-rolled reconcile with upstream `repo.sync()`
