@@ -70,6 +70,10 @@ source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/a60d2
 adopted = 2026-10-14T03:31:29.88Z
 source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/projects/v1.json"
 
+["codeforphilly.org/projects/v2"]
+adopted = 2026-10-15T17:47:46.895Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/38870322de7e4f243a87e02d62b0603bd42498dc/contracts/codeforphilly.org/projects/v2.json"
+
 ["codeforphilly.org/revocations/v1"]
 adopted = 2026-10-14T03:31:32.497Z
 source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/revocations/v1.json"
