@@ -123,7 +123,7 @@ describe('EventDetail', () => {
     expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument();
   });
 
-  it('going with an answered follow-up shows the selected choice and "Can\'t make it?"', async () => {
+  it('going with an answered follow-up shows the selected choice and "Cancel RSVP"', async () => {
     mockFetch({
       me: USER_ME,
       event: makeEvent({
@@ -133,7 +133,7 @@ describe('EventDetail', () => {
     render();
     expect(await screen.findByText('You’re going ✓')).toBeInTheDocument();
     expect(screen.getByText('I’m coming to work on SquadQuest')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Can’t make it?' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel RSVP' })).toBeInTheDocument();
   });
 
   it('project picker: opened empty with nobody named yet shows only the hint; typing searches and Enter saves', async () => {
@@ -208,7 +208,7 @@ describe('EventDetail', () => {
     expect(screen.getByRole('link', { name: '14 going' })).toBeInTheDocument();
   });
 
-  it('groups attendees: projects by count, then newcomers, looking, not sure', async () => {
+  it('groups attendees: unanswered first and unlabelled, then projects by count, newcomers, no project', async () => {
     mockFetch({
       event: makeEvent({ rsvpCount: 6 }),
       rsvps: [
@@ -227,7 +227,10 @@ describe('EventDetail', () => {
     const headings = within(attendees)
       .getAllByRole('heading', { level: 3 })
       .map((h) => h.textContent);
-    expect(headings).toEqual(['Zeta', 'Alpha', 'New to Code for Philly', 'Looking for a project', 'Not sure yet']);
+    expect(headings).toEqual(['Zeta', 'Alpha', 'New to Code for Philly', 'No project yet']);
+    const firstList = within(attendees).getAllByRole('list')[0]!;
+    expect(within(firstList).getByLabelText('Fay')).toBeInTheDocument();
+    expect(within(firstList).queryByLabelText('Ann')).not.toBeInTheDocument();
     expect(within(attendees).getByRole('link', { name: 'Zeta' })).toHaveAttribute('href', '/projects/zeta');
   });
 
