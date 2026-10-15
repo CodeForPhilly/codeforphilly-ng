@@ -24,7 +24,7 @@ The privacy / self-removal path — members should be able to remove themselves;
 The garbage-collection path for spam — the runtime sibling of the offline spam-prune (behaviors/spam-exclusion.md).
 
 - **Who:** administrators only.
-- **Mechanism:** one write-mutex transaction that hard-deletes: the `people` record; their `project-membership`; their `help-wanted-interest`; their person `tag-assignment`; AND their authored `project-update`, `project-buzz`, and `blog-post` records (unlike the prune which nulls authorId — purge DELETES the content, it's garbage).
+- **Mechanism:** one write-mutex transaction that hard-deletes: the `people` record; their `project-membership`; their `help-wanted-interest`; their person `tag-assignment`; AND their authored `project-update`, `project-buzz`, and `blog-post` records (unlike the prune which nulls authorId — purge DELETES the content, it's garbage). Their **private** data goes in the same transaction: private profile, legacy password credential, password-reset tokens, account-claim requests naming them, and their session metadata. A purged person leaves nothing behind in either store.
 - **Projects only they touched go too.** In the same transaction, purge hard-deletes every project the person created that nobody else has touched — spam accounts create spam projects, and a project left behind with no members is a soft-deleted husk an admin can't clear. A project qualifies when both hold:
   1. **Created by the person:** `createdById` is the person; for a project with no `createdById` (imported from laddr, or created before the field existed), the person is its `maintainerId`.
   2. **No one else touched it:** every membership is the person's, every update was authored by them, every buzz posted by them, every help-wanted role posted by them with no interest from anyone else, and no RSVP from anyone else names the project.
@@ -38,7 +38,7 @@ The garbage-collection path for spam — the runtime sibling of the offline spam
 
 A `spam` vote on the admin members screen deactivates the person at once; three days later, if nobody has disagreed, the site purges them on its own. Staff shouldn't have to come back and press a second button for every spam account, and three days is long enough for another staff member to look and object.
 
-- **When:** an in-process job runs once a day (and once shortly after boot).
+- **When:** an in-process job runs once a day (and once shortly after boot) — **only on the deployment where `CFP_SCHEDULED_PURGE=true`, which is production alone.** Sandbox and production serve the same `published` branch, so any pod that runs the sweep is deleting production data; exactly one may. With the flag off the pod never sweeps and logs that at boot.
 - **Who it takes:** every person who
   1. has at least one human `spam` vote, and every human vote on them is `spam` — a `legit` or `uncertain` vote from anyone holds them back;
   2. got their newest human vote at least **3 days** ago;

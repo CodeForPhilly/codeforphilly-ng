@@ -156,3 +156,32 @@ as the caller, so the vote carries the voter's pseudonymous git identity.
   deactivate side effect and its reversal rule.
 - [api/people.md](people.md) — `deactivate`, `reactivate`, `purge`, and the
   staff-only fields reused here.
+
+## POST /api/admin/private-data/purge-orphans
+
+Administrator only (`404` for anyone else, like the rest of `/api/admin`).
+Deletes the private data of every person id the private store knows that has
+no `people` record: private profile, legacy password, password-reset tokens,
+account-claim requests naming them, and session metadata — what
+[Purge](../behaviors/person-lifecycle.md#purge-cascading-hard-delete-admin-only)
+now deletes in its own transaction, for everyone purged or pruned before it
+did.
+
+### Request
+
+```json
+{ "apply": false }
+```
+
+`apply` is required: `false` only counts; `true` deletes and returns the same
+counts. Run under the write lock, so a member mid-sign-up (private profile
+written, public record not yet) is never counted.
+
+### Response — 200
+
+```json
+{ "success": true, "data": { "applied": false, "orphanPeople": 27, "profiles": 27, "legacyPasswords": 0, "claimRequests": 0, "sessions": 0 } }
+```
+
+Counts only — never emails, names or ids. The private store is not versioned,
+so `apply: true` cannot be undone; run `false` first.
