@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: [chat-links-full-navigation]
 specs:
   - specs/behaviors/app-shell.md
 issues: [231]
+pr: 235
 ---
 
 # Plan: Slack in the header
@@ -43,7 +44,7 @@ content links); changing `/chat` itself.
 - [x] At 1024px and 1280px the desktop header keeps every content link on
   one line with Slack and GitHub showing; at 768px the mobile header shows.
 - [x] At 390px the sheet lists Slack before GitHub.
-- [ ] Clicking the header icon opens the Slack SSO start in a new tab.
+- [x] Clicking the header icon opens the Slack SSO start in a new tab.
 
 ## Risks / unknowns
 
@@ -52,4 +53,15 @@ content links); changing `/chat` itself.
 
 ## Notes
 
+- The 768px overflow predates this change: develop already wrapped "Help
+  Wanted" and pushed Volunteer off the edge there, most likely since
+  Events joined the content cluster. Moving the breakpoint fixed that too.
+- The header icon is the same `/chat` anchor as the footer link verified
+  in [chat-links-full-navigation](chat-links-full-navigation.md), plus
+  `target="_blank"`; checked by markup rather than a second click-through.
+- Chose an icon beside GitHub over a "Chat" text item in the content
+  cluster.
+
 ## Follow-ups
+
+- **None.**
