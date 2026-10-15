@@ -35,6 +35,19 @@ Use **302** (temporary) rather than 301 so we can change the destination later w
 - Project pages use `/chat?channel=<chatChannel>` for the "Chat Channel" button so the link looks like part of the site rather than an external Slack URL.
 - If we move off Slack later, every link gets re-pointed by changing this one redirect rather than chasing references through the codebase.
 
+## Linking to it from the app
+
+Every in-app link to `/chat` (the footer's "Slack", the Volunteer page's
+"Open Slack", the events empty state, the project "Chat Channel" button and
+the project card's "Chat") is a **full-page navigation** — a plain anchor,
+never a client-side router link. `/chat` exists only on the server; a
+router link never reaches it and lands on the SPA's 404 page instead. The
+same holds for every other path the server answers before the SPA does:
+`/api/*` and the legacy redirects (`/calendar`, laddr URL forms — see
+[legacy-id-mapping.md](../behaviors/legacy-id-mapping.md)). Lint rejects a
+router link whose literal target starts with `/chat`, `/api/` or
+`/calendar`.
+
 ## Open redirect protection
 
 `channel` only feeds the `redir` value's path segment after `/messages/`; the host is hard-coded. No user input touches the host.
