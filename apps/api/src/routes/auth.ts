@@ -15,7 +15,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { errors as JoseErrors } from 'jose';
 import { ok } from '../lib/response.js';
 import { UnauthenticatedError, ConflictError, ApiNotFoundError } from '../lib/errors.js';
-import { verifyRefresh, issueSession } from '../auth/jwt.js';
+import { REFRESH_TTL_SECONDS, verifyRefresh, issueSession } from '../auth/jwt.js';
 import {
   setSessionCookies,
   clearSessionCookies,
@@ -95,7 +95,7 @@ async function persistSessionMetadata(
     userAgent: String(request.headers['user-agent'] ?? ''),
     ipAddress: clientIp(request),
     issuedAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    expiresAt: new Date(now + REFRESH_TTL_SECONDS * 1000).toISOString(),
   };
   await fastify.sessionMetadata.add(meta, fastify.store.private);
 }
@@ -691,14 +691,12 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         claims.loginMethod ? { loginMethod: claims.loginMethod } : undefined,
       );
 
-      const oldExpiresAt = new Date(claims.exp * 1000).toISOString();
-      await fastify.revocations.revoke(
-        { jti: claims.jti, personId: claims.sub, expiresAt: oldExpiresAt },
-        fastify.store.public,
-      );
+      // No revocation of the old refresh token: refresh writes nothing to the
+      // public store (specs/behaviors/authorization.md → "Refresh writes
+      // nothing to the public store"). It stays valid until it expires.
       await fastify.sessionMetadata.remove(claims.jti, fastify.store.private);
 
-      const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const newExpiresAt = new Date(Date.now() + REFRESH_TTL_SECONDS * 1000).toISOString();
       const newMeta: SessionMeta = {
         refreshJti: newTokens.refreshJti,
         personId: claims.sub,

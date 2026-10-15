@@ -71,7 +71,7 @@ For paginated lists, the `data` is an array and `metadata` includes pagination:
 
 ## Authentication
 
-- Two cookies carry **stateless JWTs**: `cfp_session` (15-minute access JWT) and `cfp_refresh` (30-day refresh JWT, path-scoped to `/api/auth/refresh`). Cleared by `POST /api/auth/logout`. See [behaviors/authorization.md](../behaviors/authorization.md) for the full token model and [api/auth.md](auth.md) for the surviving session endpoints.
+- Two cookies carry **stateless JWTs**: `cfp_session` (15-minute access JWT) and `cfp_refresh` (90-day refresh JWT, path-scoped to `/api/auth/refresh`), plus the non-secret `cfp_has_session` hint. Cleared by `POST /api/auth/logout`. See [behaviors/authorization.md](../behaviors/authorization.md) for the full token model and [api/auth.md](auth.md) for the surviving session endpoints.
 - Both cookies: `HttpOnly`, `Secure`, `SameSite=Lax`. In development, `Secure` is dropped when the host is `localhost`.
 - There is no `sessions` table or sheet. Revocation is tracked in a small `revocations` sheet plus an in-memory `Set` of revoked `jti`s.
 - The endpoints that *issue* JWTs (GitHub OAuth callback, account-claim flow) are not yet specified. The endpoints that *manage* JWTs once issued are in [api/auth.md](auth.md).

@@ -6,6 +6,7 @@
  * per specs/behaviors/authorization.md.
  */
 import type { FastifyReply } from 'fastify';
+import { REFRESH_TTL_SECONDS } from './jwt.js';
 
 const COOKIE_OPTS_BASE = {
   httpOnly: true,
@@ -13,7 +14,7 @@ const COOKIE_OPTS_BASE = {
 };
 
 const ACCESS_TTL_MS = 15 * 60 * 1000;
-const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const REFRESH_TTL_MS = REFRESH_TTL_SECONDS * 1000;
 const CLAIM_TTL_MS = 5 * 60 * 1000;
 const OAUTH_TTL_MS = 10 * 60 * 1000;
 
@@ -41,6 +42,15 @@ export function setSessionCookies(
     path: '/api/auth/refresh',
     maxAge: REFRESH_TTL_MS / 1000,
   });
+
+  // Not HttpOnly and not a secret: tells the SPA a refresh is worth trying,
+  // so anonymous visitors never call /api/auth/refresh.
+  reply.setCookie('cfp_has_session', '1', {
+    sameSite: 'lax',
+    secure,
+    path: '/',
+    maxAge: REFRESH_TTL_MS / 1000,
+  });
 }
 
 export function setClaimCookie(reply: FastifyReply, token: string, nodeEnv: string): void {
@@ -55,6 +65,7 @@ export function setClaimCookie(reply: FastifyReply, token: string, nodeEnv: stri
 export function clearSessionCookies(reply: FastifyReply): void {
   reply.clearCookie('cfp_session', { path: '/' });
   reply.clearCookie('cfp_refresh', { path: '/api/auth/refresh' });
+  reply.clearCookie('cfp_has_session', { path: '/' });
 }
 
 export function clearClaimCookie(reply: FastifyReply): void {
