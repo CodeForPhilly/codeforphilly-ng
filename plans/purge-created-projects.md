@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [slug-references]
 specs:
   - specs/behaviors/person-lifecycle.md
@@ -58,7 +58,7 @@ maintainer left to match).
   update, another's buzz, another's interest, or another's RSVP naming it
   survives; a legacy project matches by maintainer; preview lists exactly
   the purge's projects.
-- [ ] Browser: the purge dialog lists the qualifying projects.
+- [x] Browser: the purge dialog lists the qualifying projects.
 
 ## Risks / unknowns
 
@@ -67,4 +67,22 @@ maintainer left to match).
 
 ## Notes
 
+- Checked on devbox against production data (migrated `published` plus
+  this adoption): lihong137's purge dialog lists aibulin47,
+  kavello-lobby and zombievideo; Cancel left everything in place.
+- Adoption pinned to codeforphilly-ng@38870322d on `empty`, `fixture`
+  and `legacy-import`; `apps/api/gitsheets/` mirrors `empty`;
+  `published` adopts at the release.
+- Projects created before this release have no `createdById`; the
+  maintainer stands in, which is right for spam (a spam account is the
+  maintainer of what it made) and conservative otherwise (any other
+  member, author or attendee keeps the project).
+
 ## Follow-ups
+
+- **Issue-worthy, not filed:** backfill `createdById` on laddr projects
+  from laddr's `CreatorID` (the importer already reads it).
+- **Issue-worthy, not filed:** projects orphaned by purges before this
+  shipped (no maintainer, no members) can't be matched by purge; clear
+  them with a one-off data commit or an admin hard-delete for
+  soft-deleted projects.
