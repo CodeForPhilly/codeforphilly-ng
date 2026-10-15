@@ -502,6 +502,30 @@ function buildQuery(params: object): string {
   return s ? `?${s}` : '';
 }
 
+// ---------------------------------------------------------------------------
+// Session refresh — specs/behaviors/authorization.md → "The SPA keeps the
+// session alive". The access cookie lives 15 minutes; the refresh cookie
+// 90 days. Concurrent callers share one in-flight refresh.
+// ---------------------------------------------------------------------------
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+/** Whether the server left the session hint cookie (set with the refresh cookie). */
+export function hasSessionHint(): boolean {
+  return typeof document !== 'undefined' && /(?:^|;\s*)cfp_has_session=1(?:;|$)/.test(document.cookie);
+}
+
+/** Mint a fresh session from the refresh cookie. Resolves true on success. */
+export function refreshSession(): Promise<boolean> {
+  refreshInFlight ??= fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+    .then((res) => res.ok)
+    .catch(() => false)
+    .finally(() => {
+      refreshInFlight = null;
+    });
+  return refreshInFlight;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -517,11 +541,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   ) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(path, {
-    credentials: 'include',
-    ...init,
-    headers,
-  });
+  const send = () => fetch(path, { credentials: 'include', ...init, headers });
+  let res = await send();
+  // An expired access cookie: refresh once and retry. Auth endpoints answer
+  // 401 for their own reasons and are never retried.
+  if (res.status === 401 && !path.startsWith('/api/auth/') && (await refreshSession())) {
+    res = await send();
+  }
 
   // 204 No Content
   if (res.status === 204) {

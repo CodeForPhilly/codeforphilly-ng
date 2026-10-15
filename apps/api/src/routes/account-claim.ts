@@ -28,7 +28,7 @@ import {
   UnauthenticatedError,
 } from '../lib/errors.js';
 import { requireAuth } from '../auth/guards.js';
-import { verifyClaimPending } from '../auth/jwt.js';
+import { REFRESH_TTL_SECONDS, verifyClaimPending } from '../auth/jwt.js';
 import {
   clearClaimCookie,
   setSessionCookies,
@@ -60,7 +60,7 @@ async function persistSession(
     userAgent: String(request.headers['user-agent'] ?? ''),
     ipAddress: clientIp(request),
     issuedAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    expiresAt: new Date(now + REFRESH_TTL_SECONDS * 1000).toISOString(),
   };
   await fastify.sessionMetadata.add(meta, fastify.store.private);
 }

@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { hasSessionHint, refreshSession } from '@/lib/api';
 
 export type AccountLevel = 'anonymous' | 'user' | 'staff' | 'administrator';
 
@@ -60,7 +61,7 @@ const ANON_SNAPSHOT: MeSnapshot = {
   lastLoginMethod: null,
 };
 
-async function fetchMe(): Promise<MeSnapshot> {
+async function fetchMeOnce(): Promise<MeSnapshot> {
   try {
     const res = await fetch('/api/auth/me', { credentials: 'include' });
     if (!res.ok) {
@@ -77,6 +78,17 @@ async function fetchMe(): Promise<MeSnapshot> {
     // Network error — treat as anonymous, don't throw
     return ANON_SNAPSHOT;
   }
+}
+
+/**
+ * The signed-in state, renewing an expired access cookie first when the
+ * session hint says there is a refresh cookie to renew it from
+ * (specs/behaviors/authorization.md → "The SPA keeps the session alive").
+ */
+async function fetchMe(): Promise<MeSnapshot> {
+  const snap = await fetchMeOnce();
+  if (snap.person || !hasSessionHint()) return snap;
+  return (await refreshSession()) ? fetchMeOnce() : snap;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

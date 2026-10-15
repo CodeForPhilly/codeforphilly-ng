@@ -152,7 +152,7 @@ export function Home() {
         )}
         <div className="mt-6 text-right">
           <Link to="/projects" className="text-primary hover:underline">
-            See all {totalProjects ?? ''} projects →
+            {totalProjects === null ? 'Browse all projects →' : `Browse all ${totalProjects} projects →`}
           </Link>
         </div>
       </section>

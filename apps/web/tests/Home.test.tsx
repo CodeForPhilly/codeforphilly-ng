@@ -57,6 +57,16 @@ describe('Home', () => {
     });
   });
 
+  it('links to the full project list with its count', async () => {
+    renderScreen(
+      <AuthProvider>
+        <Home />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByRole('link', { name: 'Browse all 42 projects →' })).toHaveAttribute('href', '/projects');
+  });
+
   it('shows the get-involved cards', async () => {
     renderScreen(
       <AuthProvider>

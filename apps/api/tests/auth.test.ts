@@ -293,8 +293,16 @@ describe('POST /api/auth/refresh', () => {
     expect(hasSession).toBe(true);
     expect(hasRefresh).toBe(true);
 
-    // Old refresh jti should now be revoked
-    expect(app.revocations.isRevoked(refreshJti)).toBe(true);
+    // 90 days from now, and the hint cookie that tells the SPA to refresh.
+    const refreshCookie = cookiesArr.find((c) => c.startsWith('cfp_refresh='))!;
+    expect(refreshCookie).toContain(`Max-Age=${90 * 24 * 60 * 60}`);
+    const hint = cookiesArr.find((c) => c.startsWith('cfp_has_session=1'));
+    expect(hint).toBeDefined();
+    expect(hint).not.toMatch(/HttpOnly/i);
+
+    // Refresh writes nothing to the public store: the old jti is not revoked
+    // (specs/behaviors/authorization.md).
+    expect(app.revocations.isRevoked(refreshJti)).toBe(false);
   });
 });
 
@@ -338,6 +346,7 @@ describe('POST /api/auth/logout', () => {
       : String(setCookieHeaders ?? '');
     expect(cookieStr).toContain('cfp_session=;');
     expect(cookieStr).toContain('cfp_refresh=;');
+    expect(cookieStr).toContain('cfp_has_session=;');
   });
 
   it('subsequent /api/auth/me after logout returns anonymous', async () => {
