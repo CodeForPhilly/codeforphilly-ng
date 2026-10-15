@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [scheduled-spam-purge]
 specs:
   - specs/behaviors/person-lifecycle.md
@@ -45,8 +45,8 @@ private store would write the old data back).
 
 ## Validation
 
-- [ ] `npm run type-check && npm run lint && npm test` clean.
-- [ ] Tests: the gate; `deletePersonData` persisted to disk, other people
+- [x] `npm run type-check && npm run lint && npm test` clean.
+- [x] Tests: the gate; `deletePersonData` persisted to disk, other people
   untouched; Purge deletes the private profile; the cleanup is
   admin-only, counts without emails, deletes on `apply`, then counts 0.
 
@@ -56,4 +56,17 @@ private store would write the old data back).
 
 ## Notes
 
+- Incident: #253 merged 35 s before Release #254 was cut, so v0.10.2
+  carried it; the sandbox's boot sweep wrote 5e11d592e ("people:
+  scheduled spam purge (27)") to the shared `published`. Production was
+  held on v0.10.1 and goes straight to v0.10.3.
+- Devbox (flag unset): the pod logged "scheduled spam purge disabled" and
+  wrote no data commit.
+- Chose an in-API admin endpoint over the operator script first proposed:
+  the API rewrites whole private-store files from memory on its next
+  private write, so a script beside a live pod would be undone.
+
 ## Follow-ups
+
+- **None.** Operator steps (set the flag in cfp-live-cluster, run the
+  cleanup with Chris's OK) are in the runbook and with the release.
