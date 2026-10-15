@@ -1,11 +1,15 @@
 import { z } from 'zod';
 
-// `passthrough()` so denormalized path-template fields (projectSlug) supplied
-// by write services survive validation and reach gitsheets' path template
-// renderer per specs/behaviors/storage.md#sheet-layout.
+import { references } from '../references.js';
+
+/**
+ * A help-wanted role posted by a project, keyed on disk under the project's
+ * handle (`help-wanted-roles/${projectSlug}/${id}`).
+ * References the project by slug (specs/data-model.md → References).
+ */
 export const HelpWantedRoleSchema = z.object({
   id: z.string().uuid(),
-  projectId: z.string().uuid(),
+  projectSlug: z.string().min(1).meta(references('projects.slug')),
   postedById: z.string().uuid(),
   title: z.string().min(1).max(120),
   description: z.string().min(1),
@@ -16,6 +20,6 @@ export const HelpWantedRoleSchema = z.object({
   closedAt: z.string().datetime({ offset: true }).nullable().optional(),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
-}).passthrough();
+});
 
 export type HelpWantedRole = z.infer<typeof HelpWantedRoleSchema>;
