@@ -603,6 +603,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
               >
                 Share to Slack
               </Button>
+              <Button asChild variant="outline">
+                <Link to={`/projects/${slug}/table-card`}>Table card</Link>
+              </Button>
             </div>
           </section>
 

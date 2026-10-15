@@ -10,6 +10,7 @@ import { ProjectsIndex } from '@/screens/ProjectsIndex';
 import { ProjectDetail } from '@/screens/ProjectDetail';
 import { ProjectEdit } from '@/screens/ProjectEdit';
 import { ProjectBuzzNew } from '@/screens/ProjectBuzzNew';
+import { ProjectTableCard } from '@/screens/ProjectTableCard';
 import { PeopleIndex } from '@/screens/PeopleIndex';
 import { PersonDetail } from '@/screens/PersonDetail';
 import { ProfileEdit } from '@/screens/ProfileEdit';
@@ -50,6 +51,7 @@ const router = createBrowserRouter([
       { path: '/projects/create', element: <ProjectEdit mode="create" /> },
       { path: '/projects/:slug', element: <ProjectDetail /> },
       { path: '/projects/:slug/edit', element: <ProjectEdit mode="edit" /> },
+      { path: '/projects/:slug/table-card', element: <ProjectTableCard /> },
       { path: '/projects/:slug/updates/:number', element: <ProjectDetail anchor="update" /> },
       { path: '/projects/:slug/buzz/:buzzSlug', element: <ProjectDetail anchor="buzz" /> },
       { path: '/projects/:slug/buzz/new', element: <ProjectBuzzNew /> },
