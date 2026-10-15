@@ -7,6 +7,7 @@ specs:
   - specs/api/projects.md
   - specs/data-model.md
 issues: []
+pr: 244
 ---
 
 # Plan: Purge takes the projects only the purged person touched
@@ -51,8 +52,8 @@ maintainer left to match).
 
 ## Validation
 
-- [ ] `npm run type-check && npm run lint && npm test` clean.
-- [ ] Tests: a project created by the person with only their records is
+- [x] `npm run type-check && npm run lint && npm test` clean.
+- [x] Tests: a project created by the person with only their records is
   deleted with all its records; one with another member, another author's
   update, another's buzz, another's interest, or another's RSVP naming it
   survives; a legacy project matches by maintainer; preview lists exactly
