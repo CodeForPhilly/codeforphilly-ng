@@ -8,6 +8,14 @@ import fp from 'fastify-plugin';
 
 import { SPAM_PURGE_INTERVAL_MS, SpamPurgeService } from '../services/spam-purge.js';
 
+/**
+ * Whether this pod runs the sweep: only when CFP_SCHEDULED_PURGE is "true",
+ * and never under tests (they call the sweep directly).
+ */
+export function scheduledPurgeEnabled(config: { NODE_ENV: string; CFP_SCHEDULED_PURGE: string }): boolean {
+  return config.NODE_ENV !== 'test' && config.CFP_SCHEDULED_PURGE === 'true';
+}
+
 declare module 'fastify' {
   interface FastifyInstance {
     spamPurge: SpamPurgeService;
@@ -20,6 +28,7 @@ async function spamPurgePlugin(fastify: FastifyInstance): Promise<void> {
     fts: fastify.fts,
     store: fastify.store,
     log: fastify.log,
+    sessionMetadata: fastify.sessionMetadata,
   });
   fastify.decorate('spamPurge', service);
 
@@ -31,8 +40,10 @@ async function spamPurgePlugin(fastify: FastifyInstance): Promise<void> {
 
   let interval: ReturnType<typeof setInterval> | undefined;
   fastify.addHook('onReady', async () => {
-    // Tests boot many apps; the sweep is exercised directly there.
-    if (fastify.config.NODE_ENV === 'test') return;
+    if (!scheduledPurgeEnabled(fastify.config)) {
+      fastify.log.info('scheduled spam purge disabled (CFP_SCHEDULED_PURGE is not "true")');
+      return;
+    }
     run();
     interval = setInterval(run, SPAM_PURGE_INTERVAL_MS);
   });
@@ -44,5 +55,5 @@ async function spamPurgePlugin(fastify: FastifyInstance): Promise<void> {
 export default fp(spamPurgePlugin, {
   name: 'spam-purge',
   fastify: '5.x',
-  dependencies: ['services'],
+  dependencies: ['services', 'session-middleware'],
 });

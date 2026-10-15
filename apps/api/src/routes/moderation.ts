@@ -14,6 +14,7 @@ import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
 import type { MemberOrigin, VoteFilter } from '../services/moderation.js';
+import { findOrphanPrivateData, purgeOrphanPrivateData } from '../services/private-orphans.js';
 
 function requireStaffOr404(request: FastifyRequest): void {
   const level = request.session.accountLevel;
@@ -137,6 +138,41 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
         vote: result.value.vote,
         latestVote: fastify.services.moderation.latestHumanVote(slug),
       });
+    },
+  );
+
+  // POST /api/admin/private-data/purge-orphans (administrator only)
+  // Spec: specs/api/moderation.md → POST /api/admin/private-data/purge-orphans
+  fastify.post(
+    '/api/admin/private-data/purge-orphans',
+    {
+      schema: {
+        tags: ['admin'],
+        summary: 'Delete private data of people with no public record (admin only)',
+        body: {
+          type: 'object',
+          properties: { apply: { type: 'boolean' } },
+          required: ['apply'],
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request) => {
+      if (request.session.accountLevel !== 'administrator') throw new ApiNotFoundError('Not found');
+      const { apply } = request.body as { apply: boolean };
+      // Under the write lock: account creation writes the private profile
+      // before the public record, and must never look orphaned mid-write.
+      const found = await fastify.publicRepo.withLock(async () => {
+        const publicIds = new Set(fastify.inMemoryState.people.keys());
+        const result = await findOrphanPrivateData(publicIds, fastify.store.private, fastify.sessionMetadata);
+        if (apply && result.personIds.length > 0) {
+          await purgeOrphanPrivateData(result, fastify.store.private, fastify.sessionMetadata);
+        }
+        return result;
+      });
+      const { personIds, ...counts } = found;
+      request.log.info({ apply, orphanPeople: personIds.length, ...counts }, 'private orphan purge');
+      return ok({ applied: apply, orphanPeople: personIds.length, ...counts });
     },
   );
 }

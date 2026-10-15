@@ -11,6 +11,7 @@ import type { FtsEngine } from '../store/fts.js';
 import type { InMemoryState } from '../store/memory/state.js';
 import { StateApply } from '../store/state-apply.js';
 import type { Store } from '../store/store.js';
+import type { SessionMetadataStore } from '../auth/session-metadata.js';
 import { purgePeople } from './person-purge.js';
 
 /** How long a spam vote stands before the sweep acts on it. */
@@ -48,6 +49,7 @@ export interface SpamPurgeDeps {
   readonly fts: FtsEngine;
   readonly store: Store;
   readonly log: FastifyBaseLogger;
+  readonly sessionMetadata: SessionMetadataStore;
 }
 
 export class SpamPurgeService {
@@ -86,6 +88,9 @@ export class SpamPurgeService {
       throw err;
     }
     stateApply.apply(this.#d.state, this.#d.fts);
+    for (const person of queued) {
+      await this.#d.sessionMetadata.removeAllFor(person.id, this.#d.store.private);
+    }
     this.#d.log.info({ purged: slugs }, 'scheduled spam purge');
     return slugs;
   }
