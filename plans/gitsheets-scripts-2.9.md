@@ -6,7 +6,7 @@ specs:
 upstream-specs:
   - gitsheets:specs/api/repository.md
   - gitsheets:specs/api/transaction.md
-pr:
+pr: 252
 ---
 
 # Plan: retire the scripts' git workarounds on gitsheets 2.9
