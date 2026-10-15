@@ -485,9 +485,9 @@ export function ProjectDetail({ anchor }: ProjectDetailProps = {}) {
               )}
               {project.links.chatChannel && (
                 <Button asChild variant="outline">
-                  <Link to={`/chat?channel=${encodeURIComponent(project.links.chatChannel)}`}>
+                  <a href={`/chat?channel=${encodeURIComponent(project.links.chatChannel)}`}>
                     Chat Channel
-                  </Link>
+                  </a>
                 </Button>
               )}
             </div>

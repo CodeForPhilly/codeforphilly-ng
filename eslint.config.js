@@ -25,6 +25,22 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.browser } },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // Paths the server answers before the SPA (specs/screens/chat.md →
+      // "Linking to it from the app"): a router <Link> never reaches them and
+      // renders the SPA's 404 page. Use a plain <a href> for these.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "JSXAttribute[name.name='to'] > Literal[value=/^\\/(chat|calendar)(\\/|\\?|$)|^\\/api\\//]",
+          message: 'Server-handled path: use <a href>, not a router link (specs/screens/chat.md).',
+        },
+        {
+          selector:
+            "JSXAttribute[name.name='to'] > JSXExpressionContainer > TemplateLiteral > TemplateElement:first-child[value.raw=/^\\/(chat|calendar)(\\/|\\?|$)|^\\/api\\//]",
+          message: 'Server-handled path: use <a href>, not a router link (specs/screens/chat.md).',
+        },
+      ],
     },
   },
   {
