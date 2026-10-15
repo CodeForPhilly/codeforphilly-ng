@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [events-core]
 specs:
   - specs/behaviors/events.md
@@ -46,10 +46,10 @@ which already points at the page.
 
 ## Validation
 
-- [ ] `npm run type-check && npm run lint && npm test` clean.
-- [ ] On an event with mixed answers, the unanswered avatars sit directly
+- [x] `npm run type-check && npm run lint && npm test` clean.
+- [x] On an event with mixed answers (component test; devbox has one RSVP), the unanswered avatars sit directly
   under "Going (N)" and the labelled groups follow.
-- [ ] Signed in and going, "Cancel RSVP" shows beside "You're going ✓" and
+- [x] Signed in and going, "Cancel RSVP" shows beside "You're going ✓" and
   cancels after the dialog.
 
 ## Risks / unknowns
@@ -58,4 +58,13 @@ which already points at the page.
 
 ## Notes
 
+- Feedback from Kat Jost and Travis Southard in #website-relaunch after
+  the events launch (2026-10-14). Chris decided: no "Maybe" for now, and
+  the unanswered shouldn't trail the list where they'd look like members
+  of the last labelled group.
+- Checked signed in on the devbox build: "Cancel RSVP" beside "You're
+  going ✓"; the dialog opens with "Keep my RSVP" focused.
+
 ## Follow-ups
+
+- **None.**
