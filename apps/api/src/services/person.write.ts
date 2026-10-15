@@ -35,6 +35,7 @@ import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from './tag.write.js';
 import type { PrivateStore } from '../store/private/index.js';
 import { cascadeRename } from './reference-cascade.js';
+import { purgeableProjects, purgeProject } from './project-purge.js';
 import { rekeyAttachment, upsertMoved } from './slug-rename.js';
 
 function nowIso(): string {
@@ -283,6 +284,14 @@ export class PersonWriteService {
     const stateApply = new StateApply();
     const personId = existing.id;
 
+    // 0. Projects only this person touched go first, whole (computed before
+    //    anything is deleted). Every id deleted is tracked so the person's
+    //    own cascade below skips what the project purge already removed.
+    const deleted = new Set<string>();
+    for (const project of purgeableProjects(this.#state, existing)) {
+      await purgeProject(tx, this.#state, stateApply, project, deleted);
+    }
+
     // 1. Delete the person record.
     await tx.public.people.delete(existing);
     stateApply.removePerson(personId, existing.slug);
@@ -291,7 +300,7 @@ export class PersonWriteService {
     const membershipIds = this.#state.membershipsByPerson.get(existing.slug) ?? new Set<string>();
     for (const mId of membershipIds) {
       const m = this.#state.projectMemberships.get(mId);
-      if (m) {
+      if (m && !deleted.has(m.id)) {
         await tx.public['project-memberships'].delete(m);
         stateApply.removeMembership(m);
       }
@@ -299,7 +308,7 @@ export class PersonWriteService {
 
     // 3. Cascade-delete help-wanted-interest.
     for (const interest of this.#state.helpWantedInterest.values()) {
-      if (interest.personSlug === existing.slug) {
+      if (interest.personSlug === existing.slug && !deleted.has(interest.id)) {
         await tx.public['help-wanted-interest'].delete(interest);
         stateApply.removeInterest(interest);
       }
@@ -308,7 +317,7 @@ export class PersonWriteService {
     // 3b. Cascade-delete event RSVPs (path: year/eventSlug/personSlug).
     for (const rsvpId of this.#state.rsvpsByPerson.get(existing.slug) ?? new Set<string>()) {
       const rsvp = this.#state.eventRsvps.get(rsvpId);
-      if (rsvp) {
+      if (rsvp && !deleted.has(rsvp.id)) {
         await tx.public['event-rsvps'].delete(rsvp);
         stateApply.removeEventRsvp(rsvp);
       }
@@ -326,7 +335,7 @@ export class PersonWriteService {
 
     // 5. Delete authored project-updates.
     for (const update of this.#state.projectUpdates.values()) {
-      if (update.authorId === personId) {
+      if (update.authorId === personId && !deleted.has(update.id)) {
         await tx.public['project-updates'].delete(update);
         stateApply.removeProjectUpdate(update);
       }
@@ -334,7 +343,7 @@ export class PersonWriteService {
 
     // 6. Delete posted project-buzz.
     for (const buzz of this.#state.projectBuzz.values()) {
-      if (buzz.postedById === personId) {
+      if (buzz.postedById === personId && !deleted.has(buzz.id)) {
         await tx.public['project-buzz'].delete(buzz);
         stateApply.removeProjectBuzz(buzz);
       }
@@ -349,6 +358,21 @@ export class PersonWriteService {
     }
 
     return { stateApply };
+  }
+
+  /**
+   * The projects a purge of this person would delete with them —
+   * specs/api/people.md → GET /api/people/:slug/purge-preview.
+   */
+  purgePreview(slug: string, session: SessionContext): { projects: Array<{ slug: string; title: string }> } {
+    requireAuth('administrator', { session });
+    // Deactivated people included: a spam vote deactivates, and they're who gets purged.
+    const id = this.#state.personIdBySlug.get(slug);
+    const person = id ? this.#state.people.get(id) : undefined;
+    if (!person) throw new ApiNotFoundError(`Person '${slug}' not found`);
+    return {
+      projects: purgeableProjects(this.#state, person).map((p) => ({ slug: p.slug, title: p.title })),
+    };
   }
 
   /**

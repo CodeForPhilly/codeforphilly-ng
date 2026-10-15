@@ -391,6 +391,166 @@ describe('POST /api/people/:slug/purge', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Suite: purge takes the projects only the purged person touched
+// ---------------------------------------------------------------------------
+
+describe('POST /api/people/:slug/purge — projects only they touched', () => {
+  const P = {
+    spammer: '01951a3c-0000-7000-8000-a2000000cafe',
+    bob: '01951a3c-0000-7000-8000-b2000000cafe',
+    admin: '01951a3c-0000-7000-8000-d2000000cafe',
+  };
+  const projectId = (n: number) => `01951a3c-0000-7000-8000-e${n}000000cafe`;
+  let n = 0;
+  const uid = () => `01951a3c-0000-7000-8000-f${String(++n).padStart(3, '0')}0000cafe`.slice(0, 36);
+
+  let dataRepo: { path: string; cleanup: () => Promise<void> };
+  let privateStore: { path: string; cleanup: () => Promise<void> };
+  let app: FastifyInstance;
+
+  async function seedProject(slug: string, id: string, fields: string[]): Promise<void> {
+    const toml = [
+      `id = "${id}"`,
+      `slug = "${slug}"`,
+      `title = "${slug}"`,
+      `stage = "commenting"`,
+      ...fields,
+      `createdAt = "2026-05-01T00:00:00Z"`,
+      `updatedAt = "2026-05-01T00:00:00Z"`,
+    ].join('\n');
+    await seedRawToml(dataRepo.path, `projects/${slug}.toml`, toml, `seed ${slug}`);
+  }
+
+  async function seedMember(projectSlug: string, personSlug: string): Promise<void> {
+    const toml = [
+      `id = "${uid()}"`,
+      `projectSlug = "${projectSlug}"`,
+      `personSlug = "${personSlug}"`,
+      `isMaintainer = false`,
+      `joinedAt = "2026-05-01T00:00:00Z"`,
+      `updatedAt = "2026-05-01T00:00:00Z"`,
+    ].join('\n');
+    await seedRawToml(dataRepo.path, `project-memberships/${projectSlug}/${personSlug}.toml`, toml, 'seed member');
+  }
+
+  async function seedUpdate(projectSlug: string, authorId: string): Promise<void> {
+    const toml = [
+      `id = "${uid()}"`,
+      `projectSlug = "${projectSlug}"`,
+      `number = 1`,
+      `body = "update"`,
+      `authorId = "${authorId}"`,
+      `createdAt = "2026-05-01T00:00:00Z"`,
+      `updatedAt = "2026-05-01T00:00:00Z"`,
+    ].join('\n');
+    await seedRawToml(dataRepo.path, `project-updates/${projectSlug}/1.toml`, toml, 'seed update');
+  }
+
+  beforeAll(async () => {
+    dataRepo = await createFullDataRepo();
+    privateStore = await createPrivateStorageDir();
+
+    for (const [slug, id, level] of [
+      ['spammer', P.spammer, 'user'],
+      ['bob', P.bob, 'user'],
+      ['admin-user', P.admin, 'administrator'],
+    ] as const) {
+      const toml = [
+        `id = "${id}"`,
+        `slug = "${slug}"`,
+        `fullName = "Test ${slug}"`,
+        `accountLevel = "${level}"`,
+        `createdAt = "2026-05-01T00:00:00Z"`,
+        `updatedAt = "2026-05-01T00:00:00Z"`,
+      ].join('\n');
+      await seedRawToml(dataRepo.path, `people/${slug}.toml`, toml, `seed ${slug}`);
+    }
+
+    // Created by the spammer and touched by nobody else: goes.
+    await seedProject('spam-created', projectId(1), [`createdById = "${P.spammer}"`, `maintainerId = "${P.spammer}"`]);
+    await seedMember('spam-created', 'spammer');
+    await seedUpdate('spam-created', P.spammer);
+    const role = [
+      `id = "${uid()}"`,
+      `projectSlug = "spam-created"`,
+      `postedById = "${P.spammer}"`,
+      `title = "Buy followers"`,
+      `description = "spam"`,
+      `createdAt = "2026-05-01T00:00:00Z"`,
+      `updatedAt = "2026-05-01T00:00:00Z"`,
+    ].join('\n');
+    await seedRawToml(dataRepo.path, `help-wanted-roles/spam-created/${role.match(/id = "([^"]+)"/)![1]}.toml`, role, 'seed role');
+
+    // No createdById (older record): the maintainer stands in. Goes.
+    await seedProject('spam-legacy', projectId(2), [`maintainerId = "${P.spammer}"`]);
+    await seedMember('spam-legacy', 'spammer');
+
+    // Created by the spammer, but someone else is a member: stays.
+    await seedProject('bob-joined', projectId(3), [`createdById = "${P.spammer}"`, `maintainerId = "${P.spammer}"`]);
+    await seedMember('bob-joined', 'spammer');
+    await seedMember('bob-joined', 'bob');
+
+    // Created by the spammer, but someone else posted an update: stays.
+    await seedProject('bob-posted', projectId(4), [`createdById = "${P.spammer}"`]);
+    await seedUpdate('bob-posted', P.bob);
+
+    // Created by bob, the spammer only joined: stays.
+    await seedProject('bobs-project', projectId(5), [`createdById = "${P.bob}"`, `maintainerId = "${P.spammer}"`]);
+    await seedMember('bobs-project', 'spammer');
+
+    app = await buildApp({
+      serverOptions: { logger: false },
+      overrideEnv: {
+        CFP_DATA_REPO_PATH: dataRepo.path,
+        STORAGE_BACKEND: 'filesystem',
+        CFP_PRIVATE_STORAGE_PATH: privateStore.path,
+        CFP_JWT_SIGNING_KEY: JWT_KEY,
+        NODE_ENV: 'test',
+      },
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await dataRepo.cleanup();
+    await privateStore.cleanup();
+  });
+
+  it('preview is admin-only and lists exactly the projects that go', async () => {
+    const bob = await mintCookies(P.bob);
+    const denied = await app.inject({ method: 'GET', url: '/api/people/spammer/purge-preview', headers: { cookie: bob } });
+    expect(denied.statusCode).toBe(403);
+
+    const admin = await mintCookies(P.admin, 'administrator');
+    const res = await app.inject({ method: 'GET', url: '/api/people/spammer/purge-preview', headers: { cookie: admin } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ data: { projects: Array<{ slug: string }> } }>();
+    expect(body.data.projects.map((p) => p.slug)).toEqual(['spam-created', 'spam-legacy']);
+  });
+
+  it('purge deletes those projects with their records and leaves the rest', async () => {
+    const admin = await mintCookies(P.admin, 'administrator');
+    const res = await app.inject({ method: 'POST', url: '/api/people/spammer/purge', headers: { cookie: admin } });
+    expect(res.statusCode).toBe(204);
+
+    for (const slug of ['spam-created', 'spam-legacy']) {
+      const gone = await app.inject({ method: 'GET', url: `/api/projects/${slug}`, headers: { cookie: admin } });
+      expect(gone.statusCode, slug).toBe(404);
+    }
+    const roles = await app.inject({ method: 'GET', url: '/api/help-wanted' });
+    expect(roles.json<{ data: unknown[] }>().data).toHaveLength(0);
+
+    for (const slug of ['bob-joined', 'bob-posted', 'bobs-project']) {
+      const kept = await app.inject({ method: 'GET', url: `/api/projects/${slug}` });
+      expect(kept.statusCode, slug).toBe(200);
+    }
+    const joined = await app.inject({ method: 'GET', url: '/api/projects/bob-joined' });
+    const members = joined.json<{ data: { memberships: Array<{ person: { slug: string | null } }> } }>();
+    expect(members.data.memberships.map((m) => m.person.slug)).toEqual(['bob']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Suite: deactivated person placeholder in references
 // ---------------------------------------------------------------------------
 
