@@ -17,7 +17,8 @@
     "script:cutover-dry-run": "tsx scripts/cutover-dry-run.ts",
     "script:cutover-mailout": "tsx scripts/cutover-mailout.ts",
     "script:prune-spam": "tsx scripts/prune-spam.ts",
-    "check:sheet-configs": "tsx scripts/check-sheet-configs.ts"
+    "check:sheet-configs": "tsx scripts/check-sheet-configs.ts",
+    "script:migrate-slug-references": "tsx scripts/migrations/202610150400-slug-references.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1048.0",
