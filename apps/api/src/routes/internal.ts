@@ -27,17 +27,13 @@
  * deployment surface stable across environments that haven't been
  * configured for hot reloads yet.
  */
-import { execFile } from 'node:child_process';
 import { timingSafeEqual } from 'node:crypto';
-import { promisify } from 'node:util';
 
 import type { FastifyInstance } from 'fastify';
 
 import { errorResponse, ok } from '../lib/response.js';
 import { reloadInMemoryStateAndFts, type ReloadMode } from '../store/memory/reload.js';
 import type { ReconcileOutcome, ReconcileResult } from '../store/reconcile.js';
-
-const exec = promisify(execFile);
 
 /** Bearer-token regex — case-insensitive, single whitespace separator. */
 const BEARER_RE = /^Bearer\s+(\S+)$/i;
@@ -146,44 +142,35 @@ export async function internalRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const startedAt = Date.now();
-      const repoPath = fastify.config.CFP_DATA_REPO_PATH;
       const commitHash = body.commitHash;
 
       // ---- Cheap pre-check: is `commitHash` already in local HEAD? ----
-      // No lock acquired here — `merge-base --is-ancestor` only reads
-      // git's object store, which is safe alongside an in-flight
-      // gitsheets transact. Worst case (a transact lands between this
-      // check and the answer being read) we accept a stale "no" and
-      // proceed to the full reconcile.
+      // No lock acquired here — `repo.isAncestor` only reads git's object
+      // store, which is safe alongside an in-flight gitsheets transact.
+      // Worst case (a transact lands between resolving HEAD and the answer
+      // being read) we accept a stale "no" and proceed to the full
+      // reconcile.
       if (commitHash) {
         try {
-          const head = (
-            await exec('git', ['rev-parse', 'HEAD'], { cwd: repoPath })
-          ).stdout.trim();
-          await exec(
-            'git',
-            ['merge-base', '--is-ancestor', commitHash, head],
-            { cwd: repoPath },
-          );
-          // `git merge-base --is-ancestor` exits 0 = is-ancestor, 1 = not.
-          // Reaching here means exit 0; short-circuit.
-          fastify.log.info(
-            { branch, commitHash, head },
-            'hot-reload short-circuit: commit already in local HEAD',
-          );
-          return reply.send(
-            ok({
-              noChanges: true,
-              outcome: 'in-sync' as ReconcileOutcome,
-              head,
-              durationMs: Date.now() - startedAt,
-            }),
-          );
+          const head = await fastify.publicRepo.resolveRef('HEAD');
+          if (head && (await fastify.publicRepo.isAncestor(commitHash, head))) {
+            fastify.log.info(
+              { branch, commitHash, head },
+              'hot-reload short-circuit: commit already in local HEAD',
+            );
+            return reply.send(
+              ok({
+                noChanges: true,
+                outcome: 'in-sync' as ReconcileOutcome,
+                head,
+                durationMs: Date.now() - startedAt,
+              }),
+            );
+          }
         } catch (err) {
-          // exec throws with `code: 1` when not-ancestor (continue to
-          // reconcile) and with other codes when the commit is unknown
-          // or git itself fails. We treat all non-zero as "fall through
-          // to reconcile" — the reconcile will fetch and try again.
+          // RefError when the commit isn't in the local object store yet
+          // (the usual case for an upstream push). Fall through to the
+          // reconcile, which fetches and tries again.
           fastify.log.debug(
             {
               err: err instanceof Error ? err.message : String(err),
