@@ -462,13 +462,9 @@ export function EventDetail() {
                 <>
                   <p className="flex flex-wrap items-center gap-3">
                     <span className="text-lg font-semibold text-green-700">You&rsquo;re going ✓</span>
-                    <button
-                      type="button"
-                      className="text-sm text-muted-foreground hover:underline"
-                      onClick={() => setWithdrawOpen(true)}
-                    >
-                      Can&rsquo;t make it?
-                    </button>
+                    <Button variant="outline" size="sm" onClick={() => setWithdrawOpen(true)}>
+                      Cancel RSVP
+                    </Button>
                   </p>
                   <FollowUp
                     plan={event.viewerRsvp?.plan ?? null}
@@ -614,7 +610,7 @@ export function EventDetail() {
         <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Withdraw your RSVP?</DialogTitle>
+              <DialogTitle>Cancel your RSVP?</DialogTitle>
               <DialogDescription>You&rsquo;ll be removed from the attendee list for “{event.title}”.</DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -622,7 +618,7 @@ export function EventDetail() {
                 Keep my RSVP
               </Button>
               <Button variant="destructive" onClick={() => void doWithdraw()} disabled={rsvpBusy}>
-                {rsvpBusy ? 'Withdrawing…' : "I can't make it"}
+                {rsvpBusy ? 'Cancelling…' : 'Cancel RSVP'}
               </Button>
             </DialogFooter>
           </DialogContent>
