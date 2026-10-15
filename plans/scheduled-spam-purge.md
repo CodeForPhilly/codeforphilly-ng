@@ -6,6 +6,7 @@ specs:
   - specs/api/moderation.md
   - specs/screens/admin-members.md
 issues: []
+pr: 253
 ---
 
 # Plan: Purge spam-voted accounts automatically after three days
