@@ -934,6 +934,10 @@ describe('importLaddrFromJson — orchestrator', () => {
       expect(branchTip.stdout.trim()).toBe(report.commitHash);
       const head = await exec('git', ['symbolic-ref', 'HEAD'], { cwd: repo });
       expect(head.stdout.trim()).toBe('refs/heads/empty');
+      // First run: gitsheets created the branch, parented on the initial parent.
+      const parent = await exec('git', ['rev-parse', `${report.commitHash}^`, 'empty'], { cwd: repo });
+      const [snapshotParent, emptyTip] = parent.stdout.trim().split('\n');
+      expect(snapshotParent).toBe(emptyTip);
 
       const log = await exec('git', ['log', '-1', '--format=%an <%ae>%n---%n%B', 'legacy-import'], { cwd: repo });
       expect(log.stdout).toContain('Code for Philly API <api@users.noreply.codeforphilly.org>');
@@ -1071,6 +1075,41 @@ describe('importLaddrFromJson — orchestrator', () => {
       const log = await exec('git', ['log', '--format=%s', 'legacy-import'], { cwd: repo });
       const importLines = log.stdout.split('\n').filter((l) => l.startsWith('import:'));
       expect(importLines).toHaveLength(1);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('on a fresh clone, builds on origin/<branch> and keeps its ids', async () => {
+    const { path: repo, cleanup } = await makeRepo();
+    try {
+      const common = {
+        sourceHost: 'example.test',
+        dataRepo: repo,
+        branch: 'legacy-import',
+        initialParent: 'empty',
+        now: '2026-05-18T00:00:00.000Z',
+        delayMs: 0,
+        pageSize: 200,
+      };
+      const first = await importLaddrFromJson({ ...common, fetchImpl: makeFetch(mockRoutes()) });
+      expect(first.commitHash).not.toBeNull();
+      // Simulate a fresh clone: the branch exists only as origin/legacy-import.
+      await exec('git', ['update-ref', 'refs/remotes/origin/legacy-import', first.commitHash!], { cwd: repo });
+      await exec('git', ['update-ref', '-d', 'refs/heads/legacy-import'], { cwd: repo });
+
+      const tweaked = mockRoutes();
+      const projectsKey = '/projects?format=json&include=Tags%2CMemberships&limit=200&offset=0';
+      const projectsResp = tweaked.responses.get(projectsKey)![0] as { data: Array<{ Title: string }> };
+      projectsResp.data[0]!.Title = 'Transit App — Renamed';
+      const second = await importLaddrFromJson({ ...common, fetchImpl: makeFetch(tweaked) });
+
+      expect(second.commitHash).not.toBeNull();
+      const tip = await exec('git', ['rev-parse', 'refs/heads/legacy-import', `${second.commitHash}^`], { cwd: repo });
+      expect(tip.stdout.trim().split('\n')).toEqual([second.commitHash, first.commitHash]);
+      // Ids were read at origin's tip, so only the renamed project changed.
+      const diff = await exec('git', ['diff', '--name-only', `${first.commitHash}..${second.commitHash}`], { cwd: repo });
+      expect(diff.stdout.split('\n').filter(Boolean)).toEqual(['projects/transit-app.toml']);
     } finally {
       await cleanup();
     }
