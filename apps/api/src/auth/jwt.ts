@@ -65,7 +65,8 @@ export interface ClaimPendingClaims {
 
 const CLOCK_SKEW_SECONDS = 60;
 const ACCESS_TTL_SECONDS = 15 * 60;
-const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60;
+/** Refresh-token lifetime: 90 days from the last refresh (specs/behaviors/authorization.md). */
+export const REFRESH_TTL_SECONDS = 90 * 24 * 60 * 60;
 const CLAIM_TTL_SECONDS = 5 * 60;
 
 function keyBytes(signingKey: string): Uint8Array {
