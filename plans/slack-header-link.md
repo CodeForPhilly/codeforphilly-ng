@@ -39,10 +39,10 @@ content links); changing `/chat` itself.
 
 ## Validation
 
-- [ ] `npm run type-check && npm run lint && npm test` clean.
-- [ ] At 1024px and 1280px the desktop header keeps every content link on
+- [x] `npm run type-check && npm run lint && npm test` clean.
+- [x] At 1024px and 1280px the desktop header keeps every content link on
   one line with Slack and GitHub showing; at 768px the mobile header shows.
-- [ ] At 390px the sheet lists Slack before GitHub.
+- [x] At 390px the sheet lists Slack before GitHub.
 - [ ] Clicking the header icon opens the Slack SSO start in a new tab.
 
 ## Risks / unknowns
