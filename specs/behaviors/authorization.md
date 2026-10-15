@@ -64,9 +64,10 @@ Sessions are **stateless JWTs**, not database rows. There is no `sessions` sheet
 ### Tokens
 
 - **Access JWT** — 15-minute lifetime. Sent on every API request in the `cfp_session` cookie. Payload: `{ sub: personId, jti: uuidv7, accountLevel, exp, iat }`.
-- **Refresh JWT** — 30-day lifetime. Sent only on refresh requests in a separate `cfp_refresh` cookie (path-scoped to `/api/auth/refresh`). Payload: `{ sub: personId, jti, exp, iat }`.
+- **Refresh JWT** — 90-day lifetime. Sent only on refresh requests in a separate `cfp_refresh` cookie (path-scoped to `/api/auth/refresh`). Payload: `{ sub: personId, jti, exp, iat }`. Every refresh issues a new one, so the 90 days run from the last visit, not from sign-in.
+- **Session hint** — a `cfp_has_session=1` cookie set and cleared alongside the refresh cookie, with the same lifetime, path `/`, and **not** `HttpOnly`. It carries no secret; it only tells the SPA a refresh is worth attempting, so anonymous visitors never trigger one.
 
-Both cookies: `HttpOnly`, `Secure`, `SameSite=Lax`. `Secure` is dropped only when host is `localhost` in development.
+The token cookies: `HttpOnly`, `Secure`, `SameSite=Lax`. `Secure` is dropped only when host is `localhost` in development.
 
 Signing: HS256 with `CFP_JWT_SIGNING_KEY` (server-managed secret, rotated on a cadence). Rotation triggers re-issue of all tokens on next refresh.
 
@@ -77,7 +78,7 @@ GitHub OAuth callback resolves to a Person
 (directly, or via /account-claim — see behaviors/account-migration.md)
         │
         ▼
-  Issue access JWT (15m) + refresh JWT (30d) ─▶ Set cookies
+  Issue access JWT (15m) + refresh JWT (90d) ─▶ Set cookies
         │
         ▼
   Subsequent requests carry access JWT
@@ -90,7 +91,16 @@ GitHub OAuth callback resolves to a Person
 
 There's a third short-lived JWT — the **claim-pending JWT** issued by the OAuth callback when legacy candidates exist. It has `scope: "claim"`, lifetime 5 minutes, and is accepted only by the `/api/account-claim/*` endpoints. See [api/account-claim.md](../api/account-claim.md).
 
-The access-token TTL is intentionally short so revocation has a small blast radius. The refresh-token TTL is "session length" — 30 days of inactivity logs you out.
+The access-token TTL is intentionally short so revocation has a small blast radius. The refresh-token TTL is "session length" — 90 days of inactivity logs you out; anyone who visits at least once a season stays signed in indefinitely.
+
+**The SPA keeps the session alive.** The access cookie expires 15 minutes after it was issued and the browser drops it, so a returning member's first request arrives without one. The SPA therefore:
+
+1. On load, when `/api/auth/me` reports no person but `cfp_has_session` is present, calls `POST /api/auth/refresh` once and re-reads `/api/auth/me`.
+2. On any `401` from another API call (hint or not — a 401 means the caller tried something that needs a session), calls `POST /api/auth/refresh` once (concurrent 401s share one refresh) and retries the request; if the refresh fails, the `401` stands and the member is treated as signed out.
+
+Signing in is the slowest thing a member does on this site, and a lapsed session silently turns their next action into a sign-in detour. Stay signed in unless they sign out or don't come back for a season.
+
+**Refresh writes nothing to the public store.** It issues the new pair and swaps the private session-metadata entry; the old refresh token is not revoked — it stays valid until it expires, the same exposure as the token that replaces it (see [Why not refresh-rotation tracking](#why-not-refresh-rotation-tracking)). A revocation per refresh would be a public commit per active member every quarter hour.
 
 ### Revocation
 
