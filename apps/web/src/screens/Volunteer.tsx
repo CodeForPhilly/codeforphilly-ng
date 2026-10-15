@@ -52,7 +52,7 @@ export function Volunteer() {
               We coordinate everything in our Slack workspace.
             </p>
             <Button asChild variant="outline" size="sm">
-              <Link to="/chat">Open Slack →</Link>
+              <a href="/chat">Open Slack →</a>
             </Button>
           </div>
           <div className="rounded-lg border border-border bg-card p-5">

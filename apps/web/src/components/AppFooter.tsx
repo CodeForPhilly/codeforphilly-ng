@@ -177,9 +177,9 @@ export function AppFooter() {
             <h2 className="text-sm font-semibold text-foreground mb-3">Connect</h2>
             <ul className="space-y-2 text-sm text-muted-foreground mb-4">
               <li>
-                <Link to="/chat" className="hover:text-foreground transition-colors">
+                <a href="/chat" className="hover:text-foreground transition-colors">
                   Slack
-                </Link>
+                </a>
               </li>
             </ul>
             <div className="flex items-center gap-3 flex-wrap">

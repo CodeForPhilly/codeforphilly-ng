@@ -74,9 +74,9 @@ function UpcomingList({ isStaff }: { isStaff: boolean }) {
       <div className="py-12 text-center">
         <p className="text-muted-foreground">
           Nothing on the calendar yet.{' '}
-          <Link to="/chat" className="text-primary hover:underline">
+          <a href="/chat" className="text-primary hover:underline">
             Join the Slack
-          </Link>{' '}
+          </a>{' '}
           and watch #announcements — or check back soon.
         </p>
         {isStaff && (

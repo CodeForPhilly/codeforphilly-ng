@@ -19,6 +19,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { SearchBox } from '@/components/SearchBox';
 import { GitHubIcon } from '@/components/icons/GitHubIcon';
+import { SlackIcon } from '@/components/icons/SlackIcon';
 import { useAuth } from '@/hooks/useAuth';
 
 const GITHUB_URL = 'https://github.com/CodeForPhilly';
@@ -192,12 +193,26 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'text-primary' : 'text-muted-foreground'
   }`;
 
+function SlackLink() {
+  return (
+    // A plain anchor: /chat is a server redirect the router can't resolve
+    // (specs/screens/chat.md).
+    <Button asChild variant="ghost" size="icon-sm">
+      <a
+        href="/chat"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Join Code for Philly on Slack (opens in new tab)"
+      >
+        <SlackIcon />
+      </a>
+    </Button>
+  );
+}
+
 function GitHubLink() {
   return (
-    // Desktop-only: between md and lg the header has no room for it (the
-    // utility cluster would push "Help Wanted" onto two lines); the mobile
-    // sheet carries its own GitHub row.
-    <Button asChild variant="ghost" size="icon-sm" className="hidden lg:inline-flex">
+    <Button asChild variant="ghost" size="icon-sm">
       <a
         href={GITHUB_URL}
         target="_blank"
@@ -245,7 +260,7 @@ export function AppHeader() {
             flex/gap spacing moves to the <ul>; the <li>s contribute none. */}
         <nav
           aria-label="Primary navigation"
-          className="hidden md:block ml-4 flex-1"
+          className="hidden lg:block ml-4 flex-1"
         >
           <ul className="flex items-center gap-2">
             <li>
@@ -274,12 +289,13 @@ export function AppHeader() {
           </ul>
         </nav>
 
-        {/* Desktop utility cluster: GitHub, search, auth, then the Volunteer
+        {/* Desktop utility cluster: Slack, GitHub, search, auth, then the Volunteer
             CTA pinned rightmost (specs/behaviors/app-shell.md). */}
         <nav
           aria-label="Utility"
-          className="hidden md:flex items-center gap-2 ml-auto"
+          className="hidden lg:flex items-center gap-2 ml-auto"
         >
+          <SlackLink />
           <GitHubLink />
           <SearchBox />
           <AuthControls />
@@ -293,7 +309,7 @@ export function AppHeader() {
         </nav>
 
         {/* Mobile: auth + hamburger */}
-        <div className="flex md:hidden items-center gap-2 ml-auto">
+        <div className="flex lg:hidden items-center gap-2 ml-auto">
           <AuthControls />
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
@@ -392,6 +408,18 @@ export function AppHeader() {
                 </ul>
                 <Separator />
                 <ul className="flex flex-col gap-2">
+                  <li>
+                    <a
+                      href="/chat"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-sm font-medium text-muted-foreground hover:text-primary"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      Slack
+                      <span className="sr-only"> (opens in new tab)</span>
+                    </a>
+                  </li>
                   <li>
                     <a
                       href={GITHUB_URL}

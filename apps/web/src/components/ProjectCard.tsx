@@ -77,7 +77,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
         )}
         {project.links.chatChannel && (
           <Button asChild size="sm" variant="outline">
-            <Link to={`/chat?channel=${encodeURIComponent(project.links.chatChannel)}`}>Chat</Link>
+            <a href={`/chat?channel=${encodeURIComponent(project.links.chatChannel)}`}>Chat</a>
           </Button>
         )}
         {project.openHelpWantedCount > 0 && (
