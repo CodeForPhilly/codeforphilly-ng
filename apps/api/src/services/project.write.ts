@@ -26,6 +26,7 @@ import {
 import { requireAuth } from '../auth/require.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput } from './tag.write.js';
+import { cascadeRename } from './reference-cascade.js';
 import { rekeyAttachment, restoreAttachments, takeAttachments } from './slug-rename.js';
 
 export interface CreateProjectInput {
@@ -302,6 +303,16 @@ export class ProjectWriteService {
     await tx.public.projects.upsert(updated);
     await restoreAttachments(tx.public.projects, updated, attachments);
     stateApply.upsertProject(updated);
+
+    if (slugRename) {
+      // Memberships, updates, buzz and roles reference the project by slug
+      // and live under it: move them in this same commit.
+      await cascadeRename(tx, this.#state, stateApply, {
+        target: 'projects',
+        oldSlug: slugRename.oldSlug,
+        newSlug: slugRename.newSlug,
+      });
+    }
 
     // Tag replacement (per-namespace)
     if (input.tags) {

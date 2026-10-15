@@ -34,6 +34,7 @@ import { requireAuth } from '../auth/require.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from './tag.write.js';
 import type { PrivateStore } from '../store/private/index.js';
+import { cascadeRename } from './reference-cascade.js';
 import { rekeyAttachment, restoreAttachments, takeAttachments } from './slug-rename.js';
 
 function nowIso(): string {
@@ -137,6 +138,16 @@ export class PersonWriteService {
     await tx.public.people.upsert(updated);
     await restoreAttachments(tx.public.people, updated, attachments);
     stateApply.upsertPerson(updated);
+
+    if (newSlug !== existing.slug) {
+      // Memberships, interest, RSVPs and evaluations reference the person by
+      // slug and live under it: move them in this same commit.
+      await cascadeRename(tx, this.#state, stateApply, {
+        target: 'people',
+        oldSlug: existing.slug,
+        newSlug,
+      });
+    }
 
     // Email change → private profile update (no public diff)
     if (input.email !== undefined) {

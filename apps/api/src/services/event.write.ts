@@ -35,6 +35,7 @@ import { rsvpKey } from '../store/memory/state.js';
 import { StateApply } from '../store/state-apply.js';
 import type { DualStoreTx } from '../store/store.js';
 import { isRsvpOpen } from './permissions.js';
+import { cascadeRename } from './reference-cascade.js';
 import { relinkAttachments, restoreAttachments, takeAttachments } from './slug-rename.js';
 
 function nowIso(): string {
@@ -268,18 +269,14 @@ export class EventWriteService {
         stateApply.renameEventSlug(existing.slug).upsertSlugHistory(history);
       }
 
-      for (const rsvpId of this.#state.rsvpsByEvent.get(existing.slug) ?? new Set<string>()) {
-        const rsvp = this.#state.eventRsvps.get(rsvpId);
-        if (!rsvp) continue;
-        const moved = EventRsvpSchema.parse({
-          ...rsvp,
-          year: partitionYear(updated.startsAt),
-          eventSlug: updated.slug,
-        });
-        await tx.public['event-rsvps'].delete(rsvp);
-        await tx.public['event-rsvps'].upsert(moved);
-        stateApply.removeEventRsvp(rsvp).upsertEventRsvp(moved);
-      }
+      // RSVPs reference the event by slug and are partitioned under its
+      // year: move them with it.
+      await cascadeRename(tx, this.#state, stateApply, {
+        target: 'events',
+        oldSlug: existing.slug,
+        newSlug,
+        also: { 'event-rsvps': { year: partitionYear(updated.startsAt) } },
+      });
     }
 
     await tx.public.events.upsert(updated, MARKDOWN_UPSERT);
