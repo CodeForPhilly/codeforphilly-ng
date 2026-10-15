@@ -10,18 +10,15 @@ export interface AttendeeGroup {
 }
 
 /**
- * Projects first (by attendee count, then title), then "New to Code for
- * Philly", "Looking for a project", "Not sure yet" — each only when
- * non-empty. When nobody has answered, one unlabelled group.
+ * Members who haven't answered first, unlabelled (any label reads as doubt
+ * about attending); then projects (by attendee count, then title), then "New
+ * to Code for Philly", "No project yet" — each only when non-empty.
  */
 export function groupAttendees(rsvps: EventRsvp[]): AttendeeGroup[] {
-  if (rsvps.every((r) => r.plan === null)) {
-    return rsvps.length ? [{ key: 'all', label: null, people: rsvps }] : [];
-  }
   const projects = new Map<string, AttendeeGroup>();
   const newcomers: EventRsvp[] = [];
   const looking: EventRsvp[] = [];
-  const unsure: EventRsvp[] = [];
+  const unanswered: EventRsvp[] = [];
   for (const r of rsvps) {
     if (r.plan === 'project' && r.project) {
       const g = projects.get(r.project.slug) ?? {
@@ -34,13 +31,16 @@ export function groupAttendees(rsvps: EventRsvp[]): AttendeeGroup[] {
       projects.set(r.project.slug, g);
     } else if (r.plan === 'newcomer') newcomers.push(r);
     else if (r.plan === 'no_project') looking.push(r);
-    else unsure.push(r);
+    else unanswered.push(r);
   }
-  const groups = [...projects.values()].sort(
+  const groups: AttendeeGroup[] = unanswered.length
+    ? [{ key: 'unanswered', label: null, people: unanswered }]
+    : [];
+  const byProject = [...projects.values()].sort(
     (a, b) => b.people.length - a.people.length || (a.label ?? '').localeCompare(b.label ?? ''),
   );
+  groups.push(...byProject);
   if (newcomers.length) groups.push({ key: 'newcomer', label: 'New to Code for Philly', people: newcomers });
-  if (looking.length) groups.push({ key: 'no_project', label: 'Looking for a project', people: looking });
-  if (unsure.length) groups.push({ key: 'unsure', label: 'Not sure yet', people: unsure });
+  if (looking.length) groups.push({ key: 'no_project', label: 'No project yet', people: looking });
   return groups;
 }
