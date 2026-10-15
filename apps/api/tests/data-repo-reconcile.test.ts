@@ -1,6 +1,6 @@
 /**
  * Tests for apps/api/src/store/reconcile.ts — the data-repo reconciliation
- * state machine that replaces the shell logic in deploy/docker/entrypoint.sh.
+ * state machine (gitsheets `repo.sync()` behind our outcome vocabulary).
  *
  * Each case sets up an isolated bare "remote" git repo + a local clone, mutates
  * one or both sides to provoke a specific state, then asserts the
@@ -9,8 +9,8 @@
  * Cases covered:
  *  - in-sync                  (no-op)
  *  - fast-forwarded           (local behind, remote has new commits)
- *  - pushed-ahead             (local ahead, push succeeds)
- *  - rebased                  (diverged, clean rebase, push)
+ *  - pushed-ahead             (local ahead, tip handed to push)
+ *  - rebased                  (diverged, clean replay, tip handed to push)
  *  - conflict-escaped         (diverged, rebase aborts, conflict branch pushed)
  *  - fetch-failed             (network blip simulated by a bogus remote URL)
  *  - single-branch reconcile  (regression for the latent shell bug —
@@ -24,9 +24,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  AUTHOR_EMAIL,
+  AUTHOR_NAME,
   fetchRemoteBranch,
   reconcileDataRepo,
   type ReconcileLogger,
@@ -229,11 +231,15 @@ describe('reconcileDataRepo', () => {
     const remoteBefore = await git(rig.bare, 'rev-parse', 'main');
     const newHead = await advanceLocal(rig, 'local-feature.txt', 'hi\n', 'local: add feature');
 
+    const pushed: string[] = [];
     const { logger } = makeLogger();
     const result = await reconcileDataRepo({
       repoPath: rig.local,
       branch: 'main',
       logger,
+      push: (commit) => {
+        pushed.push(commit);
+      },
     });
 
     expect(result.outcome).toBe('pushed-ahead');
@@ -241,10 +247,10 @@ describe('reconcileDataRepo', () => {
     expect(result.newCommit).toBe(newHead);
     expect(result.ahead).toBe(1);
 
-    // Remote should have advanced to local HEAD.
-    const remoteAfter = await git(rig.bare, 'rev-parse', 'main');
-    expect(remoteAfter).toBe(newHead);
-    expect(remoteAfter).not.toBe(remoteBefore);
+    // Local HEAD handed to the push hand-off (the push daemon, in the API);
+    // reconcile itself never pushes the working branch.
+    expect(pushed).toEqual([newHead]);
+    expect(await git(rig.bare, 'rev-parse', 'main')).toBe(remoteBefore);
   });
 
   it('"rebased" when diverged with a clean rebase', async () => {
@@ -258,11 +264,15 @@ describe('reconcileDataRepo', () => {
     // Remote advances on a different file.
     const remoteHead = await advanceRemote(rig, 'remote-only.txt', 'R\n', 'remote: independent change');
 
+    const pushed: string[] = [];
     const { logger } = makeLogger();
     const result = await reconcileDataRepo({
       repoPath: rig.local,
       branch: 'main',
       logger,
+      push: (commit) => {
+        pushed.push(commit);
+      },
     });
 
     expect(result.outcome).toBe('rebased');
@@ -277,9 +287,16 @@ describe('reconcileDataRepo', () => {
     expect(newHead).toBe(result.newCommit);
     expect(parent).toBe(remoteHead);
 
-    // Remote was pushed to.
-    const remoteAfter = await git(rig.bare, 'rev-parse', 'main');
-    expect(remoteAfter).toBe(newHead);
+    // The replayed tip was handed to the push hand-off.
+    expect(pushed).toEqual([newHead]);
+
+    // Replay keeps author + message and stamps the API's committer identity.
+    expect(await git(rig.local, 'show', '-s', '--format=%an <%ae>|%s', 'HEAD')).toBe(
+      'commit-helper <commit-helper@test.local>|local: independent change',
+    );
+    expect(await git(rig.local, 'show', '-s', '--format=%cn <%ce>', 'HEAD')).toBe(
+      `${AUTHOR_NAME} <${AUTHOR_EMAIL}>`,
+    );
   });
 
   it('hands ahead and rebased pushes to the push option instead of pushing itself', async () => {
@@ -329,17 +346,23 @@ describe('reconcileDataRepo', () => {
     await advanceRemote(rig, 'conflict.txt', 'REMOTE\n', 'remote: edit shared file');
     const remoteHead = await git(rig.bare, 'rev-parse', 'main');
 
-    // Deterministic timestamp for the conflict branch name.
-    const now = new Date('2026-08-15T12:34:56.789Z');
+    // Deterministic timestamp for the conflict branch name: gitsheets names
+    // it from the wall clock, so fake only `Date` (real timers keep git's
+    // child processes running).
     const expectedBranch = 'conflicts/2026-08-15T12-34-56Z';
 
     const { logger, lines } = makeLogger();
-    const result = await reconcileDataRepo({
-      repoPath: rig.local,
-      branch: 'main',
-      logger,
-      now: () => now,
-    });
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-08-15T12:34:56.789Z') });
+    let result;
+    try {
+      result = await reconcileDataRepo({
+        repoPath: rig.local,
+        branch: 'main',
+        logger,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(result.outcome).toBe('conflict-escaped');
     expect(result.conflictBranch).toBe(expectedBranch);
@@ -447,5 +470,27 @@ describe('reconcileDataRepo', () => {
     expect(result.newCommit).toBe(newRemoteHead);
 
     await rm(altLocal, { recursive: true, force: true });
+  });
+
+  it('throws when local and remote share no history', async () => {
+    // A remote rewritten from scratch is "operator did something weird"
+    // territory: boot crashes rather than guessing.
+    const orphan = `${rig.local}-orphan`;
+    await exec('git', ['init', '-b', 'main', orphan]);
+    await git(orphan, 'config', 'user.email', 'orphan@test.local');
+    await git(orphan, 'config', 'user.name', 'orphan');
+    await git(orphan, 'config', 'commit.gpgsign', 'false');
+    await writeFile(join(orphan, 'README'), 'unrelated\n');
+    await git(orphan, 'add', 'README');
+    await git(orphan, 'commit', '-m', 'unrelated root');
+    await git(orphan, 'push', '--force', rig.bare, 'main');
+    await rm(orphan, { recursive: true, force: true });
+
+    const before = await git(rig.local, 'rev-parse', 'HEAD');
+    const { logger } = makeLogger();
+    await expect(
+      reconcileDataRepo({ repoPath: rig.local, branch: 'main', logger }),
+    ).rejects.toThrow();
+    expect(await git(rig.local, 'rev-parse', 'HEAD')).toBe(before);
   });
 });
