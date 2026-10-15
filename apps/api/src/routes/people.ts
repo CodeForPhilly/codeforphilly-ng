@@ -239,6 +239,7 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     },
   }, async (request, reply) => {
     const { slug } = request.params as { slug: string };
+    const personId = fastify.inMemoryState.personIdBySlug.get(slug);
     const result = await fastify.store.transact(
       buildTransactionOptions({
         request,
@@ -250,6 +251,7 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       async (tx) => fastify.services.peopleWrite.purge(tx, slug, request.session),
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+    if (personId) await fastify.sessionMetadata.removeAllFor(personId, fastify.store.private);
     return reply.code(204).send();
   });
 

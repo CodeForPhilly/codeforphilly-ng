@@ -75,6 +75,13 @@ export const EnvSchema = z.object({
    */
   CFP_WEB_DIST_PATH: z.string().optional(),
   /**
+   * Whether this pod runs the daily scheduled spam purge
+   * (specs/behaviors/person-lifecycle.md#scheduled-spam-purge). Off by default:
+   * sandbox and production share `published`, so exactly one deployment —
+   * production — may run a destructive sweep against it.
+   */
+  CFP_SCHEDULED_PURGE: z.enum(['true', 'false']).default('false'),
+  /**
    * Host of the public-facing site (e.g. `codeforphilly.org` in prod,
    * `next-v2.codeforphilly.org` in sandbox). Used by the server-side
    * markdown renderer to distinguish internal from external links — anchors
@@ -147,6 +154,7 @@ export const envJsonSchema = {
     SAML_ENTITY_ID: { type: 'string', default: SAML_ENTITY_ID_DEFAULT },
     SLACK_TEAM_HOST: { type: 'string', default: 'codeforphilly.slack.com' },
     CFP_WEB_DIST_PATH: { type: 'string' },
+    CFP_SCHEDULED_PURGE: { type: 'string', enum: ['true', 'false'], default: 'false' },
     CFP_SITE_HOST: { type: 'string', default: 'codeforphilly.org' },
     POSTMARK_SERVER_TOKEN: { type: 'string' },
     POSTMARK_MESSAGE_STREAM: { type: 'string', default: 'outbound' },

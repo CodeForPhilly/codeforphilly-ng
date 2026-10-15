@@ -43,6 +43,9 @@ async function purgePersonRecords(
   // 1. Delete the person record.
   await tx.public.people.delete(existing);
   stateApply.removePerson(personId, existing.slug);
+  // Their private data goes in the same transaction (profile, legacy password,
+  // reset tokens, claim requests).
+  tx.private.deletePersonData(personId);
 
   // 2. Cascade-delete project-memberships.
   const membershipIds = state.membershipsByPerson.get(existing.slug) ?? new Set<string>();

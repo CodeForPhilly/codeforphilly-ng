@@ -158,12 +158,13 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(slugRedirectPlugin);
   await fastify.register(legacyRedirectPlugin);
   await fastify.register(eventRemindersPlugin);
-  await fastify.register(spamPurgePlugin);
 
   // ----- 7. Session middleware (JWT auth) -----
   // Before rate-limit and idempotency: all three use onRequest hooks, which run
   // in registration order, and the other two key on request.session.person.
   await fastify.register(sessionMiddlewarePlugin);
+  // After the session middleware: the sweep clears purged people's session metadata.
+  await fastify.register(spamPurgePlugin);
 
   // ----- 8. Rate limiting -----
   await fastify.register(rateLimitPlugin);
