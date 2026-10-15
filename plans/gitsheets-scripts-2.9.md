@@ -1,11 +1,12 @@
 ---
-status: planned
+status: done
 depends: [gitsheets-scripts, gitsheets-2.9]
 specs:
   - specs/behaviors/storage.md
 upstream-specs:
   - gitsheets:specs/api/repository.md
   - gitsheets:specs/api/transaction.md
+pr:
 ---
 
 # Plan: retire the scripts' git workarounds on gitsheets 2.9
@@ -79,18 +80,18 @@ One commit per script.
 
 ## Validation
 
-- [ ] prune-spam reads machine + human verdicts through ref-pinned sheets;
+- [x] prune-spam reads machine + human verdicts through ref-pinned sheets;
       no `transact` is used for reads
-- [ ] prune-spam on a fresh clone with only `origin/<branch>` commits the
+- [x] prune-spam on a fresh clone with only `origin/<branch>` commits the
       prune onto a newly created local branch, with no `update-ref` (test)
-- [ ] importer reads existing ids through a pinned store, and creates
+- [x] importer reads existing ids through a pinned store, and creates
       `legacy-import` through `transact` on first run (existing tests)
-- [ ] scrub-data writes configs and contracts with `tx.writeFile`; the
+- [x] scrub-data writes configs and contracts with `tx.writeFile`; the
       snapshot is a parentless commit holding configs + contracts +
       records; a verification failure leaves no commit and no ref (tests)
-- [ ] Every remaining raw `git` call in `apps/api/scripts` is listed in
+- [x] Every remaining raw `git` call in `apps/api/scripts` is listed in
       Notes with its reason, and commented in code
-- [ ] `type-check` + `lint` + full test suite green
+- [x] `type-check` + `lint` + full test suite green
 
 ## Risks / unknowns
 
@@ -101,4 +102,75 @@ One commit per script.
 
 ## Notes
 
+- **scrub-data couldn't go to one transaction.** The Approach planned a
+  single `transact({ parent: null, branch })` that writes the configs with
+  `tx.writeFile` and then upserts records. gitsheets 2.9 can't do that: a
+  transaction's `tx.sheet()` loads its config from the transaction's
+  parent commit, and from `HEAD` for an orphan (`#configTreeRef` in
+  `sheet.js`). It never reads files staged with `tx.writeFile` in the same
+  transaction. Every upsert failed with `config_missing`.
+  - What shipped: `writeConfigRootCommit` is now one detached orphan
+    `transact({ parent: null })` that writes each `.gitsheets/` file with
+    `tx.writeFile`. The hash-object, temp index, write-tree and commit-tree
+    plumbing is gone.
+  - Records stage in a transaction on that hash, as before. The staged tree
+    is still re-committed as the parentless snapshot with raw
+    `commit-tree` + `update-ref`.
+  - Using the `HEAD` fallback was rejected. It would read the target's
+    previous snapshot configs, or need HEAD detached mid-run.
+- **"No commit" on a failed scrub** means no referenced commit. The detached
+  config-root and staging commits are left as unreferenced objects, as they
+  were before.
+- **Branch creation.** `transact({ parent, branch })` creates the branch only
+  when it commits. A no-op transaction leaves a missing branch missing
+  (probed against 2.9). So a dry-run or no-change prune on a fresh clone no
+  longer creates the local branch. The importer's first run always commits.
+- **Pinned reads.** A missing ref raises `RefError(ref_not_found)`;
+  prune-spam rethrows its old `ref '<ref>' not found in <repo>` message
+  (test). Pinned sheets resolve `HEAD` (via `rev-parse`), so
+  `--evaluations-ref=HEAD` keeps working. The importer now reads ids at the
+  commit it parents on, which on first run is `origin/<branch>` or
+  `initialParent` (test).
+- **Raw `git` left in `apps/api/scripts`:**
+  - `scrub-data.ts`
+    - `init`, `config`, `rev-parse --git-dir`: init the target. gitsheets
+      has no init.
+    - `rev-parse --absolute-git-dir` / `--is-bare-repository`: locate the
+      target's git dir and detect a working tree.
+    - `ls-tree -r --name-only <ref> .gitsheets/`: list config and contract
+      files. gitsheets reads a blob by path but has no subtree listing.
+    - `rev-parse HEAD^{tree}`: the no-change check. gitsheets doesn't expose
+      a ref's tree.
+    - `commit-tree`: re-commit the staged tree as an orphan (see above).
+    - `update-ref`: point the snapshot branch at that commit. gitsheets
+      can't point a branch at an existing commit, and same-seed re-runs
+      overwrite.
+    - `symbolic-ref HEAD`: the snapshot workflow pushes HEAD's branch.
+      gitsheets never moves HEAD.
+    - `tag -f`: gitsheets has no tag API.
+    - `reset --hard`: sync a non-bare target's working tree. gitsheets is
+      bare-style.
+  - `check-sheet-configs.ts`: `init --bare`, `fetch --depth=1`, `ls-tree`,
+    `show`, run against a throwaway clone of a remote ref. gitsheets has no
+    fetch.
+  - `backfill-laddr-events.ts`, `backfill-meetup-hack-nights.ts`: one
+    create-only `update-ref` each, plus the same no-op `transact` read
+    pattern. Outside this plan's three scripts and untested. See
+    Follow-ups.
+  - `prune-spam.ts` and `import-laddr/importer.ts` have no raw git left.
+
 ## Follow-ups
+
+- Tracked as: gitsheets gap. `tx.sheet()` ignores configs staged with
+  `tx.writeFile` in the same transaction, and an orphan transaction's
+  sheets read configs from `HEAD`. Raise it upstream. When it's fixed,
+  scrub-data's config root, staging transaction and `commit-tree` +
+  `update-ref` collapse into one `transact({ parent: null, branch })`
+  (with a detached fallback for a same-seed re-run).
+- Tracked as: `backfill-laddr-events.ts` and
+  `backfill-meetup-hack-nights.ts` still use the no-op-transact read and
+  the create-only `update-ref`. Swap them to `openStore(repo, { ref })` and
+  `transact({ parent, branch })` if they're run again.
+- Tracked as: the open `gitsheets-scripts` follow-ups (old-vs-new prune on
+  real data, scrub-data real-data blockers, credentials-importer `--ref`)
+  are unchanged.
