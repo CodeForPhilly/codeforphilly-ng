@@ -150,6 +150,7 @@ export class ProjectWriteService {
       overview: input.overview ?? null,
       stage,
       maintainerId: session.person!.id,
+      createdById: session.person!.id,
       usersUrl: input.usersUrl ?? null,
       developersUrl: input.developersUrl ?? null,
       chatChannel: input.chatChannel ?? null,

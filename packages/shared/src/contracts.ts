@@ -47,7 +47,7 @@ interface SheetContract {
 
 export const SHEET_CONTRACTS = {
   people: { schema: PersonSchema, version: 1, title: 'Person' },
-  projects: { schema: ProjectSchema, version: 1, title: 'Project' },
+  projects: { schema: ProjectSchema, version: 2, title: 'Project' },
   'project-memberships': { schema: ProjectMembershipSchema, version: 2, title: 'Project membership' },
   'project-updates': { schema: ProjectUpdateSchema, version: 2, title: 'Project update' },
   'project-buzz': { schema: ProjectBuzzSchema, version: 2, title: 'Project buzz' },

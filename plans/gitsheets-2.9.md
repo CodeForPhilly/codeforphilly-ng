@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: [slug-references]
 specs:
   - specs/behaviors/storage.md
   - specs/behaviors/slug-handles.md
+pr: 243
 ---
 
 # Plan: adopt gitsheets 2.9
@@ -48,7 +49,7 @@ follow-up; #307 import-merge runbook.
       (person, project, event, cascade) still show attachments moved;
       buzz regenerateSlug keeps its image (test)
 - [x] `type-check` + `lint` + full suite green
-- [ ] Sandbox and production boot on the release
+- [x] Sandbox and production boot on the release
 
 ## Notes
 
@@ -61,5 +62,7 @@ follow-up; #307 import-merge runbook.
   sets, on real data.
 - The musl core-napi build is in the lockfile. Loading it in the Alpine
   image is verified when the release image runs on sandbox.
+
+- Shipped in v0.9.0; the Alpine image loads core-napi 0.7.0 (sandbox and production booted, 0 restarts).
 
 ## Follow-ups

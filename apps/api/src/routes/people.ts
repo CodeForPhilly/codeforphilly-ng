@@ -5,6 +5,7 @@
  *   PATCH  /api/people/:slug
  *   POST   /api/people/:slug/deactivate
  *   POST   /api/people/:slug/reactivate
+ *   GET    /api/people/:slug/purge-preview
  *   POST   /api/people/:slug/purge
  *   POST   /api/people/:slug/account-level (administrator)
  *   PATCH  /api/people/:slug/newsletter (private-only mutation)
@@ -213,6 +214,19 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
     const caller = getCallerSession(request);
     return ok(await fastify.services.people.get(result.value.person.slug, caller));
+  });
+
+  // GET /api/people/:slug/purge-preview (administrator only)
+  // Spec: specs/api/people.md → GET /api/people/:slug/purge-preview
+  fastify.get('/api/people/:slug/purge-preview', {
+    schema: {
+      tags: ['people'],
+      summary: 'Projects a purge would delete with the person (admin only)',
+      params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+    },
+  }, async (request) => {
+    const { slug } = request.params as { slug: string };
+    return { success: true, data: fastify.services.peopleWrite.purgePreview(slug, request.session) };
   });
 
   // POST /api/people/:slug/purge (administrator only)

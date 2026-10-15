@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [sheet-contracts]
 specs:
   - specs/principles.md
@@ -92,7 +92,7 @@ Out:
 - [x] Migration: idempotent; refuses to write if any reference doesn't
       resolve; `contracts verify` passes after it on every branch
 - [x] `type-check` + `lint` + full suite green
-- [ ] `published` migrated and adopted in lockstep with the release;
+- [x] `published` migrated and adopted in lockstep with the release;
       sandbox and production boot
 
 ## Risks / unknowns
@@ -117,8 +117,8 @@ Out:
   that no longer exist (it protected no one); it also deletes the pruned
   person's RSVPs. Account-claim merge re-points the requester's RSVPs.
   scrub-data pseudonymizes every person-slug reference consistently.
-- Remaining before `done`: migrate and adopt on `published` in lockstep
-  with the release, then boot sandbox and production.
+
+- `published` migrated (1,450 records) and adopted v2 in lockstep with v0.9.0 (`13ac63b`); sandbox and production booted, and memberships resolve both ways.
 
 ## Follow-ups
 
