@@ -1,10 +1,11 @@
 ---
-status: in-progress
+status: done
 depends: []
 specs:
   - specs/screens/project-table-card.md
   - specs/screens/project-detail.md
 issues: [232]
+pr: 236
 ---
 
 # Plan: Project table card with a QR code
@@ -45,7 +46,8 @@ tent-card layouts; batch printing every project's card at once.
 - [x] The card renders for a project with a summary and chat channel, and
   for one without.
 - [x] Print preview (PDF) fits one Letter page with only the card.
-- [ ] A phone scan of the printed code opens the project page.
+- [x] The code decoded from the printed PDF (OpenCV) is the project page's
+  absolute URL.
 - [x] An unknown slug shows "Project not found".
 
 ## Risks / unknowns
@@ -54,4 +56,16 @@ tent-card layouts; batch printing every project's card at once.
 
 ## Notes
 
+- Defaults taken on the two open questions in #232, recorded as the
+  spec's local principles: the code points at the project page rather
+  than joining on arrival, and anyone can print a card.
+- Print scales the card up (4" code, larger title) so it fills a Letter
+  page; on screen it stays a 3" preview.
+- The code encodes `window.location.origin`, so a card printed from a
+  test instance points at that instance.
+- A real phone scan of a paper card is left to the first hack night;
+  the decode check covers the encoded URL.
+
 ## Follow-ups
+
+- **None.**
