@@ -35,7 +35,7 @@ import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from './tag.write.js';
 import type { PrivateStore } from '../store/private/index.js';
 import { cascadeRename } from './reference-cascade.js';
-import { rekeyAttachment, restoreAttachments, takeAttachments } from './slug-rename.js';
+import { rekeyAttachment, upsertMoved } from './slug-rename.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -117,10 +117,7 @@ export class PersonWriteService {
 
     const stateApply = new StateApply();
 
-    let attachments: Awaited<ReturnType<typeof takeAttachments>> = null;
     if (newSlug !== existing.slug) {
-      attachments = await takeAttachments(tx.public.people, existing);
-      await tx.public.people.delete(existing);
       const history = {
         id: uuidv7(),
         entityType: 'person' as const,
@@ -135,8 +132,8 @@ export class PersonWriteService {
       stateApply.upsertSlugHistory(history);
     }
 
-    await tx.public.people.upsert(updated);
-    await restoreAttachments(tx.public.people, updated, attachments);
+    // Moves the record and its attachments when the slug changed.
+    await upsertMoved(tx.public.people, existing, updated);
     stateApply.upsertPerson(updated);
 
     if (newSlug !== existing.slug) {

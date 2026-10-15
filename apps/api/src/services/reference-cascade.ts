@@ -27,7 +27,7 @@ import type { InMemoryState } from '../store/memory/state.js';
 import { PUBLIC_SHEET_SCHEMAS } from '../store/public.js';
 import type { StateApply } from '../store/state-apply.js';
 import type { DualStoreTx } from '../store/store.js';
-import { restoreAttachments, takeAttachments } from './slug-rename.js';
+import { upsertMoved } from './slug-rename.js';
 
 /** How the cascade reads and re-indexes one referencing sheet's records. */
 interface ReferencingSheet<T> {
@@ -173,10 +173,8 @@ export async function cascadeRename(
       if (oldPath === newPath && Object.keys(also).every((k) => record[k] === moved[k])) continue;
       const updated = schema.parse(rekeyMovedRecord(moved, ref.sheet, oldPath, newPath));
 
-      const attachments = await takeAttachments(txSheet, record);
-      await txSheet.delete(record);
-      await txSheet.upsert(updated);
-      await restoreAttachments(txSheet, updated, attachments);
+      // Moves the record and its attachments to the new path.
+      await upsertMoved(txSheet, record, updated);
 
       adapter.remove(stateApply, record);
       adapter.upsert(stateApply, updated);

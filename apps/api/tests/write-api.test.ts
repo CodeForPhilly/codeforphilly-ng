@@ -365,6 +365,42 @@ describe('Project updates', () => {
 // ---------------------------------------------------------------------------
 
 describe('Project buzz', () => {
+  it('regenerating a buzz slug moves its image and re-keys imageKey', async () => {
+    const image = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x01, 0x02, 0x03]);
+    const oldSlug = 'inquirer-praises-squadquest';
+    const buzz = app!.inMemoryState.projectBuzz.get(fixtures.buzzId)!;
+    const withImage = { ...buzz, imageKey: `project-buzz/${fixtures.projectSlug}/${oldSlug}/image.jpg` };
+    await app!.store.public.transact(
+      { message: 'test: buzz image', author: { name: 't', email: 't@cfp.test' } },
+      async (tx) => {
+        await tx['project-buzz'].upsert(withImage);
+        await tx['project-buzz'].setAttachments(withImage, { 'image.jpg': image });
+      },
+    );
+    app!.inMemoryState.projectBuzz.set(buzz.id, withImage);
+
+    const cookie = await userCookie(fixtures.personId, 'staff');
+    const res = await app!.inject({
+      method: 'PATCH',
+      url: `/api/projects/${fixtures.projectSlug}/buzz/${oldSlug}?regenerateSlug=true`,
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { headline: 'Philly Inquirer praises SquadQuest again' },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const moved = app!.inMemoryState.projectBuzz.get(fixtures.buzzId)!;
+    expect(moved.slug).not.toBe(oldSlug);
+    expect(moved.imageKey).toBe(`project-buzz/${fixtures.projectSlug}/${moved.slug}/image.jpg`);
+    const served = await app!.inject({ method: 'GET', url: `/api/attachments/${moved.imageKey}` });
+    expect(served.statusCode).toBe(200);
+    expect(served.rawPayload.equals(image)).toBe(true);
+    const old = await app!.inject({
+      method: 'GET',
+      url: `/api/attachments/project-buzz/${fixtures.projectSlug}/${oldSlug}/image.jpg`,
+    });
+    expect(old.statusCode).toBe(404);
+  });
+
   it('any signed-in user can log buzz; duplicate URL → 409', async () => {
     const cookie = await userCookie(fixtures.personId);
     const first = await app!.inject({

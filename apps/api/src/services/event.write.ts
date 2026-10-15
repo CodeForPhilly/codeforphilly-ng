@@ -36,7 +36,7 @@ import { StateApply } from '../store/state-apply.js';
 import type { DualStoreTx } from '../store/store.js';
 import { isRsvpOpen } from './permissions.js';
 import { cascadeRename } from './reference-cascade.js';
-import { relinkAttachments, restoreAttachments, takeAttachments } from './slug-rename.js';
+import { relinkAttachments, upsertMoved } from './slug-rename.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -245,15 +245,12 @@ export class EventWriteService {
     });
 
     const stateApply = new StateApply();
-    let attachments: Awaited<ReturnType<typeof takeAttachments>> = null;
 
     if (pathChanged) {
-      // Delete the old file and move every RSVP file with it in this same
+      // Move the event file (below) and every RSVP file with it in this same
       // commit (specs/api/events.md#patch-apieventsslug,
       // specs/behaviors/storage.md#sheet-layout). Slug history only for a
       // rename — the partition is invisible in URLs.
-      attachments = await takeAttachments(tx.public.events, existing);
-      await tx.public.events.delete(existing);
       if (slugChanged) {
         const changedAt = nowIso();
         const history = {
@@ -279,8 +276,8 @@ export class EventWriteService {
       });
     }
 
-    await tx.public.events.upsert(updated, MARKDOWN_UPSERT);
-    await restoreAttachments(tx.public.events, updated, attachments);
+    // Moves the record and its attachments when its path changed.
+    await upsertMoved(tx.public.events, existing, updated, MARKDOWN_UPSERT);
     stateApply.upsertEvent(updated);
     return { event: updated, previous: existing, changes, stateApply };
   }

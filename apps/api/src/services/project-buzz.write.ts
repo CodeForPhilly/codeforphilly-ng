@@ -13,6 +13,7 @@ import { ApiNotFoundError, ApiValidationError, ConflictError } from '../lib/erro
 import { ensureUniqueSlug, isValidBuzzSlug, slugify } from '../lib/slug.js';
 import { requireAuth } from '../auth/require.js';
 import type { SessionContext } from '../auth/middleware.js';
+import { rekeyAttachment, upsertMoved } from './slug-rename.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -166,7 +167,8 @@ export class ProjectBuzzWriteService {
       summary: input.summary === undefined ? (existing.summary ?? null) : input.summary,
       imageKey:
         input.imageUpload === undefined
-          ? (existing.imageKey ?? null)
+          ? (rekeyAttachment(existing.imageKey, `project-buzz/${project.slug}`, existing.slug, newSlug) ??
+            null)
           : (input.imageUpload?.key ?? null),
       slug: newSlug,
       updatedAt: nowIso(),
@@ -174,12 +176,10 @@ export class ProjectBuzzWriteService {
 
     const stateApply = new StateApply();
 
-    if (slugChanged) {
-      await tx.public['project-buzz'].delete(existing);
-      stateApply.removeProjectBuzz(existing);
-    }
+    if (slugChanged) stateApply.removeProjectBuzz(existing);
 
-    await tx.public['project-buzz'].upsert(updated);
+    // Moves the record and its image when the slug changed.
+    await upsertMoved(tx.public['project-buzz'], existing, updated);
     stateApply.upsertProjectBuzz(updated);
 
     return { buzz: updated, stateApply };
