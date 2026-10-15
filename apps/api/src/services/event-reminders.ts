@@ -12,7 +12,7 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import type { Notifier } from '../notify/index.js';
 import type { FtsEngine } from '../store/fts.js';
-import type { InMemoryState } from '../store/memory/state.js';
+import { personBySlug, type InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/interface.js';
 import { StateApply } from '../store/state-apply.js';
 import type { Store } from '../store/store.js';
@@ -100,8 +100,8 @@ export class EventReminderService {
   async #send(event: Event, kind: ReminderKind): Promise<number> {
     const facts = eventEmailFacts(event, this.#d.siteHost);
     let attempted = 0;
-    for (const rsvp of this.#events.rsvpsFor(event.id)) {
-      const person = this.#d.state.people.get(rsvp.personId);
+    for (const rsvp of this.#events.rsvpsFor(event.slug)) {
+      const person = personBySlug(this.#d.state, rsvp.personSlug);
       if (!person || person.deletedAt) continue;
       const profile = await this.#d.privateStore.getProfile(person.id);
       if (!profile?.email) {

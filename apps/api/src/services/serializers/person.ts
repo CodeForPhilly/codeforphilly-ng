@@ -105,8 +105,10 @@ export function serializePersonDetail(
   person: Person,
   opts: {
     memberships: ProjectMembership[];
+    /** Live projects keyed by slug (memberships reference projects by slug). */
     projectsMap: Map<string, Project>;
     recentUpdates: ProjectUpdate[];
+    /** Projects of `recentUpdates`, keyed by slug. */
     updatesProjectsMap: Map<string, Project>;
     tagAssignments: TagAssignment[];
     allTags: Map<string, Tag>;
@@ -132,7 +134,7 @@ export function serializePersonDetail(
   const tagsByNamespace = groupTagsByNamespace(personTags);
 
   const memberships: PersonMembershipSummary[] = opts.memberships.map((m) => {
-    const project = opts.projectsMap.get(m.projectId);
+    const project = opts.projectsMap.get(m.projectSlug);
     return {
       project: {
         slug: project?.slug ?? '',
@@ -146,7 +148,7 @@ export function serializePersonDetail(
   });
 
   const recentUpdates: ProjectUpdateSummary[] = opts.recentUpdates.slice(0, 5).map((u) => {
-    const project = opts.updatesProjectsMap.get(u.projectId);
+    const project = opts.updatesProjectsMap.get(u.projectSlug);
     return {
       id: u.id,
       number: u.number,

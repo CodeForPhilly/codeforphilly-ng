@@ -9,6 +9,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ok } from '../lib/response.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
+import { personBySlug } from '../store/memory/state.js';
 
 interface MembershipResponseShape {
   readonly id: string;
@@ -66,7 +67,7 @@ export async function projectMembershipRoutes(fastify: FastifyInstance): Promise
         fastify.services.projectMembershipsWrite.add(tx, slug, body, request.session),
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
-    const person = fastify.inMemoryState.people.get(result.value.membership.personId)!;
+    const person = personBySlug(fastify.inMemoryState, result.value.membership.personSlug)!;
     reply.code(201);
     return ok(serializeMembership(result.value.membership, slug, person));
   });
@@ -101,7 +102,7 @@ export async function projectMembershipRoutes(fastify: FastifyInstance): Promise
         fastify.services.projectMembershipsWrite.update(tx, slug, personSlug, body, request.session),
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
-    const person = fastify.inMemoryState.people.get(result.value.membership.personId)!;
+    const person = personBySlug(fastify.inMemoryState, result.value.membership.personSlug)!;
     return ok(serializeMembership(result.value.membership, slug, person));
   });
 
@@ -154,7 +155,7 @@ export async function projectMembershipRoutes(fastify: FastifyInstance): Promise
         fastify.services.projectMembershipsWrite.join(tx, slug, request.session),
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
-    const person = fastify.inMemoryState.people.get(result.value.membership.personId)!;
+    const person = personBySlug(fastify.inMemoryState, result.value.membership.personSlug)!;
     reply.code(201);
     return ok(serializeMembership(result.value.membership, slug, person));
   });

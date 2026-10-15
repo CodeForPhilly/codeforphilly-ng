@@ -525,47 +525,15 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
 
       log(`[import] clear + upsert project-memberships (${memberships.length})`);
       await tx['project-memberships'].clear();
-      for (const m of memberships) {
-        const projectSlug = idMaps.projectSlugByLegacy.get(m.legacyIds.projectLegacyId);
-        const personSlug = idMaps.personSlugByLegacy.get(m.legacyIds.personLegacyId);
-        if (!projectSlug || !personSlug) {
-          warnings.push(
-            `[project-memberships] skipped: missing slug for project=${m.legacyIds.projectLegacyId} or person=${m.legacyIds.personLegacyId}`,
-          );
-          continue;
-        }
-        await tx['project-memberships'].upsert({
-          ...m.record,
-          projectSlug,
-          personSlug,
-        } as ProjectMembership);
-      }
+      for (const m of memberships) await tx['project-memberships'].upsert(m.record);
 
       log(`[import] clear + upsert project-updates (${updates.length})`);
       await tx['project-updates'].clear();
-      for (const { record, projectLegacyId } of updates) {
-        const projectSlug = idMaps.projectSlugByLegacy.get(projectLegacyId);
-        if (!projectSlug) {
-          warnings.push(
-            `[project-updates] skipped: missing slug for project=${projectLegacyId}`,
-          );
-          continue;
-        }
-        await tx['project-updates'].upsert({ ...record, projectSlug } as ProjectUpdate);
-      }
+      for (const { record } of updates) await tx['project-updates'].upsert(record);
 
       log(`[import] clear + upsert project-buzz (${buzz.length})`);
       await tx['project-buzz'].clear();
-      for (const { record, projectLegacyId } of buzz) {
-        const projectSlug = idMaps.projectSlugByLegacy.get(projectLegacyId);
-        if (!projectSlug) {
-          warnings.push(
-            `[project-buzz] skipped: missing slug for project=${projectLegacyId}`,
-          );
-          continue;
-        }
-        await tx['project-buzz'].upsert({ ...record, projectSlug } as ProjectBuzz);
-      }
+      for (const { record } of buzz) await tx['project-buzz'].upsert(record);
 
       log(
         `[import] clear + upsert blog-posts (${blogTranslations.length}) + media attachments`,
@@ -723,8 +691,9 @@ async function collectExistingIdsAt(
 // Simple sheets (people, projects, tags, project-updates, project-buzz)
 // carry `legacyId` directly on the record, so we read them in one pass.
 // Composite-path sheets (project-memberships, tag-assignments) don't store
-// legacy IDs on the record; we recover them via uuid→legacyId reverse maps
-// built from the simple-sheet pass.
+// legacy IDs on the record; we recover them via slug→legacyId (memberships)
+// and uuid→legacyId (tag assignments) reverse maps built from the
+// simple-sheet pass.
 // ---------------------------------------------------------------------------
 
 async function collectExistingIds(
@@ -739,6 +708,9 @@ async function collectExistingIds(
   const personLegacyByUuid = new Map<string, number>();
   const projectLegacyByUuid = new Map<string, number>();
   const tagLegacyByUuid = new Map<string, number>();
+  // Memberships reference people and projects by slug.
+  const personLegacyBySlug = new Map<string, number>();
+  const projectLegacyBySlug = new Map<string, number>();
 
   const simpleSheets = ['people', 'projects', 'tags', 'project-updates', 'project-buzz', 'blog-posts'] as const;
   for (const sheetName of simpleSheets) {
@@ -749,8 +721,14 @@ async function collectExistingIds(
       if (typeof legacyId === 'number' && typeof id === 'string') {
         ids.byFile.set(`${sheetName}/${legacyId}`, id);
         count++;
-        if (sheetName === 'people') personLegacyByUuid.set(id, legacyId);
-        else if (sheetName === 'projects') projectLegacyByUuid.set(id, legacyId);
+        const slug = record['slug'];
+        if (sheetName === 'people') {
+          personLegacyByUuid.set(id, legacyId);
+          if (typeof slug === 'string') personLegacyBySlug.set(slug, legacyId);
+        } else if (sheetName === 'projects') {
+          projectLegacyByUuid.set(id, legacyId);
+          if (typeof slug === 'string') projectLegacyBySlug.set(slug, legacyId);
+        }
         else if (sheetName === 'tags') tagLegacyByUuid.set(id, legacyId);
       }
     }
@@ -762,14 +740,14 @@ async function collectExistingIds(
     query: () => AsyncIterable<Record<string, unknown>>;
   };
   for await (const record of membershipsSheet.query()) {
-    const projectId = record['projectId'];
-    const personId = record['personId'];
+    const projectSlug = record['projectSlug'];
+    const personSlug = record['personSlug'];
     const id = record['id'];
-    if (typeof id !== 'string' || typeof projectId !== 'string' || typeof personId !== 'string') {
+    if (typeof id !== 'string' || typeof projectSlug !== 'string' || typeof personSlug !== 'string') {
       continue;
     }
-    const projectLegacyId = projectLegacyByUuid.get(projectId);
-    const personLegacyId = personLegacyByUuid.get(personId);
+    const projectLegacyId = projectLegacyBySlug.get(projectSlug);
+    const personLegacyId = personLegacyBySlug.get(personSlug);
     if (projectLegacyId === undefined || personLegacyId === undefined) continue;
     ids.byFile.set(`project-memberships/${projectLegacyId}-${personLegacyId}`, id);
     count++;

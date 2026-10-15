@@ -1,12 +1,35 @@
-"$id" = "https://codeforphilly.org/project-memberships/v1"
+"$id" = "https://codeforphilly.org/help-wanted-roles/v2"
 "$schema" = "http://json-schema.org/draft-07/schema#"
-required = ["createdAt", "id", "joinedAt", "personId", "projectId", "updatedAt"]
-title = "Project membership"
+required = ["createdAt", "description", "id", "postedById", "projectSlug", "title", "updatedAt"]
+title = "Help-wanted role"
 type = "object"
+
+[properties.closedAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.commitmentHoursPerWeek]
+minimum = 0
+type = "integer"
 
 [properties.createdAt]
 format = "date-time"
 pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.description]
+minLength = 1
+type = "string"
+
+[properties.filledAt]
+format = "date-time"
+pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
+type = "string"
+
+[properties.filledById]
+format = "uuid"
+pattern = "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
 type = "string"
 
 [properties.id]
@@ -14,26 +37,23 @@ format = "uuid"
 pattern = "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
 type = "string"
 
-[properties.isMaintainer]
-default = false
-type = "boolean"
-
-[properties.joinedAt]
-format = "date-time"
-pattern = '^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$'
-type = "string"
-
-[properties.personId]
+[properties.postedById]
 format = "uuid"
 pattern = "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
 type = "string"
 
-[properties.projectId]
-format = "uuid"
-pattern = "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+[properties.projectSlug]
+minLength = 1
 type = "string"
 
-[properties.role]
+[properties.status]
+default = "open"
+enum = ["open", "filled", "closed"]
+type = "string"
+
+[properties.title]
+maxLength = 120
+minLength = 1
 type = "string"
 
 [properties.updatedAt]

@@ -54,6 +54,12 @@ Slugs **can** change. When they do:
 
 - The entity record's `slug` field is updated.
 - The entity's attachments (avatar, featured image) move with the record, and any on-record attachment key (`avatarKey`, `featuredImageKey`) is rewritten to the new path. A rename changes the handle and nothing else about the entity.
+- **Every record that references the old slug is rewritten in the same commit**: its reference field takes the new slug, and since the slug is part of that record's path, the record moves too. The set of referencing sheets comes from the references the schemas declare ([data-model.md → References](../data-model.md)), not from a hand-kept list:
+  - a project rename rewrites its `project-memberships`, `project-updates`, `project-buzz` and `help-wanted-roles`;
+  - a person rename rewrites their `project-memberships`, `help-wanted-interest`, `event-rsvps` and `person-evaluations`;
+  - an event rename rewrites its `event-rsvps` (an event whose `startsAt` crosses a year boundary moves its RSVPs to the new `year` the same way).
+
+  After a rename, no record anywhere holds the old slug as a reference.
 - A `SlugHistory` record is written to the `slug-history` sheet (see [data-model.md](../data-model.md#slughistory)) with `oldSlug`, `newSlug`, `entityType`, `entityId`, `changedAt`, and `expiresAt = changedAt + 90 days`.
 - On any request to a URL using an `oldSlug` that is *not yet* expired, the web layer serves a **301 redirect** to the current canonical URL.
 - After `expiresAt`, the redirect is no longer served. The record is retained as part of the commit history but is removed from the sheet by a periodic sweeper task.
@@ -79,6 +85,12 @@ laddr matched handles case-insensitively, and the import normalized handles that
 The normalization is the import's transform minus its collision suffixing. A legacy handle whose normalized form collided at import (it was imported as `<slug>-2`) redirects to the entity that holds the unsuffixed slug. That's an accepted limit; laddr's case-insensitive uniqueness means case-only collisions can't occur, so only punctuation collisions are affected.
 
 The API does not normalize. `/api/*` lookups are exact-match on the canonical slug; clients always hold canonical slugs.
+
+## Principles
+
+**Inherited:**
+
+- [A record holds everything its path needs](../principles.md#a-record-holds-everything-its-path-needs): child records reference their parent by its slug, so every rename cascades to them; that cascade is what this spec's rename rules guarantee.
 
 ## Reserved slugs
 

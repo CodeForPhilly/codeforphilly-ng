@@ -35,6 +35,7 @@ import { rsvpKey } from '../store/memory/state.js';
 import { StateApply } from '../store/state-apply.js';
 import type { DualStoreTx } from '../store/store.js';
 import { isRsvpOpen } from './permissions.js';
+import { cascadeRename } from './reference-cascade.js';
 import { relinkAttachments, restoreAttachments, takeAttachments } from './slug-rename.js';
 
 function nowIso(): string {
@@ -49,11 +50,6 @@ function nowIso(): string {
  */
 export function partitionYear(startsAt: string): string {
   return startsAt.slice(0, 4);
-}
-
-/** Denormalized path-template fields for `event-rsvps/${year}/${eventSlug}/${personSlug}`. */
-function withRsvpPath(rsvp: EventRsvp, event: Pick<Event, 'slug' | 'startsAt'>, personSlug: string): EventRsvp {
-  return { ...rsvp, year: partitionYear(event.startsAt), eventSlug: event.slug, personSlug } as EventRsvp;
 }
 
 /**
@@ -273,14 +269,14 @@ export class EventWriteService {
         stateApply.renameEventSlug(existing.slug).upsertSlugHistory(history);
       }
 
-      for (const rsvpId of this.#state.rsvpsByEvent.get(existing.id) ?? new Set<string>()) {
-        const rsvp = this.#state.eventRsvps.get(rsvpId);
-        if (!rsvp) continue;
-        const personSlug = this.#state.personSlugById.get(rsvp.personId);
-        if (!personSlug) continue;
-        await tx.public['event-rsvps'].delete(withRsvpPath(rsvp, existing, personSlug));
-        await tx.public['event-rsvps'].upsert(withRsvpPath(rsvp, updated, personSlug));
-      }
+      // RSVPs reference the event by slug and are partitioned under its
+      // year: move them with it.
+      await cascadeRename(tx, this.#state, stateApply, {
+        target: 'events',
+        oldSlug: existing.slug,
+        newSlug,
+        also: { 'event-rsvps': { year: partitionYear(updated.startsAt) } },
+      });
     }
 
     await tx.public.events.upsert(updated, MARKDOWN_UPSERT);
@@ -325,7 +321,7 @@ export class EventWriteService {
   async delete(tx: DualStoreTx, slug: string, session: SessionContext): Promise<{ stateApply: StateApply }> {
     requireAuth('staff', { session });
     const existing = this.#eventOrThrow(slug);
-    const rsvpIds = this.#state.rsvpsByEvent.get(existing.id) ?? new Set<string>();
+    const rsvpIds = this.#state.rsvpsByEvent.get(existing.slug) ?? new Set<string>();
     if (existing.status !== 'draft' && rsvpIds.size > 0) {
       throw new ConflictError('Event has RSVPs — cancel it instead', 'has_rsvps');
     }
@@ -333,9 +329,7 @@ export class EventWriteService {
     for (const rsvpId of rsvpIds) {
       const rsvp = this.#state.eventRsvps.get(rsvpId);
       if (!rsvp) continue;
-      const personSlug = this.#state.personSlugById.get(rsvp.personId);
-      if (!personSlug) continue;
-      await tx.public['event-rsvps'].delete(withRsvpPath(rsvp, existing, personSlug));
+      await tx.public['event-rsvps'].delete(rsvp);
       stateApply.removeEventRsvp(rsvp);
     }
     await tx.public.events.delete(existing);
@@ -358,7 +352,7 @@ export class EventWriteService {
     const event = this.#eventOrThrow(slug, session);
     if (!isRsvpOpen(event)) throw new ConflictError('RSVPs are closed for this event', 'rsvp_closed');
 
-    const existingId = this.#state.rsvpIdByEventAndPerson.get(rsvpKey(event.id, person.id));
+    const existingId = this.#state.rsvpIdByEventAndPerson.get(rsvpKey(event.slug, person.slug));
     const existing = existingId ? this.#state.eventRsvps.get(existingId) : undefined;
 
     let plan: EventRsvpPlan | null = existing?.plan ?? null;
@@ -388,14 +382,15 @@ export class EventWriteService {
     const now = nowIso();
     const rsvp: EventRsvp = EventRsvpSchema.parse({
       id: existing?.id ?? uuidv7(),
-      eventId: event.id,
-      personId: person.id,
+      year: partitionYear(event.startsAt),
+      eventSlug: event.slug,
+      personSlug: person.slug,
       plan,
       projectId,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     });
-    await tx.public['event-rsvps'].upsert(withRsvpPath(rsvp, event, person.slug));
+    await tx.public['event-rsvps'].upsert(rsvp);
     return { event, rsvp, created: existing === undefined, stateApply: new StateApply().upsertEventRsvp(rsvp) };
   }
 
@@ -410,10 +405,10 @@ export class EventWriteService {
     if (new Date(event.endsAt) <= new Date()) {
       throw new ConflictError('The event has ended; the attendance record is history now', 'rsvp_closed');
     }
-    const existingId = this.#state.rsvpIdByEventAndPerson.get(rsvpKey(event.id, person.id));
+    const existingId = this.#state.rsvpIdByEventAndPerson.get(rsvpKey(event.slug, person.slug));
     const existing = existingId ? this.#state.eventRsvps.get(existingId) : undefined;
     if (!existing) return { removed: false, stateApply: new StateApply() };
-    await tx.public['event-rsvps'].delete(withRsvpPath(existing, event, person.slug));
+    await tx.public['event-rsvps'].delete(existing);
     return { removed: true, stateApply: new StateApply().removeEventRsvp(existing) };
   }
 

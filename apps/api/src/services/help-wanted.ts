@@ -2,7 +2,7 @@
  * HelpWantedService — read operations.
  */
 import type { HelpWantedRole, Project, ProjectMembership } from '@cfp/shared/schemas';
-import type { InMemoryState } from '../store/memory/state.js';
+import { interestKey, projectBySlug, type InMemoryState } from '../store/memory/state.js';
 import type { FtsEngine } from '../store/fts.js';
 import type { CallerSession } from './permissions.js';
 import { computeHelpWantedPermissions } from './permissions.js';
@@ -72,7 +72,7 @@ export class HelpWantedService {
     const validStatuses = new Set(['open', 'filled', 'closed']);
     if (opts.status && !validStatuses.has(opts.status)) return { error: 'invalid_filter' };
 
-    const roleIds = this.#state.helpWantedByProject.get(projectId) ?? new Set();
+    const roleIds = this.#state.helpWantedByProject.get(project.slug) ?? new Set();
     let roles = [...roleIds]
       .map((id) => this.#state.helpWantedRoles.get(id))
       .filter((r): r is HelpWantedRole => r !== undefined);
@@ -98,7 +98,7 @@ export class HelpWantedService {
     const perPage = Math.min(100, Math.max(1, opts.perPage ?? 20));
     const slice = roles.slice((page - 1) * perPage, page * perPage);
 
-    const memberships = this.#getMemberships(projectId);
+    const memberships = this.#getMemberships(project.slug);
     const items = slice.map((role) => this.#serializeRole(role, project, memberships, caller));
 
     return { items, totalItems };
@@ -133,7 +133,7 @@ export class HelpWantedService {
     }
 
     const roles = [...this.#state.helpWantedRoles.values()].filter((r) => {
-      const project = this.#state.projects.get(r.projectId);
+      const project = projectBySlug(this.#state, r.projectSlug);
       if (!project || project.deletedAt) return false;
 
       if (r.status !== statusFilter) return false;
@@ -182,8 +182,8 @@ export class HelpWantedService {
     const slice = roles.slice((page - 1) * perPage, page * perPage);
 
     const items = slice.map((role) => {
-      const project = this.#state.projects.get(role.projectId)!;
-      const memberships = this.#getMemberships(role.projectId);
+      const project = projectBySlug(this.#state, role.projectSlug)!;
+      const memberships = this.#getMemberships(role.projectSlug);
       return this.#serializeRole(role, project, memberships, caller);
     });
 
@@ -202,7 +202,7 @@ export class HelpWantedService {
     const interestCount = this.#state.interestByRole.get(role.id)?.size ?? 0;
 
     const alreadyExpressedInterest = caller
-      ? this.#state.interestByRoleAndPerson.has(`${role.id}:${caller.id}`)
+      ? this.#state.interestByRoleAndPerson.has(interestKey(role.id, caller.slug))
       : false;
 
     const tagAssignments = [...(this.#state.tagAssignmentsByTaggable.get(role.id) ?? [])]
@@ -228,8 +228,8 @@ export class HelpWantedService {
     });
   }
 
-  #getMemberships(projectId: string) {
-    const mIds = this.#state.membershipsByProject.get(projectId) ?? new Set();
+  #getMemberships(projectSlug: string) {
+    const mIds = this.#state.membershipsByProject.get(projectSlug) ?? new Set();
     return [...mIds]
       .map((id) => this.#state.projectMemberships.get(id))
       .filter((m): m is NonNullable<typeof m> => m !== undefined);

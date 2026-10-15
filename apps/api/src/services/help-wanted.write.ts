@@ -10,7 +10,7 @@
  * Side effects per specs/behaviors/help-wanted-roles.md:
  *  - fill with attribution → adds the person as a project member if not yet
  *    (Notifier is invoked by the route after commit.)
- *  - express-interest → 30-day rate cap per (roleId, personId); notification
+ *  - express-interest → 30-day rate cap per (roleId, personSlug); notification
  *    fan-out happens after commit
  */
 import { uuidv7 } from 'uuidv7';
@@ -25,7 +25,7 @@ import {
   type ProjectMembership,
 } from '@cfp/shared/schemas';
 import type { DualStoreTx } from '../store/store.js';
-import type { InMemoryState } from '../store/memory/state.js';
+import { interestKey, type InMemoryState } from '../store/memory/state.js';
 import { StateApply } from '../store/state-apply.js';
 import { ApiNotFoundError, ApiValidationError, ConflictError } from '../lib/errors.js';
 import { requireAuth } from '../auth/require.js';
@@ -37,25 +37,6 @@ const INTEREST_RATE_CAP_MS = 30 * 24 * 60 * 60 * 1000;
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function withProjectPath<T extends object>(record: T, projectSlug: string): Record<string, unknown> {
-  return { ...record, projectSlug };
-}
-
-function withInterestPath(
-  e: HelpWantedInterestExpression,
-  personSlug: string,
-): Record<string, unknown> {
-  return { ...e, personSlug };
-}
-
-function withMembershipPath(
-  m: ProjectMembership,
-  projectSlug: string,
-  personSlug: string,
-): Record<string, unknown> {
-  return { ...m, projectSlug, personSlug };
 }
 
 export class HelpWantedWriteService {
@@ -104,7 +85,7 @@ export class HelpWantedWriteService {
     const now = nowIso();
     const role: HelpWantedRole = HelpWantedRoleSchema.parse({
       id: uuidv7(),
-      projectId: project.id,
+      projectSlug: project.slug,
       postedById: session.person!.id,
       title: input.title,
       description: input.description,
@@ -114,9 +95,7 @@ export class HelpWantedWriteService {
       updatedAt: now,
     });
 
-    await tx.public['help-wanted-roles'].upsert(
-      withProjectPath(role, project.slug) as unknown as HelpWantedRole,
-    );
+    await tx.public['help-wanted-roles'].upsert(role);
 
     const stateApply = new StateApply().upsertHelpWantedRole(role);
 
@@ -149,7 +128,7 @@ export class HelpWantedWriteService {
     session: SessionContext,
   ): Promise<{ role: HelpWantedRole; stateApply: StateApply }> {
     const { project, memberships } = this.#projectOrThrow(projectSlug);
-    const existing = this.#roleOrThrow(project.id, roleId);
+    const existing = this.#roleOrThrow(project.slug, roleId);
 
     // Poster, project maintainer, or staff can edit. Use a two-step check:
     // first try maintainer | staff, fall back to a per-poster check.
@@ -182,9 +161,7 @@ export class HelpWantedWriteService {
       updatedAt: nowIso(),
     });
 
-    await tx.public['help-wanted-roles'].upsert(
-      withProjectPath(updated, project.slug) as unknown as HelpWantedRole,
-    );
+    await tx.public['help-wanted-roles'].upsert(updated);
 
     const stateApply = new StateApply().upsertHelpWantedRole(updated);
 
@@ -223,14 +200,16 @@ export class HelpWantedWriteService {
   }> {
     requireAuth('user', { session });
     const { project } = this.#projectOrThrow(projectSlug);
-    const role = this.#roleOrThrow(project.id, roleId);
+    const role = this.#roleOrThrow(project.slug, roleId);
 
     if (role.status !== 'open') {
       throw new ConflictError('Role is not open', 'role_not_open');
     }
 
-    // 30-day rate cap per (roleId, personId)
-    const existingId = this.#state.interestByRoleAndPerson.get(`${role.id}:${session.person!.id}`);
+    // 30-day rate cap per (roleId, personSlug)
+    const existingId = this.#state.interestByRoleAndPerson.get(
+      interestKey(role.id, session.person!.slug),
+    );
     if (existingId) {
       const existing = this.#state.helpWantedInterest.get(existingId);
       if (existing) {
@@ -252,14 +231,12 @@ export class HelpWantedWriteService {
     const expression: HelpWantedInterestExpression = HelpWantedInterestExpressionSchema.parse({
       id: uuidv7(),
       roleId: role.id,
-      personId: session.person!.id,
+      personSlug: session.person!.slug,
       message: input.message ?? null,
       createdAt: now,
     });
 
-    await tx.public['help-wanted-interest'].upsert(
-      withInterestPath(expression, session.person!.slug) as unknown as HelpWantedInterestExpression,
-    );
+    await tx.public['help-wanted-interest'].upsert(expression);
 
     const stateApply = new StateApply().upsertInterest(expression);
     const poster = this.#state.people.get(role.postedById) ?? null;
@@ -281,7 +258,7 @@ export class HelpWantedWriteService {
     stateApply: StateApply;
   }> {
     const { project, memberships } = this.#projectOrThrow(projectSlug);
-    const role = this.#roleOrThrow(project.id, roleId);
+    const role = this.#roleOrThrow(project.slug, roleId);
     requireAuth('maintainer | staff', { session, project, memberships });
 
     let filledBy: Person | null = null;
@@ -304,27 +281,23 @@ export class HelpWantedWriteService {
       updatedAt: now,
     });
 
-    await tx.public['help-wanted-roles'].upsert(
-      withProjectPath(updated, project.slug) as unknown as HelpWantedRole,
-    );
+    await tx.public['help-wanted-roles'].upsert(updated);
 
     const stateApply = new StateApply().upsertHelpWantedRole(updated);
 
     // Membership side-effect
-    if (filledBy && !memberships.some((m) => m.personId === filledBy!.id)) {
+    if (filledBy && !memberships.some((m) => m.personSlug === filledBy!.slug)) {
       const membership: ProjectMembership = ProjectMembershipSchema.parse({
         id: uuidv7(),
-        projectId: project.id,
-        personId: filledBy.id,
+        projectSlug: project.slug,
+        personSlug: filledBy.slug,
         role: `Help-wanted: ${role.title}`,
         isMaintainer: false,
         joinedAt: now,
         createdAt: now,
         updatedAt: now,
       });
-      await tx.public['project-memberships'].upsert(
-        withMembershipPath(membership, project.slug, filledBy.slug) as unknown as ProjectMembership,
-      );
+      await tx.public['project-memberships'].upsert(membership);
       stateApply.upsertMembership(membership);
     }
 
@@ -339,7 +312,7 @@ export class HelpWantedWriteService {
     session: SessionContext,
   ): Promise<{ role: HelpWantedRole; stateApply: StateApply }> {
     const { project, memberships } = this.#projectOrThrow(projectSlug);
-    const role = this.#roleOrThrow(project.id, roleId);
+    const role = this.#roleOrThrow(project.slug, roleId);
     requireAuth('maintainer | staff', { session, project, memberships });
 
     const now = nowIso();
@@ -350,9 +323,7 @@ export class HelpWantedWriteService {
       updatedAt: now,
     });
 
-    await tx.public['help-wanted-roles'].upsert(
-      withProjectPath(updated, project.slug) as unknown as HelpWantedRole,
-    );
+    await tx.public['help-wanted-roles'].upsert(updated);
 
     const stateApply = new StateApply().upsertHelpWantedRole(updated);
     return { role: updated, stateApply };
@@ -365,7 +336,7 @@ export class HelpWantedWriteService {
     session: SessionContext,
   ): Promise<{ role: HelpWantedRole; stateApply: StateApply }> {
     const { project, memberships } = this.#projectOrThrow(projectSlug);
-    const role = this.#roleOrThrow(project.id, roleId);
+    const role = this.#roleOrThrow(project.slug, roleId);
     requireAuth('maintainer | staff', { session, project, memberships });
 
     const updated: HelpWantedRole = HelpWantedRoleSchema.parse({
@@ -377,9 +348,7 @@ export class HelpWantedWriteService {
       updatedAt: nowIso(),
     });
 
-    await tx.public['help-wanted-roles'].upsert(
-      withProjectPath(updated, project.slug) as unknown as HelpWantedRole,
-    );
+    await tx.public['help-wanted-roles'].upsert(updated);
 
     const stateApply = new StateApply().upsertHelpWantedRole(updated);
     return { role: updated, stateApply };
@@ -395,16 +364,16 @@ export class HelpWantedWriteService {
     const p = this.#state.projects.get(id);
     if (!p || p.deletedAt) throw new ApiNotFoundError(`Project '${slug}' not found`);
 
-    const mIds = this.#state.membershipsByProject.get(id) ?? new Set();
+    const mIds = this.#state.membershipsByProject.get(p.slug) ?? new Set();
     const memberships = [...mIds]
       .map((mId) => this.#state.projectMemberships.get(mId))
       .filter((m): m is ProjectMembership => m !== undefined);
     return { project: p, memberships };
   }
 
-  #roleOrThrow(projectId: string, roleId: string): HelpWantedRole {
+  #roleOrThrow(projectSlug: string, roleId: string): HelpWantedRole {
     const r = this.#state.helpWantedRoles.get(roleId);
-    if (!r || r.projectId !== projectId) {
+    if (!r || r.projectSlug !== projectSlug) {
       throw new ApiNotFoundError(`Help-wanted role '${roleId}' not found`);
     }
     return r;

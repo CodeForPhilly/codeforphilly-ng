@@ -16,7 +16,7 @@ import {
   type Person,
   type PersonEvaluation,
 } from '@cfp/shared/schemas';
-import type { InMemoryState } from '../store/memory/state.js';
+import { projectBySlug, type InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/interface.js';
 import type { DualStoreTx } from '../store/store.js';
 import { StateApply } from '../store/state-apply.js';
@@ -114,6 +114,7 @@ interface AuthoredCounts {
   updates: Map<string, number>;
   buzz: Map<string, number>;
   blogPosts: Map<string, number>;
+  /** Keyed by person slug (interest references people by slug); the rest by person id. */
   interest: Map<string, number>;
 }
 
@@ -421,11 +422,11 @@ export class ModerationService {
       ? { type: profile.emailBounce.type, bouncedAt: profile.emailBounce.bouncedAt }
       : null;
     const footprint: FootprintCounts = {
-      memberships: this.#state.membershipsByPerson.get(p.id)?.size ?? 0,
+      memberships: this.#state.membershipsByPerson.get(p.slug)?.size ?? 0,
       updates: authored.updates.get(p.id) ?? 0,
       buzz: authored.buzz.get(p.id) ?? 0,
       blogPosts: authored.blogPosts.get(p.id) ?? 0,
-      helpWantedInterest: authored.interest.get(p.id) ?? 0,
+      helpWantedInterest: authored.interest.get(p.slug) ?? 0,
       tags: this.#state.tagAssignmentsByTaggable.get(p.id)?.size ?? 0,
     };
     const email = profile?.email ?? null;
@@ -467,22 +468,22 @@ export class ModerationService {
     const id = this.#state.personIdBySlug.get(slug);
     if (!id) return null;
     const s = this.#state;
-    const projectRef = (projectId: string): ProjectRef | null => {
-      const project = s.projects.get(projectId);
+    const projectRef = (projectSlug: string): ProjectRef | null => {
+      const project = projectBySlug(s, projectSlug);
       return project ? { slug: project.slug, title: project.title } : null;
     };
 
-    const memberships = [...(s.membershipsByPerson.get(id) ?? [])]
+    const memberships = [...(s.membershipsByPerson.get(slug) ?? [])]
       .map((mid) => s.projectMemberships.get(mid))
       .flatMap((m) => {
-        const project = m ? projectRef(m.projectId) : null;
+        const project = m ? projectRef(m.projectSlug) : null;
         return m && project ? [{ project, role: m.role ?? (m.isMaintainer ? 'maintainer' : 'member'), joinedAt: m.joinedAt }] : [];
       });
 
     const updates = [...s.projectUpdates.values()]
       .filter((u) => u.authorId === id)
       .flatMap((u) => {
-        const project = projectRef(u.projectId);
+        const project = projectRef(u.projectSlug);
         // Updates have no title; the excerpt of the body stands in for one.
         return project ? [{ project, number: u.number, title: bioExcerpt(u.body, 80), postedAt: u.createdAt }] : [];
       })
@@ -491,7 +492,7 @@ export class ModerationService {
     const buzz = [...s.projectBuzz.values()]
       .filter((b) => b.postedById === id)
       .flatMap((b) => {
-        const project = projectRef(b.projectId);
+        const project = projectRef(b.projectSlug);
         return project ? [{ project, slug: b.slug, title: b.headline, postedAt: b.publishedAt }] : [];
       })
       .sort((a, b) => b.postedAt.localeCompare(a.postedAt));
@@ -502,10 +503,10 @@ export class ModerationService {
       .sort((a, b) => b.postedAt.localeCompare(a.postedAt));
 
     const helpWantedInterest = [...s.helpWantedInterest.values()]
-      .filter((i) => i.personId === id)
+      .filter((i) => i.personSlug === slug)
       .flatMap((i) => {
         const role = s.helpWantedRoles.get(i.roleId);
-        const project = role ? projectRef(role.projectId) : null;
+        const project = role ? projectRef(role.projectSlug) : null;
         return role && project ? [{ project, role: { title: role.title }, createdAt: i.createdAt }] : [];
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -543,7 +544,7 @@ export class ModerationService {
     for (const u of this.#state.projectUpdates.values()) bump(updates, u.authorId);
     for (const b of this.#state.projectBuzz.values()) bump(buzz, b.postedById);
     for (const bp of this.#state.blogPosts.values()) bump(blogPosts, bp.authorId);
-    for (const i of this.#state.helpWantedInterest.values()) bump(interest, i.personId);
+    for (const i of this.#state.helpWantedInterest.values()) bump(interest, i.personSlug);
     return { updates, buzz, blogPosts, interest };
   }
 }

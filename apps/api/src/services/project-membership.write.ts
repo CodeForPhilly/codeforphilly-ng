@@ -28,14 +28,6 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function withMembershipPath(
-  m: ProjectMembership,
-  projectSlug: string,
-  personSlug: string,
-): Record<string, unknown> {
-  return { ...m, projectSlug, personSlug };
-}
-
 export class ProjectMembershipWriteService {
   readonly #state: InMemoryState;
 
@@ -53,7 +45,7 @@ export class ProjectMembershipWriteService {
     requireAuth('maintainer | staff', { session, project, memberships });
 
     const { person } = this.#personOrThrow(input.personSlug);
-    if (memberships.some((m) => m.personId === person.id)) {
+    if (memberships.some((m) => m.personSlug === person.slug)) {
       throw new ConflictError(
         `${person.slug} is already a member of this project`,
         'already_member',
@@ -80,7 +72,7 @@ export class ProjectMembershipWriteService {
     requireAuth('maintainer | staff', { session, project, memberships });
 
     const { person } = this.#personOrThrow(personSlug);
-    const membership = memberships.find((m) => m.personId === person.id);
+    const membership = memberships.find((m) => m.personSlug === person.slug);
     if (!membership) {
       throw new ApiNotFoundError(`${person.slug} is not a member of this project`);
     }
@@ -95,9 +87,7 @@ export class ProjectMembershipWriteService {
       updatedAt: nowIso(),
     });
 
-    await tx.public['project-memberships'].upsert(
-      withMembershipPath(updated, project.slug, person.slug) as unknown as ProjectMembership,
-    );
+    await tx.public['project-memberships'].upsert(updated);
 
     const stateApply = new StateApply().upsertMembership(updated);
     return { membership: updated, stateApply };
@@ -113,7 +103,7 @@ export class ProjectMembershipWriteService {
     requireAuth('maintainer | staff', { session, project, memberships });
 
     const { person } = this.#personOrThrow(personSlug);
-    const membership = memberships.find((m) => m.personId === person.id);
+    const membership = memberships.find((m) => m.personSlug === person.slug);
     if (!membership) {
       throw new ApiNotFoundError(`${person.slug} is not a member of this project`);
     }
@@ -124,9 +114,7 @@ export class ProjectMembershipWriteService {
       );
     }
 
-    await tx.public['project-memberships'].delete(
-      withMembershipPath(membership, project.slug, person.slug) as unknown as ProjectMembership,
-    );
+    await tx.public['project-memberships'].delete(membership);
 
     const stateApply = new StateApply().removeMembership(membership);
     return { stateApply };
@@ -141,7 +129,7 @@ export class ProjectMembershipWriteService {
     const { project, memberships } = this.#projectOrThrow(projectSlug);
     const person = session.person!;
 
-    if (memberships.some((m) => m.personId === person.id)) {
+    if (memberships.some((m) => m.personSlug === person.slug)) {
       throw new ConflictError('Already a member of this project', 'already_member');
     }
 
@@ -157,7 +145,7 @@ export class ProjectMembershipWriteService {
     const { project, memberships } = this.#projectOrThrow(projectSlug);
     const person = session.person!;
 
-    const membership = memberships.find((m) => m.personId === person.id);
+    const membership = memberships.find((m) => m.personSlug === person.slug);
     if (!membership) {
       throw new ApiNotFoundError(`You are not a member of this project`);
     }
@@ -168,9 +156,7 @@ export class ProjectMembershipWriteService {
       );
     }
 
-    await tx.public['project-memberships'].delete(
-      withMembershipPath(membership, project.slug, person.slug) as unknown as ProjectMembership,
-    );
+    await tx.public['project-memberships'].delete(membership);
 
     const stateApply = new StateApply().removeMembership(membership);
     return { stateApply };
@@ -189,8 +175,8 @@ export class ProjectMembershipWriteService {
     const now = nowIso();
     const membership: ProjectMembership = ProjectMembershipSchema.parse({
       id: uuidv7(),
-      projectId: project.id,
-      personId: person.id,
+      projectSlug: project.slug,
+      personSlug: person.slug,
       role: opts.role,
       isMaintainer: opts.isMaintainer,
       joinedAt: now,
@@ -198,9 +184,7 @@ export class ProjectMembershipWriteService {
       updatedAt: now,
     });
 
-    await tx.public['project-memberships'].upsert(
-      withMembershipPath(membership, project.slug, person.slug) as unknown as ProjectMembership,
-    );
+    await tx.public['project-memberships'].upsert(membership);
 
     const stateApply = new StateApply().upsertMembership(membership);
     return { membership, stateApply };
@@ -212,7 +196,7 @@ export class ProjectMembershipWriteService {
     const p = this.#state.projects.get(id);
     if (!p || p.deletedAt) throw new ApiNotFoundError(`Project '${slug}' not found`);
 
-    const mIds = this.#state.membershipsByProject.get(id) ?? new Set();
+    const mIds = this.#state.membershipsByProject.get(p.slug) ?? new Set();
     const memberships = [...mIds]
       .map((mId) => this.#state.projectMemberships.get(mId))
       .filter((m): m is ProjectMembership => m !== undefined);

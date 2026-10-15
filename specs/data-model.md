@@ -12,6 +12,8 @@ All records have:
 
 Only `people` and `projects` have soft-delete (`deletedAt`).
 
+**References.** A record whose path is keyed by a parent's handle references that parent by the handle (`projectSlug`, `personSlug`, `eventSlug`), never by the parent's id ([principles.md → A record holds everything its path needs](principles.md#a-record-holds-everything-its-path-needs)). Every such field is required, and the schema declares what it references (e.g. `projectSlug → projects.slug`) so a rename can find every record to rewrite. References that are not part of a path stay ids.
+
 ## Entity overview
 
 ```text
@@ -246,20 +248,20 @@ The composite path makes "list members of project X" a single directory traversa
 | Field | Type | Notes |
 | ------- | ------ | ------- |
 | id | uuid | |
-| projectId | uuid | references projects.id |
-| personId | uuid | references people.id |
+| projectSlug | string | references `projects.slug`; path field |
+| personSlug | string | references `people.slug`; path field |
 | role | string nullable | freeform. Examples: "Founder", "Designer", "Backend Engineer". |
-| isMaintainer | bool | denormalizes `Project.maintainerId == personId`. Update both within the same gitsheets commit when changing the maintainer. |
+| isMaintainer | bool | denormalizes `Project.maintainerId` resolving to this member. Update both within the same gitsheets commit when changing the maintainer. |
 | joinedAt | iso8601 | |
 | createdAt | iso8601 | |
 | updatedAt | iso8601 | |
 
 **Secondary in-memory indices:**
 
-- `membershipsByPerson: Map<personId, Set<membershipId>>` — for "my projects"
-- `membershipsByProject: Map<projectId, Set<membershipId>>` — already implicit in path template
+- `membershipsByPerson: Map<personSlug, Set<membershipId>>` — for "my projects"
+- `membershipsByProject: Map<projectSlug, Set<membershipId>>` — already implicit in path template
 
-**Uniqueness:** `(projectId, personId)`.
+**Uniqueness:** `(projectSlug, personSlug)`.
 
 ## ProjectUpdate
 
@@ -272,7 +274,7 @@ Markdown updates posted by project members. Was laddr's `project_updates`. No ve
 | ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | |
-| projectId | uuid | |
+| projectSlug | string | references `projects.slug`; path field |
 | authorId | uuid nullable | references people.id; absent if the author was deleted |
 | body | string | markdown. Required. |
 | number | int | per-project sequence number, stable URL. Assigned on insert as `max(existing.number) + 1` within the project. Used as the filename. |
@@ -281,10 +283,10 @@ Markdown updates posted by project members. Was laddr's `project_updates`. No ve
 
 **Secondary in-memory indices:**
 
-- `updatesByProject: Map<projectId, sorted ProjectUpdate[]>` — implicit but cached for activity-feed reads
+- `updatesByProject: Map<projectSlug, sorted ProjectUpdate[]>` — implicit but cached for activity-feed reads
 - `updatesByAuthor: Map<personId, Set<updateId>>` — for "recent updates by this person"
 
-**Uniqueness:** `(projectId, number)`.
+**Uniqueness:** `(projectSlug, number)`.
 
 ## BlogPost
 
@@ -330,7 +332,7 @@ External media / press / "buzz" about a project. Was laddr's `project_buzz`.
 | ------- | ------ | ------- |
 | id | uuid | |
 | legacyId | int | |
-| projectId | uuid | |
+| projectSlug | string | references `projects.slug`; path field |
 | postedById | uuid nullable | references people.id |
 | slug | string | URL-safe slug derived from headline |
 | headline | string | required, 1–200 chars |
@@ -343,10 +345,10 @@ External media / press / "buzz" about a project. Was laddr's `project_buzz`.
 
 **Secondary in-memory indices:**
 
-- `buzzByProject: Map<projectId, sorted ProjectBuzz[]>` — for the buzz feed
-- `buzzByUrl: Map<projectId+url, id>` — for duplicate-URL detection
+- `buzzByProject: Map<projectSlug, sorted ProjectBuzz[]>` — for the buzz feed
+- `buzzByUrl: Map<projectSlug+url, id>` — for duplicate-URL detection
 
-**Uniqueness:** `slug` (global), `(projectId, url)` (no duplicates per project).
+**Uniqueness:** `slug` (global), `(projectSlug, url)` (no duplicates per project).
 
 ## Tag
 
@@ -413,7 +415,7 @@ The `id` is used as the filename (rather than a derived slug) because role title
 | Field | Type | Notes |
 | ------- | ------ | ------- |
 | id | uuid | |
-| projectId | uuid | |
+| projectSlug | string | references `projects.slug`; path field |
 | postedById | uuid | references people.id |
 | title | string | required, 1–120 chars |
 | description | string | markdown. Required. |
@@ -427,7 +429,7 @@ The `id` is used as the filename (rather than a derived slug) because role title
 
 **Secondary in-memory indices:**
 
-- `helpWantedByProject: Map<projectId, Set<roleId>>` — implicit in path template
+- `helpWantedByProject: Map<projectSlug, Set<roleId>>` — implicit in path template
 - `openHelpWanted: Set<roleId>` — for the `/help-wanted` global browse and the `?helpWanted=true` project filter
 
 ## HelpWantedInterestExpression
@@ -440,14 +442,14 @@ Tracks who has expressed interest in which role.
 | Field | Type | Notes |
 | ------- | ------ | ------- |
 | id | uuid | |
-| roleId | uuid | references help-wanted-roles.id |
-| personId | uuid | references people.id |
+| roleId | uuid | references help-wanted-roles.id; path field (roles are keyed by id) |
+| personSlug | string | references `people.slug`; path field |
 | message | string nullable | ≤ 2,000 chars plain text. Included verbatim in the notification email/DM. |
 | createdAt | iso8601 | |
 
 Used for the 30-day per-person-per-role rate cap on `POST /express-interest` (see [api/projects-help-wanted.md](api/projects-help-wanted.md)). The composite path makes the rate-cap check a path-exists test.
 
-**Uniqueness:** `(roleId, personId)` _within the trailing 30 days_ — enforced by the API (read the existing record if any, check `createdAt`, accept-or-reject).
+**Uniqueness:** `(roleId, personSlug)` _within the trailing 30 days_ — enforced by the API (read the existing record if any, check `createdAt`, accept-or-reject).
 
 ## Event _(new — replaces Meetup.com)_
 
@@ -545,15 +547,16 @@ A named grouping of events. Two shapes share the record: a **program instance** 
 A member's public "I'm going" for an event. Existence means going; there is no status field. After RSVPing the member may answer one follow-up — what they're coming to do — which is what the attendee list groups by.
 
 **Sheet:** `event-rsvps`
-**Path template:** `event-rsvps/${year}/${eventSlug}/${personSlug}.toml` — `year` is the event's partition year, written onto the record by the write service alongside `eventSlug` and `personSlug`
+**Path template:** `event-rsvps/${year}/${eventSlug}/${personSlug}.toml` — all three are fields of the record; `year` is the event's partition year and moves with the event
 
 The composite path makes "who's going to event X" a directory scan and "has this person RSVP'd" a path-exists test, and the year partition keeps the top-level directory bounded the same way `events/` is. Renaming an event's slug moves its RSVP files in the same commit.
 
 | Field | Type | Notes |
 | ------- | ------ | ------- |
 | id | uuid | |
-| eventId | uuid | references events.id |
-| personId | uuid | references people.id |
+| year | string | the event's partition year (`YYYY` of its `startsAt`, the same rule as the event's own path); path field |
+| eventSlug | string | references `events.slug`; path field |
+| personSlug | string | references `people.slug`; path field |
 | plan | enum nullable | `newcomer` ("I'm new to Code for Philly") \| `no_project` ("I don't have a project yet") \| `project` ("I'm coming to work on …"). Absent until the member answers the follow-up. |
 | projectId | uuid nullable | references projects.id; required iff `plan = project`, absent otherwise |
 | createdAt | iso8601 | when the member RSVP'd; attendee list order |
@@ -561,10 +564,10 @@ The composite path makes "who's going to event X" a directory scan and "has this
 
 **Secondary in-memory indices:**
 
-- `rsvpsByEvent: Map<eventId, Set<rsvpId>>` — implicit in the path template; cached for counts
-- `rsvpsByPerson: Map<personId, Set<rsvpId>>` — person purge cascade and (future) "my events"
+- `rsvpsByEvent: Map<eventSlug, Set<rsvpId>>` — implicit in the path template; cached for counts
+- `rsvpsByPerson: Map<personSlug, Set<rsvpId>>` — person purge cascade and (future) "my events"
 
-**Uniqueness:** `(eventId, personId)`.
+**Uniqueness:** `(eventSlug, personSlug)`.
 
 RSVP records are **public** (they live in the public data repo and drive the attendee list). They are retained on cancel and when the event ends; they are removed on event hard-delete and on person purge.
 
@@ -598,23 +601,23 @@ See [behaviors/storage.md](behaviors/storage.md#commits-are-the-audit-log) for t
 | From | To | Cardinality | Field |
 | ------ | ---- | -----------: | ---- |
 | Project | Person | many-to-one (maintainer) | `Project.maintainerId` |
-| ProjectMembership | Project | many-to-one | `ProjectMembership.projectId` |
-| ProjectMembership | Person | many-to-one | `ProjectMembership.personId` |
-| ProjectUpdate | Project | many-to-one | `ProjectUpdate.projectId` |
+| ProjectMembership | Project | many-to-one | `ProjectMembership.projectSlug` |
+| ProjectMembership | Person | many-to-one | `ProjectMembership.personSlug` |
+| ProjectUpdate | Project | many-to-one | `ProjectUpdate.projectSlug` |
 | ProjectUpdate | Person | many-to-one (author) | `ProjectUpdate.authorId` |
-| ProjectBuzz | Project | many-to-one | `ProjectBuzz.projectId` |
+| ProjectBuzz | Project | many-to-one | `ProjectBuzz.projectSlug` |
 | ProjectBuzz | Person | many-to-one (postedBy) | `ProjectBuzz.postedById` |
 | BlogPost | Person | many-to-one (author) | `BlogPost.authorId` |
-| HelpWantedRole | Project | many-to-one | `HelpWantedRole.projectId` |
+| HelpWantedRole | Project | many-to-one | `HelpWantedRole.projectSlug` |
 | HelpWantedRole | Person | many-to-one (postedBy / filledBy) | `HelpWantedRole.postedById`, `filledById` |
 | HelpWantedInterestExpression | HelpWantedRole | many-to-one | `roleId` |
-| HelpWantedInterestExpression | Person | many-to-one | `personId` |
+| HelpWantedInterestExpression | Person | many-to-one | `personSlug` |
 | TagAssignment | Tag | many-to-one | `tagId` |
 | TagAssignment | Project \| Person \| HelpWantedRole \| BlogPost | polymorphic | `taggableType + taggableId` |
 | Event | Person | many-to-one (createdBy) | `Event.createdById` |
 | Event | EventSeries | many-to-one, optional | `Event.seriesId` |
-| EventRsvp | Event | many-to-one | `EventRsvp.eventId` |
-| EventRsvp | Person | many-to-one | `EventRsvp.personId` |
+| EventRsvp | Event | many-to-one | `EventRsvp.eventSlug` |
+| EventRsvp | Person | many-to-one | `EventRsvp.personSlug` |
 | EventRsvp | Project | many-to-one, optional | `EventRsvp.projectId` |
 
 Cascading deletes are not enforced by gitsheets; the API's mutation services delete dependent records as part of the same write-and-commit operation (see [behaviors/storage.md](behaviors/storage.md) for atomicity). For project delete this means: in one mutation, write the project's tombstone (`deletedAt`) and (for cascade-on-hard-delete) the dependent project-memberships, project-updates, project-buzz, help-wanted-roles, and tag-assignments are removed. Event hard-delete removes its event-rsvps; person purge removes the person's event-rsvps; a project hard-delete nulls `projectId` on any event-rsvps that pointed at it.

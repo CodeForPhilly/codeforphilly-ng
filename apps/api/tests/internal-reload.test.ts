@@ -170,7 +170,7 @@ async function writeProject(wt: string, fields: ProjectFields): Promise<void> {
 
 async function writeBuzz(
   wt: string,
-  fields: { id: string; projectId: string; projectSlug: string; slug: string },
+  fields: { id: string; projectSlug: string; slug: string },
 ): Promise<void> {
   const rel = `project-buzz/${fields.projectSlug}/${fields.slug}.toml`;
   await exec('mkdir', ['-p', join(wt, 'project-buzz', fields.projectSlug)]);
@@ -178,7 +178,7 @@ async function writeBuzz(
     join(wt, rel),
     [
       `id = '${fields.id}'`,
-      `projectId = '${fields.projectId}'`,
+      `projectSlug = '${fields.projectSlug}'`,
       `slug = '${fields.slug}'`,
       `headline = 'Buzz ${fields.slug}'`,
       `url = 'https://example.test/${fields.slug}'`,
@@ -463,7 +463,6 @@ describe('POST /api/_internal/reload-data — short-circuit + reconcile', () => 
       await writeProject(wt, { id: oldProjectId, slug: 'alpha-v1', title: 'Alpha', legacyId: 42 });
       await writeBuzz(wt, {
         id: '01951a3c-0000-7000-8000-000000000103',
-        projectId: oldProjectId,
         projectSlug: 'alpha-v1',
         slug: 'alpha-launch',
       });
@@ -488,7 +487,6 @@ describe('POST /api/_internal/reload-data — short-circuit + reconcile', () => 
       await writeProject(wt, { id: newProjectId, slug: 'alpha-v2', title: 'Alpha', legacyId: 42 });
       await writeBuzz(wt, {
         id: '01951a3c-0000-7000-8000-000000000203',
-        projectId: newProjectId,
         projectSlug: 'alpha-v2',
         slug: 'alpha-relaunch',
       });

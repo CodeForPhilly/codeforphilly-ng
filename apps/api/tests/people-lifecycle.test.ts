@@ -296,9 +296,7 @@ describe('POST /api/people/:slug/purge', () => {
 
     const membershipToml = [
       `id = "${IDS.membership}"`,
-      `projectId = "${IDS.project}"`,
       `projectSlug = "test-project"`,
-      `personId = "${IDS.alice}"`,
       `personSlug = "alice"`,
       `isMaintainer = false`,
       `joinedAt = "2026-05-01T00:00:00Z"`,
@@ -313,7 +311,6 @@ describe('POST /api/people/:slug/purge', () => {
 
     const updateToml = [
       `id = "${IDS.update}"`,
-      `projectId = "${IDS.project}"`,
       `projectSlug = "test-project"`,
       `number = 1`,
       `body = "Alice's update"`,
@@ -434,9 +431,7 @@ describe('Deactivated person reference placeholder', () => {
 
     const membershipToml = [
       `id = "${IDS.membership}"`,
-      `projectId = "${IDS.project}"`,
       `projectSlug = "test-project"`,
-      `personId = "${IDS.alice}"`,
       `personSlug = "alice"`,
       `isMaintainer = false`,
       `joinedAt = "2026-05-01T00:00:00Z"`,

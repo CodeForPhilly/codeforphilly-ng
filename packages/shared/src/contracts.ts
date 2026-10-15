@@ -34,6 +34,7 @@ import {
   TagAssignmentSchema,
   TagSchema,
 } from './schemas/index.js';
+import { REFERENCES_META_KEY, collectReferences, type SheetReference } from './references.js';
 
 export const CONTRACT_HOST = 'codeforphilly.org';
 
@@ -47,14 +48,14 @@ interface SheetContract {
 export const SHEET_CONTRACTS = {
   people: { schema: PersonSchema, version: 1, title: 'Person' },
   projects: { schema: ProjectSchema, version: 1, title: 'Project' },
-  'project-memberships': { schema: ProjectMembershipSchema, version: 1, title: 'Project membership' },
-  'project-updates': { schema: ProjectUpdateSchema, version: 1, title: 'Project update' },
-  'project-buzz': { schema: ProjectBuzzSchema, version: 1, title: 'Project buzz' },
+  'project-memberships': { schema: ProjectMembershipSchema, version: 2, title: 'Project membership' },
+  'project-updates': { schema: ProjectUpdateSchema, version: 2, title: 'Project update' },
+  'project-buzz': { schema: ProjectBuzzSchema, version: 2, title: 'Project buzz' },
   'blog-posts': { schema: BlogPostSchema, version: 1, title: 'Blog post' },
-  'help-wanted-roles': { schema: HelpWantedRoleSchema, version: 1, title: 'Help-wanted role' },
+  'help-wanted-roles': { schema: HelpWantedRoleSchema, version: 2, title: 'Help-wanted role' },
   'help-wanted-interest': {
     schema: HelpWantedInterestExpressionSchema,
-    version: 1,
+    version: 2,
     title: 'Help-wanted interest expression',
   },
   tags: { schema: TagSchema, version: 1, title: 'Tag' },
@@ -62,7 +63,7 @@ export const SHEET_CONTRACTS = {
   'slug-history': { schema: SlugHistorySchema, version: 1, title: 'Slug history' },
   revocations: { schema: RevocationSchema, version: 1, title: 'Session revocation' },
   events: { schema: EventSchema, version: 1, title: 'Event' },
-  'event-rsvps': { schema: EventRsvpSchema, version: 1, title: 'Event RSVP' },
+  'event-rsvps': { schema: EventRsvpSchema, version: 2, title: 'Event RSVP' },
   'event-series': { schema: EventSeriesSchema, version: 1, title: 'Event series' },
   // v1 was hand-authored before contracts were generated; v2 is the first
   // generated version (it adds the evaluatedAt datetime pattern).
@@ -70,6 +71,26 @@ export const SHEET_CONTRACTS = {
 } as const satisfies Record<string, SheetContract>;
 
 export type ContractSheet = keyof typeof SHEET_CONTRACTS;
+
+/**
+ * Every reference a public sheet's schema declares (specs/data-model.md →
+ * References), derived from the `references` metadata on the schemas — e.g.
+ * `{ sheet: 'project-memberships', field: 'projectSlug', target: { sheet:
+ * 'projects', field: 'slug' } }`. A rename of a target record rewrites every
+ * record this map says holds its old value (specs/behaviors/slug-handles.md).
+ */
+export const SHEET_REFERENCES: readonly SheetReference<ContractSheet>[] = Object.freeze(
+  collectReferences(
+    Object.fromEntries(
+      Object.entries(SHEET_CONTRACTS).map(([sheet, c]) => [sheet, c.schema]),
+    ) as unknown as Record<ContractSheet, z.ZodType>,
+  ),
+);
+
+/** The declared references whose target is `<sheet>.<field>`. */
+export function referencesTo(sheet: string, field = 'slug'): SheetReference<ContractSheet>[] {
+  return SHEET_REFERENCES.filter((r) => r.target.sheet === sheet && r.target.field === field);
+}
 
 /** `codeforphilly.org/<sheet>/v<N>` — the contract name sheet configs declare. */
 export function contractName(sheet: ContractSheet): string {
@@ -98,6 +119,14 @@ function normalize(node: unknown): unknown {
   let out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(node)) {
     if (key === 'additionalProperties' && (value === false || isEmptyObject(value))) continue;
+    // Reference declarations are for this codebase (SHEET_REFERENCES), not a
+    // JSON Schema keyword: gitsheets compiles contracts strictly.
+    if (key === REFERENCES_META_KEY && typeof value === 'string') continue;
+    if (key === 'properties' && typeof value === 'object' && value !== null) {
+      // Field names, not keywords: recurse into each field schema only.
+      out[key] = Object.fromEntries(Object.entries(value).map(([f, v]) => [f, normalize(v)]));
+      continue;
+    }
     if ((key === 'minimum' && value === -SAFE_INT) || (key === 'maximum' && value === SAFE_INT)) {
       continue;
     }

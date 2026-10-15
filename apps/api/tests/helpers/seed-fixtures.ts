@@ -1,12 +1,9 @@
 /**
  * Seed test fixtures into a full gitsheets data repo.
  *
- * Uses the raw gitsheets Repository (no validators) so we can pass in the
- * denormalized path fields that the sheet configs expect (e.g. projectSlug,
- * personSlug) alongside the canonical ID fields required by our Zod schemas.
- *
- * In production the write-api will construct these path fields from the
- * in-memory index at write time. Tests must do the same.
+ * Uses the raw gitsheets Repository (no validators). Child records reference
+ * their path-keyed parents by slug (projectSlug, personSlug), exactly as the
+ * write services store them (specs/data-model.md → References).
  */
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -201,8 +198,6 @@ export async function seedFixtures(repoPath: string): Promise<SeededFixtures> {
       // Membership (path: projectSlug/personSlug)
       await tx.sheet('project-memberships').upsert({
         id: membershipId,
-        projectId,
-        personId,
         projectSlug,
         personSlug,
         role: 'Founder',
@@ -215,7 +210,6 @@ export async function seedFixtures(repoPath: string): Promise<SeededFixtures> {
       // Project update (path: projectSlug/number)
       await tx.sheet('project-updates').upsert({
         id: updateId,
-        projectId,
         authorId: personId,
         body: 'We shipped version 1.0!',
         number: 1,
@@ -227,7 +221,6 @@ export async function seedFixtures(repoPath: string): Promise<SeededFixtures> {
       // Project buzz (path: projectSlug/slug)
       await tx.sheet('project-buzz').upsert({
         id: buzzId,
-        projectId,
         postedById: personId,
         slug: 'inquirer-praises-squadquest',
         headline: 'The Inquirer praises SquadQuest',
@@ -241,7 +234,6 @@ export async function seedFixtures(repoPath: string): Promise<SeededFixtures> {
       // Help-wanted role (path: projectSlug/id)
       await tx.sheet('help-wanted-roles').upsert({
         id: helpWantedId,
-        projectId,
         postedById: personId,
         title: 'Flutter developer',
         description: 'We need a Flutter expert.',
