@@ -15,7 +15,9 @@ question is simple: *is this a real person?* Everyone listed here has already
 passed the offline spam pipeline (or arrived after its last run), so the page
 does **not** show machine evaluations. It shows the member's footprint on the
 site in one place, and lets staff record a **human judgment** the pipeline treats
-as final.
+as final. A spam vote hides the member at once; the [scheduled spam
+purge](../behaviors/person-lifecycle.md#scheduled-spam-purge) deletes them three
+days later unless another vote disagrees. The page intro says so.
 
 ## Data Requirements
 
