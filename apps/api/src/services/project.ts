@@ -62,8 +62,8 @@ function compareProjects(
     if (key === 'activity') {
       // Projects with no activity sort last in either direction
       // (specs/api/projects.md), then by most recently updated.
-      const aAt = activity?.get(a.id);
-      const bAt = activity?.get(b.id);
+      const aAt = activity?.get(a.slug);
+      const bAt = activity?.get(b.slug);
       if (!aAt || !bAt) {
         if (aAt) return -1;
         if (bAt) return 1;
@@ -314,16 +314,20 @@ export class ProjectService {
    * Each project's most recent sign of life: an RSVP naming it, an update, or
    * a buzz item logged (specs/api/projects.md → `sort=activity`).
    */
+  // Keyed by project slug.
   #lastActivity(): Map<string, string> {
     const latest = new Map<string, string>();
-    const note = (projectId: string | null | undefined, at: string) => {
-      if (!projectId) return;
-      const prev = latest.get(projectId);
-      if (!prev || at > prev) latest.set(projectId, at);
+    const note = (projectSlug: string | undefined, at: string) => {
+      if (!projectSlug) return;
+      const prev = latest.get(projectSlug);
+      if (!prev || at > prev) latest.set(projectSlug, at);
     };
-    for (const r of this.#state.eventRsvps.values()) if (r.plan === 'project') note(r.projectId, r.updatedAt);
-    for (const u of this.#state.projectUpdates.values()) note(u.projectId, u.createdAt);
-    for (const b of this.#state.projectBuzz.values()) note(b.projectId, b.createdAt);
+    for (const r of this.#state.eventRsvps.values()) {
+      // An RSVP still names its project by id (not a path field).
+      if (r.plan === 'project' && r.projectId) note(this.#state.projects.get(r.projectId)?.slug, r.updatedAt);
+    }
+    for (const u of this.#state.projectUpdates.values()) note(u.projectSlug, u.createdAt);
+    for (const b of this.#state.projectBuzz.values()) note(b.projectSlug, b.createdAt);
     return latest;
   }
 

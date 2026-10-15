@@ -104,8 +104,8 @@ describe('ProjectService activity sort', () => {
     const [a, b, c] = live;
     if (!a || !b || !c) throw new Error('fixture needs three live projects');
     // Only the fields the activity sort reads.
-    state.projectUpdates.set('u1', { id: 'u1', projectId: a.id, createdAt: '2026-01-01T00:00:00Z' } as never);
-    state.projectBuzz.set('z1', { id: 'z1', projectId: b.id, createdAt: '2026-03-01T00:00:00Z' } as never);
+    state.projectUpdates.set('u1', { id: 'u1', projectSlug: a.slug, createdAt: '2026-01-01T00:00:00Z' } as never);
+    state.projectBuzz.set('z1', { id: 'z1', projectSlug: b.slug, createdAt: '2026-03-01T00:00:00Z' } as never);
     state.eventRsvps.set('r1', {
       id: 'r1',
       plan: 'project',
