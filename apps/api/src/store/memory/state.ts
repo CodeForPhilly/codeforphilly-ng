@@ -69,19 +69,19 @@ export interface InMemoryState {
   /** tag.id → tag (namespace.slug handle → tag.id for quick lookup) */
   tagIdByHandle: Map<string, string>;
 
-  /** projectId → Set<membershipId> */
+  /** projectSlug → Set<membershipId> */
   membershipsByProject: Map<string, Set<string>>;
-  /** personId → Set<membershipId> */
+  /** personSlug → Set<membershipId> */
   membershipsByPerson: Map<string, Set<string>>;
 
-  /** projectId → Set<updateId> */
+  /** projectSlug → Set<updateId> */
   updatesByProject: Map<string, Set<string>>;
-  /** projectId + number → updateId */
+  /** projectSlug + number → updateId (see {@link projectChildKey}) */
   updateByProjectAndNumber: Map<string, string>;
 
-  /** projectId → Set<buzzId> */
+  /** projectSlug → Set<buzzId> */
   buzzByProject: Map<string, Set<string>>;
-  /** projectId + buzzSlug → buzzId */
+  /** projectSlug + buzzSlug → buzzId (see {@link projectChildKey}) */
   buzzByProjectAndSlug: Map<string, string>;
   /**
    * buzz.slug → buzz.id (global). Buzz slugs are globally unique per
@@ -100,7 +100,7 @@ export interface InMemoryState {
    */
   blogPostIdByLegacyId: Map<number, string>;
 
-  /** projectId → Set<roleId> */
+  /** projectSlug → Set<roleId> */
   helpWantedByProject: Map<string, Set<string>>;
 
   /** taggableId → Set<tagAssignmentId> */
@@ -108,7 +108,7 @@ export interface InMemoryState {
   /** tagId → Set<tagAssignmentId> */
   tagAssignmentsByTag: Map<string, Set<string>>;
 
-  /** roleId + personId → interestId */
+  /** roleId + personSlug → interestId (see {@link interestKey}) */
   interestByRoleAndPerson: Map<string, string>;
   /** roleId → Set<interestId> */
   interestByRole: Map<string, Set<string>>;
@@ -135,11 +135,11 @@ export interface InMemoryState {
   eventIdBySlug: Map<string, string>;
   /** event.legacyId → event.id — backfill idempotence only. */
   eventIdByLegacyId: Map<number, string>;
-  /** eventId → Set<rsvpId> */
+  /** eventSlug → Set<rsvpId> */
   rsvpsByEvent: Map<string, Set<string>>;
-  /** personId → Set<rsvpId> — purge cascade. */
+  /** personSlug → Set<rsvpId> — purge cascade. */
   rsvpsByPerson: Map<string, Set<string>>;
-  /** eventId + personId → rsvpId — the "has this person RSVP'd" test. */
+  /** eventSlug + personSlug → rsvpId — the "has this person RSVP'd" test. */
   rsvpIdByEventAndPerson: Map<string, string>;
   /** eventSeries.slug → eventSeries.id */
   eventSeriesIdBySlug: Map<string, string>;
@@ -147,9 +147,52 @@ export interface InMemoryState {
   eventsBySeries: Map<string, Set<string>>;
 }
 
+/**
+ * Child records whose paths are keyed by a parent's handle are indexed by
+ * that handle (specs/data-model.md → References): the slug the record holds,
+ * not the parent's id.
+ */
+
 /** Compose the event+person RSVP key. Kept here so call sites stay consistent. */
-export function rsvpKey(eventId: string, personId: string): string {
-  return `${eventId}:${personId}`;
+export function rsvpKey(eventSlug: string, personSlug: string): string {
+  return `${eventSlug}:${personSlug}`;
+}
+
+/** Compose the role+person interest key. */
+export function interestKey(roleId: string, personSlug: string): string {
+  return `${roleId}:${personSlug}`;
+}
+
+/** Compose a project-scoped child key (update number, buzz slug). */
+export function projectChildKey(projectSlug: string, child: string | number): string {
+  return `${projectSlug}:${child}`;
+}
+
+function addToSet<K>(map: Map<K, Set<string>>, key: K, id: string): void {
+  let set = map.get(key);
+  if (!set) {
+    set = new Set();
+    map.set(key, set);
+  }
+  set.add(id);
+}
+
+/** The project a slug reference names, if it is in memory. */
+export function projectBySlug(state: InMemoryState, slug: string): Project | undefined {
+  const id = state.projectIdBySlug.get(slug);
+  return id === undefined ? undefined : state.projects.get(id);
+}
+
+/** The person a slug reference names, if they are in memory. */
+export function personBySlug(state: InMemoryState, slug: string): Person | undefined {
+  const id = state.personIdBySlug.get(slug);
+  return id === undefined ? undefined : state.people.get(id);
+}
+
+/** The event a slug reference names, if it is in memory. */
+export function eventBySlug(state: InMemoryState, slug: string): Event | undefined {
+  const id = state.eventIdBySlug.get(slug);
+  return id === undefined ? undefined : state.events.get(id);
 }
 
 /** Compose the slug-history map key. Kept here so call sites stay consistent. */
@@ -239,17 +282,12 @@ export function unindexEventSeries(state: InMemoryState, series: EventSeries): v
 
 /** Add or replace one event RSVP and update its secondary indices. */
 export function indexEventRsvp(state: InMemoryState, rsvp: EventRsvp): void {
+  const old = state.eventRsvps.get(rsvp.id);
+  if (old) unindexEventRsvp(state, old);
   state.eventRsvps.set(rsvp.id, rsvp);
-
-  let byEvent = state.rsvpsByEvent.get(rsvp.eventId);
-  if (!byEvent) { byEvent = new Set(); state.rsvpsByEvent.set(rsvp.eventId, byEvent); }
-  byEvent.add(rsvp.id);
-
-  let byPerson = state.rsvpsByPerson.get(rsvp.personId);
-  if (!byPerson) { byPerson = new Set(); state.rsvpsByPerson.set(rsvp.personId, byPerson); }
-  byPerson.add(rsvp.id);
-
-  state.rsvpIdByEventAndPerson.set(rsvpKey(rsvp.eventId, rsvp.personId), rsvp.id);
+  addToSet(state.rsvpsByEvent, rsvp.eventSlug, rsvp.id);
+  addToSet(state.rsvpsByPerson, rsvp.personSlug, rsvp.id);
+  state.rsvpIdByEventAndPerson.set(rsvpKey(rsvp.eventSlug, rsvp.personSlug), rsvp.id);
 }
 
 /**
@@ -318,43 +356,29 @@ export function indexTagAssignment(state: InMemoryState, ta: TagAssignment): voi
 
 /** Add or replace a membership and update secondary indices. */
 export function indexMembership(state: InMemoryState, m: ProjectMembership): void {
+  const old = state.projectMemberships.get(m.id);
+  if (old) unindexMembership(state, old);
   state.projectMemberships.set(m.id, m);
-
-  let byProject = state.membershipsByProject.get(m.projectId);
-  if (!byProject) { byProject = new Set(); state.membershipsByProject.set(m.projectId, byProject); }
-  byProject.add(m.id);
-
-  let byPerson = state.membershipsByPerson.get(m.personId);
-  if (!byPerson) { byPerson = new Set(); state.membershipsByPerson.set(m.personId, byPerson); }
-  byPerson.add(m.id);
+  addToSet(state.membershipsByProject, m.projectSlug, m.id);
+  addToSet(state.membershipsByPerson, m.personSlug, m.id);
 }
 
 /** Add or replace a project update and update secondary indices. */
 export function indexProjectUpdate(state: InMemoryState, update: ProjectUpdate): void {
+  const old = state.projectUpdates.get(update.id);
+  if (old) unindexProjectUpdate(state, old);
   state.projectUpdates.set(update.id, update);
-
-  let byProject = state.updatesByProject.get(update.projectId);
-  if (!byProject) { byProject = new Set(); state.updatesByProject.set(update.projectId, byProject); }
-  byProject.add(update.id);
-
-  const key = `${update.projectId}:${update.number}`;
-  state.updateByProjectAndNumber.set(key, update.id);
+  addToSet(state.updatesByProject, update.projectSlug, update.id);
+  state.updateByProjectAndNumber.set(projectChildKey(update.projectSlug, update.number), update.id);
 }
 
 /** Add or replace a buzz item and update secondary indices. */
 export function indexProjectBuzz(state: InMemoryState, buzz: ProjectBuzz): void {
   const old = state.projectBuzz.get(buzz.id);
-  if (old) {
-    state.buzzIdBySlug.delete(old.slug);
-  }
+  if (old) unindexProjectBuzz(state, old);
   state.projectBuzz.set(buzz.id, buzz);
-
-  let byProject = state.buzzByProject.get(buzz.projectId);
-  if (!byProject) { byProject = new Set(); state.buzzByProject.set(buzz.projectId, byProject); }
-  byProject.add(buzz.id);
-
-  const key = `${buzz.projectId}:${buzz.slug}`;
-  state.buzzByProjectAndSlug.set(key, buzz.id);
+  addToSet(state.buzzByProject, buzz.projectSlug, buzz.id);
+  state.buzzByProjectAndSlug.set(projectChildKey(buzz.projectSlug, buzz.slug), buzz.id);
   state.buzzIdBySlug.set(buzz.slug, buzz.id);
 }
 
@@ -376,23 +400,19 @@ export function indexBlogPost(state: InMemoryState, post: BlogPost): void {
 
 /** Add or replace a help-wanted role and update secondary indices. */
 export function indexHelpWantedRole(state: InMemoryState, role: HelpWantedRole): void {
+  const old = state.helpWantedRoles.get(role.id);
+  if (old) unindexHelpWantedRole(state, old);
   state.helpWantedRoles.set(role.id, role);
-
-  let byProject = state.helpWantedByProject.get(role.projectId);
-  if (!byProject) { byProject = new Set(); state.helpWantedByProject.set(role.projectId, byProject); }
-  byProject.add(role.id);
+  addToSet(state.helpWantedByProject, role.projectSlug, role.id);
 }
 
 /** Add or replace a help-wanted interest expression and update secondary indices. */
 export function indexHelpWantedInterest(state: InMemoryState, expr: HelpWantedInterestExpression): void {
+  const old = state.helpWantedInterest.get(expr.id);
+  if (old) unindexHelpWantedInterest(state, old);
   state.helpWantedInterest.set(expr.id, expr);
-
-  let byRole = state.interestByRole.get(expr.roleId);
-  if (!byRole) { byRole = new Set(); state.interestByRole.set(expr.roleId, byRole); }
-  byRole.add(expr.id);
-
-  const key = `${expr.roleId}:${expr.personId}`;
-  state.interestByRoleAndPerson.set(key, expr.id);
+  addToSet(state.interestByRole, expr.roleId, expr.id);
+  state.interestByRoleAndPerson.set(interestKey(expr.roleId, expr.personSlug), expr.id);
 }
 
 /** Add or replace one person-evaluation record (one per person + evaluator). */
@@ -459,20 +479,20 @@ export function unindexTagAssignment(state: InMemoryState, ta: TagAssignment): v
 
 export function unindexMembership(state: InMemoryState, m: ProjectMembership): void {
   state.projectMemberships.delete(m.id);
-  removeFromSet(state.membershipsByProject, m.projectId, m.id);
-  removeFromSet(state.membershipsByPerson, m.personId, m.id);
+  removeFromSet(state.membershipsByProject, m.projectSlug, m.id);
+  removeFromSet(state.membershipsByPerson, m.personSlug, m.id);
 }
 
 export function unindexProjectUpdate(state: InMemoryState, update: ProjectUpdate): void {
   state.projectUpdates.delete(update.id);
-  removeFromSet(state.updatesByProject, update.projectId, update.id);
-  deleteIfOwned(state.updateByProjectAndNumber, `${update.projectId}:${update.number}`, update.id);
+  removeFromSet(state.updatesByProject, update.projectSlug, update.id);
+  deleteIfOwned(state.updateByProjectAndNumber, projectChildKey(update.projectSlug, update.number), update.id);
 }
 
 export function unindexProjectBuzz(state: InMemoryState, buzz: ProjectBuzz): void {
   state.projectBuzz.delete(buzz.id);
-  removeFromSet(state.buzzByProject, buzz.projectId, buzz.id);
-  deleteIfOwned(state.buzzByProjectAndSlug, `${buzz.projectId}:${buzz.slug}`, buzz.id);
+  removeFromSet(state.buzzByProject, buzz.projectSlug, buzz.id);
+  deleteIfOwned(state.buzzByProjectAndSlug, projectChildKey(buzz.projectSlug, buzz.slug), buzz.id);
   deleteIfOwned(state.buzzIdBySlug, buzz.slug, buzz.id);
 }
 
@@ -486,7 +506,7 @@ export function unindexBlogPost(state: InMemoryState, post: BlogPost): void {
 
 export function unindexHelpWantedRole(state: InMemoryState, role: HelpWantedRole): void {
   state.helpWantedRoles.delete(role.id);
-  removeFromSet(state.helpWantedByProject, role.projectId, role.id);
+  removeFromSet(state.helpWantedByProject, role.projectSlug, role.id);
 }
 
 export function unindexHelpWantedInterest(
@@ -495,7 +515,7 @@ export function unindexHelpWantedInterest(
 ): void {
   state.helpWantedInterest.delete(expr.id);
   removeFromSet(state.interestByRole, expr.roleId, expr.id);
-  deleteIfOwned(state.interestByRoleAndPerson, `${expr.roleId}:${expr.personId}`, expr.id);
+  deleteIfOwned(state.interestByRoleAndPerson, interestKey(expr.roleId, expr.personSlug), expr.id);
 }
 
 export function unindexEvent(state: InMemoryState, event: Event): void {
@@ -509,9 +529,9 @@ export function unindexEvent(state: InMemoryState, event: Event): void {
 
 export function unindexEventRsvp(state: InMemoryState, rsvp: EventRsvp): void {
   state.eventRsvps.delete(rsvp.id);
-  removeFromSet(state.rsvpsByEvent, rsvp.eventId, rsvp.id);
-  removeFromSet(state.rsvpsByPerson, rsvp.personId, rsvp.id);
-  deleteIfOwned(state.rsvpIdByEventAndPerson, rsvpKey(rsvp.eventId, rsvp.personId), rsvp.id);
+  removeFromSet(state.rsvpsByEvent, rsvp.eventSlug, rsvp.id);
+  removeFromSet(state.rsvpsByPerson, rsvp.personSlug, rsvp.id);
+  deleteIfOwned(state.rsvpIdByEventAndPerson, rsvpKey(rsvp.eventSlug, rsvp.personSlug), rsvp.id);
 }
 
 export function unindexPersonEvaluation(state: InMemoryState, record: PersonEvaluation): void {

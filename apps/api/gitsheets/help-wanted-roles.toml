@@ -1,4 +1,4 @@
 [gitsheet]
 root = 'help-wanted-roles'
 path = '${{ projectSlug }}/${{ id }}'
-implements = ["codeforphilly.org/help-wanted-roles/v1"]
+implements = ["codeforphilly.org/help-wanted-roles/v2"]

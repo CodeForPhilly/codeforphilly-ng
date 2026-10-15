@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { references } from '../references.js';
+
 /**
  * One spam verdict per (person, evaluator) — the `person-evaluations` sheet.
  *
@@ -9,7 +11,7 @@ import { z } from 'zod';
  * aggregate both. See specs/behaviors/spam-exclusion.md.
  */
 export const PersonEvaluationSchema = z.object({
-  personSlug: z.string().min(1),
+  personSlug: z.string().min(1).meta(references('people.slug')),
   evaluator: z.string().min(1),
   verdict: z.enum(['spam', 'legit', 'uncertain']),
   /** LLM and human evaluators: 0–1 (human votes are 1). Absent on heuristic records. */

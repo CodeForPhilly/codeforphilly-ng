@@ -26,7 +26,8 @@ import {
 import { requireAuth } from '../auth/require.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput } from './tag.write.js';
-import { rekeyAttachment, restoreAttachments, takeAttachments } from './slug-rename.js';
+import { cascadeRename } from './reference-cascade.js';
+import { rekeyAttachment, upsertMoved } from './slug-rename.js';
 
 export interface CreateProjectInput {
   readonly title: string;
@@ -84,16 +85,6 @@ function nowIso(): string {
 function isStaff(session: SessionContext): boolean {
   return session.accountLevel === 'staff' || session.accountLevel === 'administrator';
 }
-
-/**
- * Add the gitsheets path-template fields (e.g. projectSlug, personSlug) to
- * a record before upserting. These are not part of the Zod schema but the
- * .gitsheets sheet config templates reference them.
- */
-function withMembershipPath(m: ProjectMembership, projectSlug: string, personSlug: string): Record<string, unknown> {
-  return { ...m, projectSlug, personSlug };
-}
-
 
 export class ProjectWriteService {
   readonly #state: InMemoryState;
@@ -175,8 +166,8 @@ export class ProjectWriteService {
     // Founder membership
     const membership: ProjectMembership = ProjectMembershipSchema.parse({
       id: uuidv7(),
-      projectId: project.id,
-      personId: session.person!.id,
+      projectSlug: project.slug,
+      personSlug: session.person!.slug,
       role: 'Founder',
       isMaintainer: true,
       joinedAt: now,
@@ -184,9 +175,7 @@ export class ProjectWriteService {
       updatedAt: now,
     });
 
-    await tx.public['project-memberships'].upsert(
-      withMembershipPath(membership, slug, session.person!.slug) as unknown as ProjectMembership,
-    );
+    await tx.public['project-memberships'].upsert(membership);
     stateApply.upsertMembership(membership);
 
     // Tags
@@ -218,7 +207,7 @@ export class ProjectWriteService {
     session: SessionContext,
   ): Promise<ProjectWriteResult> {
     const existing = this.#requireExisting(slug);
-    const memberships = this.#membershipsFor(existing.id);
+    const memberships = this.#membershipsFor(existing.slug);
 
     requireAuth('maintainer | staff', { session, project: existing, memberships });
 
@@ -290,12 +279,9 @@ export class ProjectWriteService {
 
     const stateApply = new StateApply();
 
-    let attachments: Awaited<ReturnType<typeof takeAttachments>> = null;
     if (slugRename) {
       // Delete the old path first, then upsert at the new path, carrying
       // the record's attachments across (delete removes them).
-      attachments = await takeAttachments(tx.public.projects, existing);
-      await tx.public.projects.delete(existing);
       // SlugHistory record
       const history = {
         id: uuidv7(),
@@ -311,9 +297,19 @@ export class ProjectWriteService {
       stateApply.upsertSlugHistory(history);
     }
 
-    await tx.public.projects.upsert(updated);
-    await restoreAttachments(tx.public.projects, updated, attachments);
+    // Moves the record and its attachments when the slug changed.
+    await upsertMoved(tx.public.projects, existing, updated);
     stateApply.upsertProject(updated);
+
+    if (slugRename) {
+      // Memberships, updates, buzz and roles reference the project by slug
+      // and live under it: move them in this same commit.
+      await cascadeRename(tx, this.#state, stateApply, {
+        target: 'projects',
+        oldSlug: slugRename.oldSlug,
+        newSlug: slugRename.newSlug,
+      });
+    }
 
     // Tag replacement (per-namespace)
     if (input.tags) {
@@ -346,7 +342,7 @@ export class ProjectWriteService {
     session: SessionContext,
   ): Promise<{ stateApply: StateApply }> {
     const existing = this.#requireExisting(slug);
-    const memberships = this.#membershipsFor(existing.id);
+    const memberships = this.#membershipsFor(existing.slug);
     requireAuth('staff', { session, project: existing, memberships });
 
     if (existing.deletedAt) {
@@ -374,7 +370,7 @@ export class ProjectWriteService {
     session: SessionContext,
   ): Promise<ProjectWriteResult> {
     const existing = this.#requireExistingIncludingDeleted(slug);
-    const memberships = this.#membershipsFor(existing.id);
+    const memberships = this.#membershipsFor(existing.slug);
     requireAuth('staff', { session, project: existing, memberships });
 
     const now = nowIso();
@@ -402,7 +398,7 @@ export class ProjectWriteService {
     session: SessionContext,
   ): Promise<ProjectWriteResult> {
     const existing = this.#requireExisting(slug);
-    const memberships = this.#membershipsFor(existing.id);
+    const memberships = this.#membershipsFor(existing.slug);
     requireAuth('maintainer | staff', { session, project: existing, memberships });
 
     const newMaintainerId = this.#state.personIdBySlug.get(newMaintainerSlug);
@@ -414,7 +410,7 @@ export class ProjectWriteService {
       throw new ApiNotFoundError(`Person '${newMaintainerSlug}' not found`);
     }
 
-    const newMaintainerMembership = memberships.find((m) => m.personId === newMaintainerId);
+    const newMaintainerMembership = memberships.find((m) => m.personSlug === newMaintainerPerson.slug);
     if (!newMaintainerMembership) {
       throw new ConflictError(
         `${newMaintainerSlug} is not a member of this project`,
@@ -426,20 +422,20 @@ export class ProjectWriteService {
     const stateApply = new StateApply();
 
     // Old maintainer keeps membership; flip isMaintainer where appropriate.
+    const oldMaintainerSlug = existing.maintainerId
+      ? this.#state.personSlugById.get(existing.maintainerId)
+      : undefined;
     const oldMaintainerMembership = memberships.find(
-      (m) => m.personId === existing.maintainerId && m.isMaintainer,
+      (m) => m.personSlug === oldMaintainerSlug && m.isMaintainer,
     );
-    if (oldMaintainerMembership && oldMaintainerMembership.personId !== newMaintainerId) {
+    if (oldMaintainerMembership && oldMaintainerMembership.personSlug !== newMaintainerPerson.slug) {
       const updatedOld: ProjectMembership = ProjectMembershipSchema.parse({
         ...oldMaintainerMembership,
         isMaintainer: false,
         role: oldMaintainerMembership.role ?? 'Maintainer (former)',
         updatedAt: now,
       });
-      const oldPerson = this.#state.people.get(updatedOld.personId);
-      await tx.public['project-memberships'].upsert(
-        withMembershipPath(updatedOld, existing.slug, oldPerson?.slug ?? 'unknown') as unknown as ProjectMembership,
-      );
+      await tx.public['project-memberships'].upsert(updatedOld);
       stateApply.upsertMembership(updatedOld);
     }
 
@@ -448,9 +444,7 @@ export class ProjectWriteService {
       isMaintainer: true,
       updatedAt: now,
     });
-    await tx.public['project-memberships'].upsert(
-      withMembershipPath(updatedNew, existing.slug, newMaintainerPerson.slug) as unknown as ProjectMembership,
-    );
+    await tx.public['project-memberships'].upsert(updatedNew);
     stateApply.upsertMembership(updatedNew);
 
     const updatedProject: Project = ProjectSchema.parse({
@@ -484,8 +478,8 @@ export class ProjectWriteService {
     return p;
   }
 
-  #membershipsFor(projectId: string): ProjectMembership[] {
-    const mIds = this.#state.membershipsByProject.get(projectId) ?? new Set();
+  #membershipsFor(projectSlug: string): ProjectMembership[] {
+    const mIds = this.#state.membershipsByProject.get(projectSlug) ?? new Set();
     return [...mIds]
       .map((id) => this.#state.projectMemberships.get(id))
       .filter((m): m is ProjectMembership => m !== undefined);

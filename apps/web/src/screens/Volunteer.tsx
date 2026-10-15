@@ -7,7 +7,6 @@ import { api } from '@/lib/api';
 
 // The codeforphilly.gitbook.io space is gone (404 "Content owner not found"),
 // so both of these point at the surviving live equivalents.
-const MEETUP_URL = 'https://www.meetup.com/Code-for-Philly/';
 const START_PROJECT_URL =
   'https://github.com/CodeForPhilly/partnerships/blob/master/creating-new-partnerships/first-steps.md';
 
@@ -65,15 +64,12 @@ export function Volunteer() {
             </Button>
           </div>
           <div className="rounded-lg border border-border bg-card p-5">
-            <h3 className="font-semibold mb-2">3. Show up to meetups</h3>
+            <h3 className="font-semibold mb-2">3. Come to a hack night</h3>
             <p className="text-sm text-muted-foreground mb-3">
-              We meet weekly. Bring your laptop, or just yourself.
+              We meet every month. Bring your laptop, or just yourself.
             </p>
             <Button asChild variant="outline" size="sm">
-              <a href={MEETUP_URL} target="_blank" rel="noopener noreferrer">
-                When we meet →
-                <span className="sr-only"> (opens in new tab)</span>
-              </a>
+              <Link to="/events">When we meet →</Link>
             </Button>
           </div>
         </div>
@@ -113,7 +109,7 @@ export function Volunteer() {
             <p className="text-sm text-muted-foreground mb-3">
               Help shape how civic tools look and feel.
             </p>
-            <Link to="/tags/topic/design" className="text-sm text-primary hover:underline">
+            <Link to="/projects?q=design" className="text-sm text-primary hover:underline">
               Design projects →
             </Link>
           </div>
@@ -122,7 +118,7 @@ export function Volunteer() {
             <p className="text-sm text-muted-foreground mb-3">
               Interview neighbors, analyze open data, document needs.
             </p>
-            <Link to="/tags/topic/research" className="text-sm text-primary hover:underline">
+            <Link to="/projects?q=research" className="text-sm text-primary hover:underline">
               Research projects →
             </Link>
           </div>
@@ -131,7 +127,7 @@ export function Volunteer() {
             <p className="text-sm text-muted-foreground mb-3">
               Help us connect with partner organizations and city programs.
             </p>
-            <Link to="/tags/topic/civic-engagement" className="text-sm text-primary hover:underline">
+            <Link to="/tags/topic/civicengagement" className="text-sm text-primary hover:underline">
               Civic engagement projects →
             </Link>
           </div>

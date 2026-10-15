@@ -103,6 +103,25 @@ function stageProgress(stage: string): number {
   return idx / (STAGE_ORDER.length - 1);
 }
 
+/**
+ * Member order: the maintainer first, then by full name. `memberPeople` is
+ * keyed by person slug, the handle memberships reference people by.
+ */
+function byMaintainerThenName(
+  project: Project,
+  memberPeople: Map<string, Person>,
+): (a: ProjectMembership, b: ProjectMembership) => number {
+  return (a, b) => {
+    const pa = memberPeople.get(a.personSlug);
+    const pb = memberPeople.get(b.personSlug);
+    const aIsMaintainer = pa !== undefined && pa.id === project.maintainerId;
+    const bIsMaintainer = pb !== undefined && pb.id === project.maintainerId;
+    if (aIsMaintainer) return -1;
+    if (bIsMaintainer) return 1;
+    return (pa?.fullName ?? '').localeCompare(pb?.fullName ?? '');
+  };
+}
+
 export function serializeProjectListItem(
   project: Project,
   opts: {
@@ -127,17 +146,11 @@ export function serializeProjectListItem(
     .filter((t): t is Tag => t !== undefined);
 
   // First 10 members: maintainer first, then by fullName
-  const sortedMemberships = [...opts.memberships].sort((a, b) => {
-    if (a.personId === project.maintainerId) return -1;
-    if (b.personId === project.maintainerId) return 1;
-    const pa = opts.memberPeople.get(a.personId);
-    const pb = opts.memberPeople.get(b.personId);
-    return (pa?.fullName ?? '').localeCompare(pb?.fullName ?? '');
-  });
+  const sortedMemberships = [...opts.memberships].sort(byMaintainerThenName(project, opts.memberPeople));
 
   const members = sortedMemberships
     .slice(0, 10)
-    .map((m) => opts.memberPeople.get(m.personId))
+    .map((m) => opts.memberPeople.get(m.personSlug))
     .filter((p): p is Person => p !== undefined)
     .map(serializePersonAvatar)
     .filter((a): a is PersonAvatar => a !== null);
@@ -182,15 +195,9 @@ export function serializeProjectDetail(
   const tagsByNamespace = groupTagsByNamespace(opts.tags);
 
   const memberships: ProjectMembershipResponse[] = opts.memberships
-    .sort((a, b) => {
-      if (a.personId === project.maintainerId) return -1;
-      if (b.personId === project.maintainerId) return 1;
-      const pa = opts.memberPeople.get(a.personId);
-      const pb = opts.memberPeople.get(b.personId);
-      return (pa?.fullName ?? '').localeCompare(pb?.fullName ?? '');
-    })
+    .sort(byMaintainerThenName(project, opts.memberPeople))
     .map((m) => {
-      const person = opts.memberPeople.get(m.personId);
+      const person = opts.memberPeople.get(m.personSlug);
       return {
         id: m.id,
         projectSlug: project.slug,

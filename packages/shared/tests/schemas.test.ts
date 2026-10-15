@@ -140,8 +140,8 @@ describe('ProjectMembershipSchema', () => {
   it('accepts a valid membership', () => {
     const result = ProjectMembershipSchema.safeParse({
       id: uuid,
-      projectId: uuid,
-      personId: uuid2,
+      projectSlug: 'transit-app',
+      personSlug: 'janedoe',
       isMaintainer: false,
       joinedAt: now,
       createdAt: now,
@@ -150,10 +150,10 @@ describe('ProjectMembershipSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects missing projectId', () => {
+  it('rejects missing projectSlug', () => {
     const result = ProjectMembershipSchema.safeParse({
       id: uuid,
-      personId: uuid2,
+      personSlug: 'janedoe',
       isMaintainer: false,
       joinedAt: now,
       createdAt: now,
@@ -167,7 +167,7 @@ describe('ProjectUpdateSchema', () => {
   it('accepts a valid update', () => {
     const result = ProjectUpdateSchema.safeParse({
       id: uuid,
-      projectId: uuid,
+      projectSlug: 'transit-app',
       body: '# Hello\n\nSome update text.',
       number: 1,
       createdAt: now,
@@ -179,7 +179,7 @@ describe('ProjectUpdateSchema', () => {
   it('rejects empty body', () => {
     const result = ProjectUpdateSchema.safeParse({
       id: uuid,
-      projectId: uuid,
+      projectSlug: 'transit-app',
       body: '',
       number: 1,
       createdAt: now,
@@ -249,7 +249,7 @@ describe('ProjectBuzzSchema', () => {
   it('accepts a valid buzz item', () => {
     const result = ProjectBuzzSchema.safeParse({
       id: uuid,
-      projectId: uuid,
+      projectSlug: 'transit-app',
       slug: 'great-article',
       headline: 'Great Article',
       url: 'https://example.com/great-article',
@@ -263,7 +263,7 @@ describe('ProjectBuzzSchema', () => {
   it('accepts http:// urls (legacy press links)', () => {
     const result = ProjectBuzzSchema.safeParse({
       id: uuid,
-      projectId: uuid,
+      projectSlug: 'transit-app',
       slug: 'great-article',
       headline: 'Great Article',
       url: 'http://example.com/great-article',
@@ -277,7 +277,7 @@ describe('ProjectBuzzSchema', () => {
   it('rejects malformed urls', () => {
     const result = ProjectBuzzSchema.safeParse({
       id: uuid,
-      projectId: uuid,
+      projectSlug: 'transit-app',
       slug: 'great-article',
       headline: 'Great Article',
       url: 'not a url',
@@ -343,7 +343,7 @@ describe('HelpWantedRoleSchema', () => {
   it('accepts a valid role', () => {
     const result = HelpWantedRoleSchema.safeParse({
       id: uuid,
-      projectId: uuid,
+      projectSlug: 'transit-app',
       postedById: uuid2,
       title: 'Backend Developer',
       description: 'We need a backend developer.',
@@ -357,7 +357,7 @@ describe('HelpWantedRoleSchema', () => {
   it('rejects title exceeding 120 chars', () => {
     const result = HelpWantedRoleSchema.safeParse({
       id: uuid,
-      projectId: uuid,
+      projectSlug: 'transit-app',
       postedById: uuid2,
       title: 'x'.repeat(121),
       description: 'Description.',
@@ -374,7 +374,7 @@ describe('HelpWantedInterestExpressionSchema', () => {
     const result = HelpWantedInterestExpressionSchema.safeParse({
       id: uuid,
       roleId: uuid,
-      personId: uuid2,
+      personSlug: 'janedoe',
       createdAt: now,
     });
     expect(result.success).toBe(true);
@@ -384,7 +384,7 @@ describe('HelpWantedInterestExpressionSchema', () => {
     const result = HelpWantedInterestExpressionSchema.safeParse({
       id: uuid,
       roleId: uuid,
-      personId: uuid2,
+      personSlug: 'janedoe',
       message: 'x'.repeat(2001),
       createdAt: now,
     });

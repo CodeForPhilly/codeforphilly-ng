@@ -149,7 +149,7 @@ export class PersonService {
     // themselves (self may view to reactivate). Per specs/behaviors/person-lifecycle.md.
     if (person.deletedAt && !isStaff && !isSelfCaller) return null;
 
-    const memberships = this.#getMembershipsForPerson(person.id);
+    const memberships = this.#getMembershipsForPerson(person.slug);
     const projectsMap = this.#getProjectsForMemberships(memberships);
 
     const recentUpdates = this.#getRecentUpdates(person.id);
@@ -186,7 +186,7 @@ export class PersonService {
   }
 
   #serializeListItem(person: Person): PersonListItem {
-    const memberOfCount = this.#state.membershipsByPerson.get(person.id)?.size ?? 0;
+    const memberOfCount = this.#state.membershipsByPerson.get(person.slug)?.size ?? 0;
 
     const tagAssignments = [...(this.#state.tagAssignmentsByTaggable.get(person.id) ?? [])]
       .map((taId) => this.#state.tagAssignments.get(taId))
@@ -199,8 +199,8 @@ export class PersonService {
     });
   }
 
-  #getMembershipsForPerson(personId: string): ProjectMembership[] {
-    const mIds = this.#state.membershipsByPerson.get(personId) ?? new Set();
+  #getMembershipsForPerson(personSlug: string): ProjectMembership[] {
+    const mIds = this.#state.membershipsByPerson.get(personSlug) ?? new Set();
     return [...mIds]
       .map((id) => this.#state.projectMemberships.get(id))
       .filter((m): m is ProjectMembership => m !== undefined);
@@ -209,8 +209,9 @@ export class PersonService {
   #getProjectsForMemberships(memberships: ProjectMembership[]): Map<string, Project> {
     const map = new Map<string, Project>();
     for (const m of memberships) {
-      const p = this.#state.projects.get(m.projectId);
-      if (p && !p.deletedAt) map.set(p.id, p);
+      const id = this.#state.projectIdBySlug.get(m.projectSlug);
+      const p = id ? this.#state.projects.get(id) : undefined;
+      if (p && !p.deletedAt) map.set(p.slug, p);
     }
     return map;
   }
@@ -225,8 +226,9 @@ export class PersonService {
   #getProjectsForUpdates(updates: ProjectUpdate[]): Map<string, Project> {
     const map = new Map<string, Project>();
     for (const u of updates) {
-      const p = this.#state.projects.get(u.projectId);
-      if (p) map.set(p.id, p);
+      const id = this.#state.projectIdBySlug.get(u.projectSlug);
+      const p = id ? this.#state.projects.get(id) : undefined;
+      if (p) map.set(p.slug, p);
     }
     return map;
   }

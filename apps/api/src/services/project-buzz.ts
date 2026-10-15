@@ -2,7 +2,7 @@
  * ProjectBuzzService — read operations.
  */
 import type { ProjectBuzz } from '@cfp/shared/schemas';
-import type { InMemoryState } from '../store/memory/state.js';
+import { projectBySlug, type InMemoryState } from '../store/memory/state.js';
 import type { CallerSession } from './permissions.js';
 import { computeBuzzPermissions } from './permissions.js';
 import {
@@ -58,7 +58,7 @@ export class ProjectBuzzService {
     const project = this.#state.projects.get(projectId);
     if (!project || project.deletedAt) return { error: 'not_found' };
 
-    const buzzIds = this.#state.buzzByProject.get(projectId) ?? new Set();
+    const buzzIds = this.#state.buzzByProject.get(project.slug) ?? new Set();
     const buzzes = [...buzzIds]
       .map((id) => this.#state.projectBuzz.get(id))
       .filter((b): b is ProjectBuzz => b !== undefined);
@@ -106,10 +106,10 @@ export class ProjectBuzzService {
     }
 
     const buzzes = [...this.#state.projectBuzz.values()].filter((b) => {
-      const project = this.#state.projects.get(b.projectId);
+      const project = projectBySlug(this.#state, b.projectSlug);
       if (!project || project.deletedAt) return false;
       if (opts.since && b.publishedAt < opts.since) return false;
-      if (filterProjectIds && !filterProjectIds.has(b.projectId)) return false;
+      if (filterProjectIds && !filterProjectIds.has(project.id)) return false;
       return true;
     });
 
@@ -122,7 +122,7 @@ export class ProjectBuzzService {
     const slice = buzzes.slice((page - 1) * perPage, page * perPage);
 
     const items = slice.map((b) => {
-      const project = this.#state.projects.get(b.projectId)!;
+      const project = projectBySlug(this.#state, b.projectSlug)!;
       const postedBy = b.postedById ? (this.#state.people.get(b.postedById) ?? null) : null;
       const permissions = computeBuzzPermissions(caller, b);
       return serializeProjectBuzz(b, { project, postedBy, permissions });

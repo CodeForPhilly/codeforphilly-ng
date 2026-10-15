@@ -4,7 +4,6 @@ import { renderScreen, mockPaginated } from './test-utils.js';
 import { Volunteer } from '../src/screens/Volunteer.js';
 import { AuthProvider } from '../src/hooks/useAuth.js';
 
-const MEETUP_URL = 'https://www.meetup.com/Code-for-Philly/';
 const START_PROJECT_URL =
   'https://github.com/CodeForPhilly/partnerships/blob/master/creating-new-partnerships/first-steps.md';
 
@@ -55,12 +54,9 @@ describe('Volunteer', () => {
     await screen.findByText(/browse 268 active projects/i);
   });
 
-  it('points "When we meet →" at the live Meetup group, not the dead GitBook page', async () => {
+  it('points "When we meet →" at the site\'s own events page', async () => {
     renderVolunteer();
-    const link = screen.getByRole('link', { name: /when we meet/i });
-    expect(link).toHaveAttribute('href', MEETUP_URL);
-    expect(link).toHaveAttribute('target', '_blank');
-    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByRole('link', { name: /when we meet/i })).toHaveAttribute('href', '/events');
     await screen.findByText(/browse 268 active projects/i);
   });
 

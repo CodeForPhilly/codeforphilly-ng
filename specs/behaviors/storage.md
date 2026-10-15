@@ -131,7 +131,7 @@ The path template is the only "index" gitsheets provides natively. Choose it to 
 - **Time-partitioned paths** keep directory size bounded for sheets that grow monotonically. None of the v1 sheets currently use time partitioning, but the pattern is reserved for future high-volume sheets (e.g., webhook ingestion logs).
 - **Polymorphic paths** (`tag-assignments/${taggableType}/${taggableId}/${tagId}.toml`) make "tags on this thing" a single directory scan; "things with this tag" uses an in-memory index.
 
-Every `${field}` in a path template must be a field every record of that sheet carries. A template naming a field the record lacks makes every upsert throw, aborting the whole transaction. Some fields exist only to render the path (`projectSlug`, `personSlug` on child records) and are added by the write services.
+Every `${field}` in a path template must be a field every record of that sheet carries. A template naming a field the record lacks makes every upsert throw, aborting the whole transaction. Every template field is a required field of the record's schema, so gitsheets (≥ 2.8) can refuse at open time a sheet whose template names anything else; a child keyed by its parent's handle stores that handle as its reference to the parent ([principles.md → A record holds everything its path needs](../principles.md#a-record-holds-everything-its-path-needs)).
 
 The data repo's `empty` branch is the source of truth for the `.gitsheets/` directory: sheet configs (layout: root, path template, format) and the adopted schema contracts. The API vendors a byte-for-byte mirror at `apps/api/gitsheets/`, and tests seed every test data repo from it. CI fails when a mirrored file differs from `empty` or is missing there. A file only in `empty` is a warning, because sheets land in the data repo before the API opens them. CI reads the private data repo with a read-only deploy key; without the key the check is skipped with a warning.
 
@@ -182,7 +182,7 @@ people/janedoe/avatar.jpg
 people/janedoe/avatar-128.jpg
 ```
 
-The on-record key (`avatarKey`) references the attachment path relative to the data repo root, `<sheet>/<record path>/<name>`. Web serves attachments via `GET /api/attachments/<key>`, which resolves the key through the sheet's current read snapshot. The response carries `ETag: "<blob hash>"` and `Cache-Control: public, max-age=3600`; a request whose `If-None-Match` matches gets `304` with no body. A key outside any sheet, or with no blob, is `404`; an empty blob is a `200` with an empty body.
+The on-record key (`avatarKey`) references the attachment path relative to the data repo root, `<sheet>/<record path>/<name>`. Web serves attachments via `GET /api/attachments/<key>`, which resolves the key through the sheet's current read snapshot. The response streams the blob with `Content-Length`, `ETag: "<blob hash>"` and `Cache-Control: public, max-age=3600`; a request whose `If-None-Match` matches gets `304` with no body. A key outside any sheet, or with no blob, is `404`; an empty blob is a `200` with an empty body.
 
 ## In-memory representation
 

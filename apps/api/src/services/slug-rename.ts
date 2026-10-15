@@ -1,38 +1,35 @@
 /**
- * Keep a record's attachments across a slug rename.
+ * Rename helpers — specs/behaviors/slug-handles.md: a rename changes the
+ * handle and nothing else about the entity, so the record's attachments
+ * move with it and any key or link pointing under its old path is
+ * rewritten.
  *
- * A rename deletes the record at its old path and upserts it at the new one.
- * gitsheets' delete also removes the record's attachment folder, so without
- * this the attachments (avatars, featured images) are lost and the on-record
- * key points at a path that no longer exists. specs/behaviors/slug-handles.md:
- * a rename changes the handle and nothing else about the entity.
- *
- * Interim until gitsheets can move a record together with its attachments
- * (plans/slug-rename-attachments.md).
+ * The move itself is gitsheets' rename-on-upsert (≥ 2.8): upserting a
+ * record annotated with its *current* path, when its fields now render a
+ * different path, moves the record file and its attachment folder in one
+ * step.
  */
-import type { BlobHandle } from 'gitsheets';
+import { RECORD_PATH_KEY } from 'gitsheets';
 
-interface AttachmentSheet<T> {
-  getAttachments(record: T | string): Promise<Record<string, BlobHandle> | null>;
-  setAttachments(record: T | string, attachments: Record<string, BlobHandle>): Promise<void>;
+interface MovableSheet<T, O> {
+  pathForRecord(record: T): Promise<string>;
+  upsert(record: T, opts?: O): Promise<unknown>;
 }
 
-/** Read the record's attachments before its old path is deleted. */
-export async function takeAttachments<T>(
-  sheet: AttachmentSheet<T>,
-  record: T,
-): Promise<Record<string, BlobHandle> | null> {
-  const attachments = await sheet.getAttachments(record);
-  return attachments && Object.keys(attachments).length > 0 ? attachments : null;
-}
-
-/** Re-attach to the record at its new path (blobs are reused by hash). */
-export async function restoreAttachments<T>(
-  sheet: AttachmentSheet<T>,
-  record: T,
-  attachments: Record<string, BlobHandle> | null,
+/**
+ * Write `updated` in place of `existing`, moving the record (and its
+ * attachments) when its path changed. The old path is rendered from
+ * `existing` rather than read from its path annotation, which a record
+ * re-parsed through Zod no longer carries.
+ */
+export async function upsertMoved<T extends object, O = never>(
+  sheet: MovableSheet<T, O>,
+  existing: T,
+  updated: T,
+  opts?: O,
 ): Promise<void> {
-  if (attachments) await sheet.setAttachments(record, attachments);
+  const oldPath = await sheet.pathForRecord(existing);
+  await sheet.upsert(Object.assign({ ...updated }, { [RECORD_PATH_KEY]: oldPath }) as T, opts);
 }
 
 /**

@@ -149,14 +149,16 @@ describe('prune-spam', () => {
         { personSlug: 'human-flipflop', evaluator: 'human-b', verdict: 'spam', confidence: 1, flags: [], evaluatedAt: LATER },
       ],
       memberships: [
-        { id: uuid(101), projectId: uuid(200), personId: uuid(3), projectSlug: 'proj', personSlug: 'member-spammer', role: 'Member', isMaintainer: false, joinedAt: NOW, createdAt: NOW, updatedAt: NOW },
-        { id: uuid(102), projectId: uuid(200), personId: uuid(4), projectSlug: 'proj', personSlug: 'human-spam-member', role: 'Member', isMaintainer: false, joinedAt: NOW, createdAt: NOW, updatedAt: NOW },
+        { id: uuid(101), projectSlug: 'proj', personSlug: 'member-spammer', role: 'Member', isMaintainer: false, joinedAt: NOW, createdAt: NOW, updatedAt: NOW },
+        { id: uuid(102), projectSlug: 'proj', personSlug: 'human-spam-member', role: 'Member', isMaintainer: false, joinedAt: NOW, createdAt: NOW, updatedAt: NOW },
       ],
       extra: async (tx) => {
         await tx.sheet('tag-assignments').upsert({ id: uuid(301), tagId: uuid(400), taggableType: 'person', taggableId: uuid(1), createdAt: NOW });
         await tx.sheet('tag-assignments').upsert({ id: uuid(302), tagId: uuid(400), taggableType: 'person', taggableId: uuid(7), createdAt: NOW });
-        await tx.sheet('help-wanted-interest').upsert({ id: uuid(501), roleId, personId: uuid(1), personSlug: 'spammer', createdAt: NOW });
-        await tx.sheet('project-updates').upsert({ id: uuid(601), projectId: uuid(200), authorId: uuid(1), body: 'hi', number: 1, projectSlug: 'proj', createdAt: NOW, updatedAt: NOW });
+        await tx.sheet('help-wanted-interest').upsert({ id: uuid(501), roleId, personSlug: 'spammer', createdAt: NOW });
+        await tx.sheet('event-rsvps').upsert({ id: uuid(701), year: '2026', eventSlug: 'hack-night', personSlug: 'spammer', createdAt: NOW, updatedAt: NOW });
+        await tx.sheet('event-rsvps').upsert({ id: uuid(702), year: '2026', eventSlug: 'hack-night', personSlug: 'clean', createdAt: NOW, updatedAt: NOW });
+        await tx.sheet('project-updates').upsert({ id: uuid(601), authorId: uuid(1), body: 'hi', number: 1, projectSlug: 'proj', createdAt: NOW, updatedAt: NOW });
       },
     });
 
@@ -171,6 +173,7 @@ describe('prune-spam', () => {
       protectedByMembership: 1,
       membershipsDeleted: 1,
       helpWantedInterestDeleted: 1,
+      eventRsvpsDeleted: 1,
       personTagAssignmentsDeleted: 1,
       projectUpdatesAuthorNulled: 1,
       noChanges: false,
@@ -178,6 +181,10 @@ describe('prune-spam', () => {
     expect(summary.commitHash).toBe(await git(data.path, 'rev-parse', 'published'));
     expect(await slugsOn(data.path, 'published', 'people')).toEqual(
       ['clean', 'human-legit', 'low-confidence', 'member-spammer', 'protected-by-legit'],
+    );
+    // Cascades follow the person's slug: the spammer's RSVP goes, others stay.
+    expect(await git(data.path, 'ls-tree', '-r', '--name-only', 'published', 'event-rsvps')).toBe(
+      'event-rsvps/2026/hack-night/clean.toml',
     );
     const update = await git(data.path, 'show', 'published:project-updates/proj/1.toml');
     expect(update).not.toContain('authorId');

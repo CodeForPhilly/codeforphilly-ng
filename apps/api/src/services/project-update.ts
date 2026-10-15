@@ -2,7 +2,7 @@
  * ProjectUpdateService — read operations.
  */
 import type { ProjectUpdate } from '@cfp/shared/schemas';
-import type { InMemoryState } from '../store/memory/state.js';
+import { projectBySlug, projectChildKey, type InMemoryState } from '../store/memory/state.js';
 import type { CallerSession } from './permissions.js';
 import { computeUpdatePermissions } from './permissions.js';
 import {
@@ -58,7 +58,7 @@ export class ProjectUpdateService {
     const project = this.#state.projects.get(projectId);
     if (!project || project.deletedAt) return { error: 'not_found' };
 
-    const updateIds = this.#state.updatesByProject.get(projectId) ?? new Set();
+    const updateIds = this.#state.updatesByProject.get(project.slug) ?? new Set();
     const updates = [...updateIds]
       .map((id) => this.#state.projectUpdates.get(id))
       .filter((u): u is ProjectUpdate => u !== undefined);
@@ -97,7 +97,7 @@ export class ProjectUpdateService {
     const project = this.#state.projects.get(projectId);
     if (!project || project.deletedAt) return { error: 'not_found' };
 
-    const updateId = this.#state.updateByProjectAndNumber.get(`${projectId}:${number}`);
+    const updateId = this.#state.updateByProjectAndNumber.get(projectChildKey(project.slug, number));
     if (!updateId) return null;
     const update = this.#state.projectUpdates.get(updateId);
     if (!update) return null;
@@ -127,10 +127,10 @@ export class ProjectUpdateService {
     }
 
     const updates = [...this.#state.projectUpdates.values()].filter((u) => {
-      const project = this.#state.projects.get(u.projectId);
+      const project = projectBySlug(this.#state, u.projectSlug);
       if (!project || project.deletedAt) return false;
       if (opts.since && u.createdAt < opts.since) return false;
-      if (filterProjectIds && !filterProjectIds.has(u.projectId)) return false;
+      if (filterProjectIds && !filterProjectIds.has(project.id)) return false;
       return true;
     });
 
@@ -142,7 +142,7 @@ export class ProjectUpdateService {
     const slice = updates.slice((page - 1) * perPage, page * perPage);
 
     const items = slice.map((u) => {
-      const project = this.#state.projects.get(u.projectId)!;
+      const project = projectBySlug(this.#state, u.projectSlug)!;
       const author = u.authorId ? (this.#state.people.get(u.authorId) ?? null) : null;
       const permissions = computeUpdatePermissions(caller, u);
       return serializeProjectUpdate(u, { project, author, permissions });

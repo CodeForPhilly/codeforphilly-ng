@@ -40,6 +40,7 @@ import { promisify } from 'node:util';
 
 import { faker } from '@faker-js/faker';
 import { getFormat, openRepo, RECORD_PATH_KEY, type BlobHandle, type UpsertResult } from 'gitsheets';
+import { SHEET_REFERENCES } from '@cfp/shared';
 
 const exec = promisify(execFile);
 
@@ -121,6 +122,27 @@ export function buildSlugMap(realSlugs: readonly string[], seed: string): Map<st
 // ---------------------------------------------------------------------------
 // @mention rewriting in markdown text
 // ---------------------------------------------------------------------------
+
+/**
+ * Rewrite every field that references a person by slug (memberships,
+ * help-wanted interest, RSVPs, evaluations — the references the schemas
+ * declare, specs/data-model.md → References) to that person's pseudonymized
+ * slug, so the reference still resolves and the record's path follows.
+ */
+export function rewritePersonReferences(
+  sheetName: string,
+  record: Record<string, unknown>,
+  slugMap: Map<string, string>,
+): Record<string, unknown> {
+  let out = record;
+  for (const ref of SHEET_REFERENCES) {
+    if (ref.sheet !== sheetName || ref.target.sheet !== 'people' || ref.target.field !== 'slug') continue;
+    const value = out[ref.field];
+    const pseudo = typeof value === 'string' ? slugMap.get(value) : undefined;
+    if (pseudo !== undefined) out = { ...out, [ref.field]: pseudo };
+  }
+  return out;
+}
 
 /**
  * Replace `@mention` occurrences of real person slugs in markdown-like text.
@@ -508,6 +530,7 @@ export async function scrubRepo(opts: ScrubOptions): Promise<ScrubResult> {
           }
         }
       }
+      scrubbed = rewritePersonReferences(sheetName, scrubbed, slugMap);
 
       // Look attachments up by the record's source path (as read), not a
       // re-render of its template.

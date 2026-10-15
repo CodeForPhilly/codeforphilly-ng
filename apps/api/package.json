@@ -17,7 +17,8 @@
     "script:cutover-dry-run": "tsx scripts/cutover-dry-run.ts",
     "script:cutover-mailout": "tsx scripts/cutover-mailout.ts",
     "script:prune-spam": "tsx scripts/prune-spam.ts",
-    "check:sheet-configs": "tsx scripts/check-sheet-configs.ts"
+    "check:sheet-configs": "tsx scripts/check-sheet-configs.ts",
+    "script:migrate-slug-references": "tsx scripts/migrations/202610150400-slug-references.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1048.0",
@@ -35,7 +36,7 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
     "fastify": "^5.8.5",
-    "gitsheets": "^2.7.0",
+    "gitsheets": "^2.9.0",
     "jose": "^6.2.3",
     "postmark": "^5.1.0",
     "samlify": "^2.13.0",

@@ -16,10 +16,14 @@
  * specs/behaviors/private-storage.md apply.
  */
 import {
+  EventRsvpSchema,
+  HelpWantedInterestExpressionSchema,
   PersonSchema,
   PrivateProfileSchema,
+  ProjectMembershipSchema,
   SlugHistorySchema,
   type AccountClaimRequest,
+  type EventRsvp,
   type HelpWantedInterestExpression,
   type HelpWantedRole,
   type Person,
@@ -31,7 +35,7 @@ import {
 } from '@cfp/shared/schemas';
 import { uuidv7 } from 'uuidv7';
 import type { DualStoreTx } from '../store/store.js';
-import type { InMemoryState } from '../store/memory/state.js';
+import { interestKey, rsvpKey, type InMemoryState } from '../store/memory/state.js';
 import { StateApply } from '../store/state-apply.js';
 import type { PrivateStore } from '../store/private/index.js';
 import type {
@@ -166,7 +170,7 @@ export class AccountClaimService {
         personId: person.id,
         slug: person.slug,
         fullName: person.fullName,
-        memberOfCount: this.#state.membershipsByPerson.get(person.id)?.size ?? 0,
+        memberOfCount: this.#state.membershipsByPerson.get(person.slug)?.size ?? 0,
         lastActiveAt: person.updatedAt,
         matchedVia,
         matchedEmail,
@@ -358,7 +362,7 @@ export class AccountClaimService {
       personId: person.id,
       slug: person.slug,
       fullName: person.fullName,
-      memberOfCount: this.#state.membershipsByPerson.get(person.id)?.size ?? 0,
+      memberOfCount: this.#state.membershipsByPerson.get(person.slug)?.size ?? 0,
       lastActiveAt: person.updatedAt,
       matchedVia,
       matchedEmail,
@@ -571,31 +575,26 @@ export class AccountClaimService {
 
     const reMemberships: ProjectMembership[] = [];
     const removedMemberships: ProjectMembership[] = [];
-    const requesterMembershipIds = this.#state.membershipsByPerson.get(requester.id) ?? new Set();
+    const requesterMembershipIds = this.#state.membershipsByPerson.get(requester.slug) ?? new Set();
     for (const mId of requesterMembershipIds) {
       const m = this.#state.projectMemberships.get(mId);
       if (!m) continue;
-      const mPath = m as ProjectMembership & { projectSlug: string; personSlug: string };
       // If the claimed Person already has a membership in this project,
       // drop the requester's duplicate rather than creating two.
-      const claimedMemberships = this.#state.membershipsByPerson.get(claimed.id) ?? new Set();
+      const claimedMemberships = this.#state.membershipsByPerson.get(claimed.slug) ?? new Set();
       const claimedHasIt = [...claimedMemberships].some((id) => {
         const cm = this.#state.projectMemberships.get(id);
-        return cm?.projectId === m.projectId;
+        return cm?.projectSlug === m.projectSlug;
       });
       if (claimedHasIt) {
-        await tx.public['project-memberships'].delete(mPath as unknown as ProjectMembership);
+        await tx.public['project-memberships'].delete(m);
         removedMemberships.push(m);
         continue;
       }
-      const updated: ProjectMembership = {
-        ...m,
-        personId: claimed.id,
-        personSlug: claimed.slug,
-      } as ProjectMembership;
-      // Path template uses {projectSlug}/{personSlug}, so renaming personSlug
-      // moves the file: delete the old key, then upsert the new one.
-      await tx.public['project-memberships'].delete(mPath as unknown as ProjectMembership);
+      const updated: ProjectMembership = ProjectMembershipSchema.parse({ ...m, personSlug: claimed.slug });
+      // Path template uses {projectSlug}/{personSlug}, so re-pointing the
+      // person moves the file: delete the old key, then upsert the new one.
+      await tx.public['project-memberships'].delete(m);
       await tx.public['project-memberships'].upsert(updated);
       reMemberships.push(updated);
     }
@@ -634,25 +633,36 @@ export class AccountClaimService {
     const reInterest: HelpWantedInterestExpression[] = [];
     const removedInterest: HelpWantedInterestExpression[] = [];
     for (const e of this.#state.helpWantedInterest.values()) {
-      if (e.personId !== requester.id) continue;
-      const ePath = e as HelpWantedInterestExpression & { personSlug: string };
+      if (e.personSlug !== requester.slug) continue;
       // Dedupe: if the claimed Person already expressed interest in this role,
       // drop the requester's row.
-      const claimedKey = `${e.roleId}:${claimed.id}`;
-      const claimedExisting = this.#state.interestByRoleAndPerson.get(claimedKey);
+      const claimedExisting = this.#state.interestByRoleAndPerson.get(interestKey(e.roleId, claimed.slug));
       if (claimedExisting) {
-        await tx.public['help-wanted-interest'].delete(ePath as unknown as HelpWantedInterestExpression);
+        await tx.public['help-wanted-interest'].delete(e);
         removedInterest.push(e);
         continue;
       }
-      const updated: HelpWantedInterestExpression = {
-        ...e,
-        personId: claimed.id,
-        personSlug: claimed.slug,
-      } as HelpWantedInterestExpression;
-      await tx.public['help-wanted-interest'].delete(ePath as unknown as HelpWantedInterestExpression);
+      const updated = HelpWantedInterestExpressionSchema.parse({ ...e, personSlug: claimed.slug });
+      await tx.public['help-wanted-interest'].delete(e);
       await tx.public['help-wanted-interest'].upsert(updated);
       reInterest.push(updated);
+    }
+
+    // RSVPs reference the person by slug too: re-point them, dropping any for
+    // an event the claimed Person is already going to.
+    const reRsvps: EventRsvp[] = [];
+    const removedRsvps: EventRsvp[] = [];
+    for (const rsvpId of this.#state.rsvpsByPerson.get(requester.slug) ?? new Set<string>()) {
+      const r = this.#state.eventRsvps.get(rsvpId);
+      if (!r) continue;
+      await tx.public['event-rsvps'].delete(r);
+      if (this.#state.rsvpIdByEventAndPerson.has(rsvpKey(r.eventSlug, claimed.slug))) {
+        removedRsvps.push(r);
+        continue;
+      }
+      const updated = EventRsvpSchema.parse({ ...r, personSlug: claimed.slug });
+      await tx.public['event-rsvps'].upsert(updated);
+      reRsvps.push(updated);
     }
 
     // Update the claimed Person with GitHub identity ----------------------
@@ -719,6 +729,8 @@ export class AccountClaimService {
       reRoles,
       reInterest,
       removedInterest,
+      reRsvps,
+      removedRsvps,
     });
   }
 }
@@ -739,6 +751,8 @@ interface MergeApplyInput {
   readonly reRoles: HelpWantedRole[];
   readonly reInterest: HelpWantedInterestExpression[];
   readonly removedInterest: HelpWantedInterestExpression[];
+  readonly reRsvps: EventRsvp[];
+  readonly removedRsvps: EventRsvp[];
 }
 
 export class MergeApply {
@@ -763,12 +777,17 @@ export class MergeApply {
     const i = this.#input;
     stateApply.upsertPerson(i.updatedPerson);
     stateApply.upsertSlugHistory(i.slugHistory);
+    // Re-pointed records keep their ids, so upserting them replaces the old
+    // index entries (index* unindexes the previous version of an id).
     for (const m of i.reMemberships) stateApply.upsertMembership(m);
     for (const m of i.removedMemberships) stateApply.removeMembership(m);
     for (const u of i.reUpdates) stateApply.upsertProjectUpdate(u);
     for (const b of i.reBuzz) stateApply.upsertProjectBuzz(b);
     for (const r of i.reRoles) stateApply.upsertHelpWantedRole(r);
     for (const e of i.reInterest) stateApply.upsertInterest(e);
+    for (const e of i.removedInterest) stateApply.removeInterest(e);
+    for (const r of i.reRsvps) stateApply.upsertEventRsvp(r);
+    for (const r of i.removedRsvps) stateApply.removeEventRsvp(r);
   }
 
   hardRemovePersonFromState(state: InMemoryState, fts: { removePerson: (slug: string) => void }): void {
@@ -778,17 +797,7 @@ export class MergeApply {
     state.people.delete(oldId);
     state.personSlugById.delete(oldId);
     state.personIdBySlug.delete(oldSlug);
-    state.membershipsByPerson.delete(oldId);
     fts.removePerson(oldSlug);
-    // Clean up removed interest rows that were de-duped during merge.
-    for (const e of i.removedInterest) {
-      state.helpWantedInterest.delete(e.id);
-      state.interestByRole.get(e.roleId)?.delete(e.id);
-      const key = `${e.roleId}:${e.personId}`;
-      if (state.interestByRoleAndPerson.get(key) === e.id) {
-        state.interestByRoleAndPerson.delete(key);
-      }
-    }
   }
 }
 

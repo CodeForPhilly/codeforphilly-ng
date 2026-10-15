@@ -14,6 +14,7 @@ import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
+import { interestKey, projectBySlug } from '../store/memory/state.js';
 import { computeHelpWantedPermissions } from '../services/permissions.js';
 import { serializeHelpWantedRole } from '../services/serializers/help-wanted.js';
 import type { HelpWantedRole, ProjectMembership } from '@cfp/shared/schemas';
@@ -145,8 +146,8 @@ export async function helpWantedRoutes(fastify: FastifyInstance): Promise<void> 
   );
 
   function serializeRoleResponse(role: HelpWantedRole, request: Parameters<typeof getCallerSession>[0]) {
-    const project = fastify.inMemoryState.projects.get(role.projectId)!;
-    const memberships = [...(fastify.inMemoryState.membershipsByProject.get(role.projectId) ?? [])]
+    const project = projectBySlug(fastify.inMemoryState, role.projectSlug)!;
+    const memberships = [...(fastify.inMemoryState.membershipsByProject.get(role.projectSlug) ?? [])]
       .map((id) => fastify.inMemoryState.projectMemberships.get(id))
       .filter((m): m is ProjectMembership => m !== undefined);
     const postedBy = fastify.inMemoryState.people.get(role.postedById) ?? null;
@@ -159,7 +160,7 @@ export async function helpWantedRoutes(fastify: FastifyInstance): Promise<void> 
     const caller = getCallerSession(request);
     const interestCount = fastify.inMemoryState.interestByRole.get(role.id)?.size ?? 0;
     const alreadyExpressed = caller
-      ? fastify.inMemoryState.interestByRoleAndPerson.has(`${role.id}:${caller.id}`)
+      ? fastify.inMemoryState.interestByRoleAndPerson.has(interestKey(role.id, caller.slug))
       : false;
     const permissions = computeHelpWantedPermissions(
       caller,

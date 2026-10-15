@@ -35,7 +35,7 @@ export interface ProjectListResult {
   readonly facets: ProjectFacets;
 }
 
-const ALLOWED_SORT_KEYS = new Set(['createdAt', 'updatedAt', 'title', 'stage']);
+const ALLOWED_SORT_KEYS = new Set(['createdAt', 'updatedAt', 'title', 'stage', 'activity']);
 const STAGE_ORDER = ['commenting', 'bootstrapping', 'prototyping', 'testing', 'maintaining', 'drifting', 'hibernating'];
 
 function parseSortSpec(sort: string | undefined): Array<{ key: string; desc: boolean }> | null {
@@ -51,10 +51,28 @@ function parseSortSpec(sort: string | undefined): Array<{ key: string; desc: boo
   return result;
 }
 
-function compareProjects(a: Project, b: Project, sortSpec: Array<{ key: string; desc: boolean }>): number {
+function compareProjects(
+  a: Project,
+  b: Project,
+  sortSpec: Array<{ key: string; desc: boolean }>,
+  activity?: Map<string, string>,
+): number {
   for (const { key, desc } of sortSpec) {
     let cmp = 0;
-    if (key === 'title') {
+    if (key === 'activity') {
+      // Projects with no activity sort last in either direction
+      // (specs/api/projects.md), then by most recently updated.
+      const aAt = activity?.get(a.slug);
+      const bAt = activity?.get(b.slug);
+      if (!aAt || !bAt) {
+        if (aAt) return -1;
+        if (bAt) return 1;
+        cmp = b.updatedAt.localeCompare(a.updatedAt);
+        if (cmp !== 0) return cmp;
+        continue;
+      }
+      cmp = aAt.localeCompare(bAt);
+    } else if (key === 'title') {
       cmp = a.title.localeCompare(b.title);
     } else if (key === 'stage') {
       cmp = STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage);
@@ -190,11 +208,11 @@ export class ProjectService {
 
         if (opts.memberSlug) {
           if (!memberPersonId) return false;
-          const personMemberships = this.#state.membershipsByPerson.get(memberPersonId);
+          const personMemberships = this.#state.membershipsByPerson.get(opts.memberSlug);
           if (!personMemberships) return false;
           let found = false;
           for (const mId of personMemberships) {
-            if (this.#state.projectMemberships.get(mId)?.projectId === p.id) {
+            if (this.#state.projectMemberships.get(mId)?.projectSlug === p.slug) {
               found = true;
               break;
             }
@@ -203,7 +221,7 @@ export class ProjectService {
         }
 
         if (opts.helpWanted) {
-          const roles = this.#state.helpWantedByProject.get(p.id);
+          const roles = this.#state.helpWantedByProject.get(p.slug);
           if (!roles) return false;
           let hasOpen = false;
           for (const rId of roles) {
@@ -226,9 +244,10 @@ export class ProjectService {
     const filtered = allProjects.filter(buildMatcher());
     // A search with no explicit sort lists by relevance (specs/api/projects.md);
     // otherwise by the sort spec (default -updatedAt).
+    const activity = sortSpec.some((s) => s.key === 'activity') ? this.#lastActivity() : undefined;
     const rank = ftsRank;
     filtered.sort((a, b) =>
-      rank ? (rank.get(a.slug) ?? Infinity) - (rank.get(b.slug) ?? Infinity) : compareProjects(a, b, sortSpec),
+      rank ? (rank.get(a.slug) ?? Infinity) - (rank.get(b.slug) ?? Infinity) : compareProjects(a, b, sortSpec, activity),
     );
     const totalItems = filtered.length;
 
@@ -262,19 +281,19 @@ export class ProjectService {
       caller?.accountLevel === 'staff' || caller?.accountLevel === 'administrator';
     if (project.deletedAt && !isStaff) return null;
 
-    const memberships = this.#getMembershipsForProject(project.id);
+    const memberships = this.#getMembershipsForProject(project.slug);
     const memberPeople = this.#getPeopleForMemberships(memberships);
     const maintainer = project.maintainerId
       ? (this.#state.people.get(project.maintainerId) ?? null)
       : null;
 
-    const openHelpWantedRoles = this.#getOpenHelpWantedRoles(project.id);
+    const openHelpWantedRoles = this.#getOpenHelpWantedRoles(project.slug);
     const helpWantedTags = this.#getHelpWantedTags(openHelpWantedRoles.map((r) => r.id));
 
     const projectTags = this.#getTagsForEntity(project.id, 'project');
 
-    const updateCount = this.#state.updatesByProject.get(project.id)?.size ?? 0;
-    const buzzCount = this.#state.buzzByProject.get(project.id)?.size ?? 0;
+    const updateCount = this.#state.updatesByProject.get(project.slug)?.size ?? 0;
+    const buzzCount = this.#state.buzzByProject.get(project.slug)?.size ?? 0;
 
     const permissions = computeProjectPermissions(caller, project, memberships);
 
@@ -291,14 +310,35 @@ export class ProjectService {
     });
   }
 
+  /**
+   * Each project's most recent sign of life: an RSVP naming it, an update, or
+   * a buzz item logged (specs/api/projects.md → `sort=activity`).
+   */
+  // Keyed by project slug.
+  #lastActivity(): Map<string, string> {
+    const latest = new Map<string, string>();
+    const note = (projectSlug: string | undefined, at: string) => {
+      if (!projectSlug) return;
+      const prev = latest.get(projectSlug);
+      if (!prev || at > prev) latest.set(projectSlug, at);
+    };
+    for (const r of this.#state.eventRsvps.values()) {
+      // An RSVP still names its project by id (not a path field).
+      if (r.plan === 'project' && r.projectId) note(this.#state.projects.get(r.projectId)?.slug, r.updatedAt);
+    }
+    for (const u of this.#state.projectUpdates.values()) note(u.projectSlug, u.createdAt);
+    for (const b of this.#state.projectBuzz.values()) note(b.projectSlug, b.createdAt);
+    return latest;
+  }
+
   #serializeListItem(project: Project): ProjectListItem {
-    const memberships = this.#getMembershipsForProject(project.id);
+    const memberships = this.#getMembershipsForProject(project.slug);
     const memberPeople = this.#getPeopleForMemberships(memberships);
     const maintainer = project.maintainerId
       ? (this.#state.people.get(project.maintainerId) ?? null)
       : null;
 
-    const openHelpWantedCount = [...(this.#state.helpWantedByProject.get(project.id) ?? [])]
+    const openHelpWantedCount = [...(this.#state.helpWantedByProject.get(project.slug) ?? [])]
       .filter((rId) => this.#state.helpWantedRoles.get(rId)?.status === 'open').length;
 
     const tagAssignments = [...(this.#state.tagAssignmentsByTaggable.get(project.id) ?? [])]
@@ -316,24 +356,26 @@ export class ProjectService {
     });
   }
 
-  #getMembershipsForProject(projectId: string): ProjectMembership[] {
-    const mIds = this.#state.membershipsByProject.get(projectId) ?? new Set();
+  #getMembershipsForProject(projectSlug: string): ProjectMembership[] {
+    const mIds = this.#state.membershipsByProject.get(projectSlug) ?? new Set();
     return [...mIds]
       .map((id) => this.#state.projectMemberships.get(id))
       .filter((m): m is ProjectMembership => m !== undefined);
   }
 
+  /** Member people keyed by slug (memberships reference people by slug). */
   #getPeopleForMemberships(memberships: ProjectMembership[]): Map<string, Person> {
     const map = new Map<string, Person>();
     for (const m of memberships) {
-      const p = this.#state.people.get(m.personId);
-      if (p) map.set(p.id, p);
+      const id = this.#state.personIdBySlug.get(m.personSlug);
+      const p = id ? this.#state.people.get(id) : undefined;
+      if (p) map.set(p.slug, p);
     }
     return map;
   }
 
-  #getOpenHelpWantedRoles(projectId: string): HelpWantedRole[] {
-    const rIds = this.#state.helpWantedByProject.get(projectId) ?? new Set();
+  #getOpenHelpWantedRoles(projectSlug: string): HelpWantedRole[] {
+    const rIds = this.#state.helpWantedByProject.get(projectSlug) ?? new Set();
     return [...rIds]
       .map((id) => this.#state.helpWantedRoles.get(id))
       .filter((r): r is HelpWantedRole => r !== undefined && r.status === 'open');

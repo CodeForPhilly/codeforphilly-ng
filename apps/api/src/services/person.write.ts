@@ -34,8 +34,8 @@ import { requireAuth } from '../auth/require.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from './tag.write.js';
 import type { PrivateStore } from '../store/private/index.js';
-import { partitionYear } from './event.write.js';
-import { rekeyAttachment, restoreAttachments, takeAttachments } from './slug-rename.js';
+import { cascadeRename } from './reference-cascade.js';
+import { rekeyAttachment, upsertMoved } from './slug-rename.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -117,10 +117,7 @@ export class PersonWriteService {
 
     const stateApply = new StateApply();
 
-    let attachments: Awaited<ReturnType<typeof takeAttachments>> = null;
     if (newSlug !== existing.slug) {
-      attachments = await takeAttachments(tx.public.people, existing);
-      await tx.public.people.delete(existing);
       const history = {
         id: uuidv7(),
         entityType: 'person' as const,
@@ -135,9 +132,19 @@ export class PersonWriteService {
       stateApply.upsertSlugHistory(history);
     }
 
-    await tx.public.people.upsert(updated);
-    await restoreAttachments(tx.public.people, updated, attachments);
+    // Moves the record and its attachments when the slug changed.
+    await upsertMoved(tx.public.people, existing, updated);
     stateApply.upsertPerson(updated);
+
+    if (newSlug !== existing.slug) {
+      // Memberships, interest, RSVPs and evaluations reference the person by
+      // slug and live under it: move them in this same commit.
+      await cascadeRename(tx, this.#state, stateApply, {
+        target: 'people',
+        oldSlug: existing.slug,
+        newSlug,
+      });
+    }
 
     // Email change → private profile update (no public diff)
     if (input.email !== undefined) {
@@ -281,7 +288,7 @@ export class PersonWriteService {
     stateApply.removePerson(personId, existing.slug);
 
     // 2. Cascade-delete project-memberships.
-    const membershipIds = this.#state.membershipsByPerson.get(personId) ?? new Set<string>();
+    const membershipIds = this.#state.membershipsByPerson.get(existing.slug) ?? new Set<string>();
     for (const mId of membershipIds) {
       const m = this.#state.projectMemberships.get(mId);
       if (m) {
@@ -292,23 +299,17 @@ export class PersonWriteService {
 
     // 3. Cascade-delete help-wanted-interest.
     for (const interest of this.#state.helpWantedInterest.values()) {
-      if (interest.personId === personId) {
+      if (interest.personSlug === existing.slug) {
         await tx.public['help-wanted-interest'].delete(interest);
         stateApply.removeInterest(interest);
       }
     }
 
     // 3b. Cascade-delete event RSVPs (path: year/eventSlug/personSlug).
-    for (const rsvpId of this.#state.rsvpsByPerson.get(personId) ?? new Set<string>()) {
+    for (const rsvpId of this.#state.rsvpsByPerson.get(existing.slug) ?? new Set<string>()) {
       const rsvp = this.#state.eventRsvps.get(rsvpId);
-      const event = rsvp ? this.#state.events.get(rsvp.eventId) : undefined;
-      if (rsvp && event) {
-        await tx.public['event-rsvps'].delete({
-          ...rsvp,
-          year: partitionYear(event.startsAt),
-          eventSlug: event.slug,
-          personSlug: existing.slug,
-        } as typeof rsvp);
+      if (rsvp) {
+        await tx.public['event-rsvps'].delete(rsvp);
         stateApply.removeEventRsvp(rsvp);
       }
     }

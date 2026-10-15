@@ -51,14 +51,14 @@ function isMaintainer(session: SessionContext, ctx: AuthContext): boolean {
   if (!session.person || !ctx.project) return false;
   if (ctx.project.maintainerId === session.person.id) return true;
   return (ctx.memberships ?? []).some(
-    (m) => m.personId === session.person!.id && m.isMaintainer,
+    (m) => m.personSlug === session.person!.slug && m.isMaintainer,
   );
 }
 
 function isMember(session: SessionContext, ctx: AuthContext): boolean {
   if (!session.person || !ctx.project) return false;
   return (ctx.memberships ?? []).some(
-    (m) => m.personId === session.person!.id && m.projectId === ctx.project!.id,
+    (m) => m.personSlug === session.person!.slug && m.projectSlug === ctx.project!.slug,
   );
 }
 
