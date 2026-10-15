@@ -174,26 +174,34 @@ those as the order-of-magnitude sanity check for your counts.
    not.
 4. Run the importer **without `--dry-run`**. This creates one snapshot
    commit on `legacy-import`. Push it.
-5. **Merge `legacy-import` into `published`.** This needs a working tree
-   (clone from your bare clone). Expect **thousands of conflicts** of the
-   form `deleted by us / modified by them`: every previously-pruned spam
-   person is absent on `published` and present (possibly modified) in the
-   fresh snapshot. Resolve them all by **taking the import's version** —
-   the prune step in the next step removes them again:
+5. **Merge `legacy-import` into `published`** with gitsheets' sheet-aware
+   merge (gitsheets ≥ 2.8). It merges *records*, not lines: a person
+   changed on both sides is field-merged and written canonically, so the
+   merged branch never mixes serializations. It runs directly against the
+   bare clone, so no working tree is needed. Expect **thousands of
+   delete/modify conflicts**: every previously-pruned spam person is absent
+   on `published` and present in the fresh snapshot. `--prefer theirs`
+   takes the import's version of each one, and the prune step next removes
+   them again. Run it from a codeforphilly-ng checkout (the CLI ships with
+   the `gitsheets` dependency):
 
    ```bash
-   git clone /scratch/codeforphilly-data.git /scratch/codeforphilly-data-wt
-   cd /scratch/codeforphilly-data-wt
-   git checkout published
-   git merge origin/legacy-import || true
-   git diff --name-only --diff-filter=U | xargs git checkout --theirs --
-   git add -A people/                       # the conflicts are person records
-   git commit --no-edit
-   git push origin published:published      # back to the bare clone only — don't push to GitHub yet
+   D=/scratch/codeforphilly-data.git
+   # Preview: lists every conflict by path and kind, writes nothing
+   npx gitsheets merge legacy-import --into published --dry-run --git-dir $D
+   # Merge, taking the import's side of every conflict
+   npx gitsheets merge legacy-import --into published --prefer theirs --git-dir $D \
+     --author-name "<you>" --author-email "<you>@users.noreply.codeforphilly.org"
+   # The merge doesn't validate contracts; check every record before going on
+   npx gitsheets contracts verify --git-dir $D --ref published
    ```
 
-   Review `git status` before the `git add`; if conflicts show up outside
-   `people/`, look at them individually rather than bulk-resolving.
+   Read the preview before merging. `--prefer` resolves record-field,
+   delete/modify and blob conflicts, but rename/directory conflicts are
+   always reported and stop the merge: look at those individually. If
+   conflicts show up outside `people/`, look at them individually rather
+   than relying on `--prefer`. The merge stays local to the bare clone
+   (don't push to GitHub yet).
 
 6. **Prune confident-spam** from `published` before it goes anywhere. The
    merge re-added the full raw import (spam included); the deployed pod
