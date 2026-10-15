@@ -7,6 +7,7 @@ specs:
   - specs/api/projects.md
   - specs/screens/chat.md
 issues: []
+pr: 242
 ---
 
 # Plan: Make the home page look alive
