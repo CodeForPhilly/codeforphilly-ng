@@ -202,6 +202,38 @@ describe('prune-spam', () => {
     expect(await git(data.path, 'rev-parse', 'published')).toBe(summary.commitHash);
   });
 
+  it('creates the local branch from origin/<branch> on a fresh clone', async () => {
+    const { data, evaluationsPath } = await setup({
+      people: [person(1, 'spammer'), person(2, 'kept')],
+      machineEvals: [machine('spammer', 'spam', 0.95), machine('kept', 'spam', 0.2)],
+    });
+    // A fresh clone has the served branch only as a remote-tracking ref.
+    const origin = await git(data.path, 'rev-parse', 'published');
+    await git(data.path, 'update-ref', 'refs/remotes/origin/published', origin);
+    await git(data.path, 'update-ref', '-d', 'refs/heads/published');
+
+    // Human votes default to --branch; point them at the remote-tracking ref
+    // a fresh clone actually has.
+    const dry = await pruneSpam(args(data, evaluationsPath, { dryRun: true, humanVotesRef: 'origin/published' }));
+    expect(dry.prunedPeople).toBe(1);
+    // A dry-run commits nothing, so it leaves the local branch uncreated.
+    await expect(git(data.path, 'rev-parse', '--verify', 'refs/heads/published')).rejects.toThrow();
+
+    const summary = await pruneSpam(args(data, evaluationsPath, { humanVotesRef: 'origin/published' }));
+    expect(summary.prunedPeople).toBe(1);
+    expect(summary.commitHash).toBe(await git(data.path, 'rev-parse', 'refs/heads/published'));
+    expect(await git(data.path, 'rev-parse', `${summary.commitHash}^`)).toBe(origin);
+    expect(await git(data.path, 'rev-parse', 'refs/remotes/origin/published')).toBe(origin);
+    expect(await slugsOn(data.path, 'refs/heads/published', 'people')).toEqual(['kept']);
+  });
+
+  it('fails clearly when an evaluations ref does not exist', async () => {
+    const { data, evaluationsPath } = await setup({ people: [person(1, 'alice')], machineEvals: [] });
+    await expect(pruneSpam(args(data, evaluationsPath, { evaluationsRef: 'no-such-ref' }))).rejects.toThrow(
+      /ref 'no-such-ref' not found/,
+    );
+  });
+
   it('dry-run reports the prune set without writing', async () => {
     const { data, evaluationsPath } = await setup({
       people: [person(1, 'spammer'), person(2, 'kept')],

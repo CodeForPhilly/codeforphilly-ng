@@ -484,6 +484,49 @@ describe('scrubRepo', () => {
   );
 
   it(
+    'commits a parentless snapshot holding configs, contracts and records, on HEAD + tag',
+    async () => {
+      sourceTmp = await makeSourceRepo({
+        people: [
+          { id: uuid(1), slug: 'dana', fullName: 'Dana Gray', accountLevel: 'user', createdAt: NOW, updatedAt: NOW },
+        ],
+        projects: [
+          { id: uuid(2), slug: 'proj', title: 'Proj', stage: 'bootstrapping', createdAt: NOW, updatedAt: NOW },
+        ],
+      });
+      targetTmp = await makeTmp();
+      const git = async (cwd: string, ...args: string[]) => (await exec('git', args, { cwd })).stdout.trim();
+
+      const result = await scrubRepo({ source: sourceTmp.path, target: targetTmp.path, seed: 'orphan-test' });
+      const commit = result.commitHash!;
+      expect(result.branchName).toBe('snapshot-orphan-test-scrubbed');
+
+      // Parentless, on the snapshot branch, HEAD pointing at it, and tagged.
+      expect(await git(targetTmp.path, 'rev-list', '--parents', '-n', '1', commit)).toBe(commit);
+      expect(await git(targetTmp.path, 'symbolic-ref', 'HEAD')).toBe('refs/heads/snapshot-orphan-test-scrubbed');
+      expect(await git(targetTmp.path, 'rev-parse', 'HEAD')).toBe(commit);
+      expect(await git(targetTmp.path, 'rev-parse', 'refs/tags/snapshot-orphan-test-scrubbed')).toBe(commit);
+
+      // `.gitsheets/` (configs + vendored contracts) is byte-identical to the source's.
+      const sourceConfigs = await git(sourceTmp.path, 'ls-tree', '-r', 'HEAD', '.gitsheets/');
+      expect(sourceConfigs).toContain('.gitsheets/contracts/');
+      expect(await git(targetTmp.path, 'ls-tree', '-r', commit, '.gitsheets/')).toBe(sourceConfigs);
+
+      // ...alongside the scrubbed records.
+      const files = (await git(targetTmp.path, 'ls-tree', '-r', '--name-only', commit)).split('\n');
+      const pseudo = buildSlugMap(['dana'], 'orphan-test').get('dana')!;
+      expect(files).toContain(`people/${pseudo}.toml`);
+      expect(files).toContain('projects/proj.toml');
+
+      // A same-seed re-run with unchanged content is a no-op.
+      const again = await scrubRepo({ source: sourceTmp.path, target: targetTmp.path, seed: 'orphan-test' });
+      expect(again.commitHash).toBeNull();
+      expect(await git(targetTmp.path, 'rev-parse', 'HEAD')).toBe(commit);
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  it(
     'record counts match source vs snapshot',
     async () => {
       sourceTmp = await makeSourceRepo({
@@ -540,6 +583,8 @@ describe('scrubRepo', () => {
       await expect(
         scrubRepo({ source: path2, target: targetTmp.path, seed: 'leak-test' }),
       ).rejects.toThrow(/Verification failed/);
+      // No ref moved: the target has no branches or tags at all.
+      expect((await exec('git', ['for-each-ref'], { cwd: targetTmp.path })).stdout.trim()).toBe('');
     },
     INTEGRATION_TIMEOUT,
   );
