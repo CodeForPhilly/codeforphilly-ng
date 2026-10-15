@@ -1,9 +1,10 @@
 ---
-status: in-progress
+status: done
 depends: [chat-redirect]
 specs:
   - specs/screens/chat.md
 issues: [230]
+pr: 233
 ---
 
 # Plan: In-app links to /chat navigate to the server
@@ -36,10 +37,10 @@ a lint rule rejects router links whose literal target starts with `/chat`,
 
 ## Validation
 
-- [ ] `npm run type-check && npm run lint && npm test` clean.
-- [ ] The rule flags the five links before the fix (checked by running
+- [x] `npm run type-check && npm run lint && npm test` clean.
+- [x] The rule flags the five links before the fix (checked by running
   lint against the unfixed tree).
-- [ ] In the built app, clicking footer "Slack" leaves the SPA for the
+- [x] In the built app, clicking footer "Slack" leaves the SPA for the
   Slack SSO start URL instead of rendering the 404 page.
 
 ## Risks / unknowns
@@ -49,4 +50,14 @@ a lint rule rejects router links whose literal target starts with `/chat`,
 
 ## Notes
 
+- Five links, not the three the issue named: the project page's "Chat
+  Channel" button and the project card's "Chat" had the same bug.
+- Verified on the devbox build of develop at 0911423: clicking the footer
+  "Slack" left the SPA through Slack's SSO start to the production IdP's
+  sign-in (Slack's IdP is codeforphilly.org) instead of the 404 page.
+- The Vite dev server doesn't proxy `/chat`, so this can't be checked
+  under `npm run dev`; it needs the built app.
+
 ## Follow-ups
+
+- **None.**
