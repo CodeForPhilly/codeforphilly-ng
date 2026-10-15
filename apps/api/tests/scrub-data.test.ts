@@ -527,6 +527,31 @@ describe('scrubRepo', () => {
   );
 
   it(
+    'moves the branch, HEAD and tag to a new parentless snapshot on a same-seed re-run with changed content',
+    async () => {
+      const project = { id: uuid(2), slug: 'proj', title: 'Proj', stage: 'bootstrapping', createdAt: NOW, updatedAt: NOW };
+      sourceTmp = await makeSourceRepo({ projects: [project] });
+      targetTmp = await makeTmp();
+      const git = async (cwd: string, ...args: string[]) => (await exec('git', args, { cwd })).stdout.trim();
+
+      const first = await scrubRepo({ source: sourceTmp.path, target: targetTmp.path, seed: 'rerun-test' });
+      await sourceTmp.cleanup();
+      sourceTmp = await makeSourceRepo({ projects: [{ ...project, title: 'Proj Renamed' }] });
+      const second = await scrubRepo({ source: sourceTmp.path, target: targetTmp.path, seed: 'rerun-test' });
+
+      const commit = second.commitHash!;
+      expect(commit).toBeTruthy();
+      expect(commit).not.toBe(first.commitHash);
+      expect(await git(targetTmp.path, 'rev-list', '--parents', '-n', '1', commit)).toBe(commit);
+      expect(await git(targetTmp.path, 'rev-parse', 'refs/heads/snapshot-rerun-test-scrubbed')).toBe(commit);
+      expect(await git(targetTmp.path, 'rev-parse', 'HEAD')).toBe(commit);
+      expect(await git(targetTmp.path, 'rev-parse', 'refs/tags/snapshot-rerun-test-scrubbed')).toBe(commit);
+      expect(await git(targetTmp.path, 'show', `${commit}:projects/proj.toml`)).toContain('Proj Renamed');
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  it(
     'record counts match source vs snapshot',
     async () => {
       sourceTmp = await makeSourceRepo({
