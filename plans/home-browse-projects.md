@@ -4,6 +4,7 @@ depends: [home-page-alive]
 specs:
   - specs/screens/home.md
 issues: []
+pr: 247
 ---
 
 # Plan: "Browse all N projects" on the home page
