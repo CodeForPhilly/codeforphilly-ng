@@ -186,4 +186,17 @@ describe('GET /api/attachments/*', () => {
     const res = await app.inject({ method: 'GET', url: '/api/attachments/not-a-sheet/x/y.png' });
     expect(res.statusCode).toBe(404);
   });
+
+  it('streams a blob larger than 1 MiB intact, with Content-Length', async () => {
+    const big = Buffer.alloc(3 * 1024 * 1024 + 17);
+    for (let i = 0; i < big.length; i++) big[i] = (i * 31 + 7) & 0xff;
+    await seedRawBlob(dataRepo.path, 'people/big/scan.pdf', big, 'seed a large attachment');
+    app = await bootApp();
+
+    const res = await app.inject({ method: 'GET', url: '/api/attachments/people/big/scan.pdf' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-length']).toBe(String(big.length));
+    expect(res.rawPayload.equals(big)).toBe(true);
+  });
 });
+

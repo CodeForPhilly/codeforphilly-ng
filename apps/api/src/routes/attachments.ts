@@ -11,7 +11,7 @@
  * (gitsheets auto-refresh) and after a hot reload (`store.public.refresh()`).
  *
  * The blob hash is the `ETag`, so a revalidation is answered with 304 without
- * reading the blob at all.
+ * reading the blob at all; a 200 streams the blob with its `Content-Length`.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
@@ -120,7 +120,12 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(304).send();
       }
 
-      return reply.type(inferContentType(key)).send(await blob.read());
+      // Stream rather than buffer: gitsheets serves small blobs from one
+      // in-core read and pipes larger ones from git.
+      return reply
+        .type(inferContentType(key))
+        .header('Content-Length', blob.size)
+        .send(blob.stream());
     },
   );
 }
