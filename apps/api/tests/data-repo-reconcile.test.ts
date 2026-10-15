@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { openRepo } from 'gitsheets';
 
 import {
   AUTHOR_EMAIL,
@@ -193,7 +194,7 @@ describe('reconcileDataRepo', () => {
     const before = await git(rig.local, 'rev-parse', 'HEAD');
 
     const result = await reconcileDataRepo({
-      repoPath: rig.local,
+      repo: await openRepo({ gitDir: rig.local }),
       branch: 'main',
       logger,
     });
@@ -211,7 +212,7 @@ describe('reconcileDataRepo', () => {
 
     const { logger, lines } = makeLogger();
     const result = await reconcileDataRepo({
-      repoPath: rig.local,
+      repo: await openRepo({ gitDir: rig.local }),
       branch: 'main',
       logger,
     });
@@ -234,7 +235,7 @@ describe('reconcileDataRepo', () => {
     const pushed: string[] = [];
     const { logger } = makeLogger();
     const result = await reconcileDataRepo({
-      repoPath: rig.local,
+      repo: await openRepo({ gitDir: rig.local }),
       branch: 'main',
       logger,
       push: (commit) => {
@@ -267,7 +268,7 @@ describe('reconcileDataRepo', () => {
     const pushed: string[] = [];
     const { logger } = makeLogger();
     const result = await reconcileDataRepo({
-      repoPath: rig.local,
+      repo: await openRepo({ gitDir: rig.local }),
       branch: 'main',
       logger,
       push: (commit) => {
@@ -309,7 +310,7 @@ describe('reconcileDataRepo', () => {
     const pushed: string[] = [];
     const { logger } = makeLogger();
     const result = await reconcileDataRepo({
-      repoPath: rig.local,
+      repo: await openRepo({ gitDir: rig.local }),
       branch: 'main',
       logger,
       push: (commit) => {
@@ -325,11 +326,11 @@ describe('reconcileDataRepo', () => {
 
   it('skips the fetch when skipFetch is set', async () => {
     const { logger } = makeLogger();
-    expect(await fetchRemoteBranch({ repoPath: rig.local, branch: 'main', logger })).toBe(true);
+    expect(await fetchRemoteBranch({ repo: await openRepo({ gitDir: rig.local }), branch: 'main', logger })).toBe(true);
     await advanceRemote(rig, 'remote-only.txt', 'R\n', 'remote: unseen change');
 
     const result = await reconcileDataRepo({
-      repoPath: rig.local,
+      repo: await openRepo({ gitDir: rig.local }),
       branch: 'main',
       logger,
       skipFetch: true,
@@ -356,7 +357,7 @@ describe('reconcileDataRepo', () => {
     let result;
     try {
       result = await reconcileDataRepo({
-        repoPath: rig.local,
+        repo: await openRepo({ gitDir: rig.local }),
         branch: 'main',
         logger,
       });
@@ -408,7 +409,7 @@ describe('reconcileDataRepo', () => {
 
     const { logger, lines } = makeLogger();
     const result = await reconcileDataRepo({
-      repoPath: rig.local,
+      repo: await openRepo({ gitDir: rig.local }),
       branch: 'main',
       logger,
     });
@@ -461,7 +462,7 @@ describe('reconcileDataRepo', () => {
 
     const { logger } = makeLogger();
     const result = await reconcileDataRepo({
-      repoPath: altLocal,
+      repo: await openRepo({ gitDir: altLocal }),
       branch: 'main',
       logger,
     });
@@ -489,7 +490,7 @@ describe('reconcileDataRepo', () => {
     const before = await git(rig.local, 'rev-parse', 'HEAD');
     const { logger } = makeLogger();
     await expect(
-      reconcileDataRepo({ repoPath: rig.local, branch: 'main', logger }),
+      reconcileDataRepo({ repo: await openRepo({ gitDir: rig.local }), branch: 'main', logger }),
     ).rejects.toThrow();
     expect(await git(rig.local, 'rev-parse', 'HEAD')).toBe(before);
   });

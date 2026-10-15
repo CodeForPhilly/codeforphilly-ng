@@ -18,31 +18,23 @@
  *   fetch itself fails (network blip)       → 'fetch-failed', no changes
  *
  * This module maps gitsheets' outcome vocabulary onto ours ('ahead' →
- * 'pushed-ahead'), strips `refs/heads/` off the conflict branch, routes the
- * push of an ahead/replayed tip through the caller's `push` hand-off, and
- * keeps the operator-facing log lines.
+ * 'pushed-ahead'), strips `refs/heads/` off the conflict branch and keeps
+ * the operator-facing log lines. `repo.sync()` hands an ahead/replayed tip
+ * to the repository's running push daemon itself; at boot there is none
+ * yet, and the daemon's startup backlog pushes it.
  *
  * Unrecoverable errors (unrelated histories, missing branch, corrupt repo)
  * propagate as rejections — the boot plugin lets the API crash and k8s
  * restarts the pod.
  *
- * Locking: `repo.sync()` takes the write lock of the Repository it is called
- * on, and refuses (`lock_held`) to run inside that repository's `withLock`.
- * The API needs the ref move, store refresh and in-memory rebuild in ONE
- * critical section of the *serving* repository's lock, so this function
- * syncs through its own short-lived Repository handle on the same gitdir:
- * the caller holds the serving handle's lock — the one every write contends
- * on — for the whole reconcile, and the side handle's own lock is
- * uncontended. The side handle has no live sheets and no push daemon, which
- * is why the caller refreshes its store and `push` hands the tip to the
- * serving daemon. See plugins/reconcile.ts.
+ * Locking: `repo.sync()` takes the write lock of the Repository it runs on
+ * — the serving one, the mutex every `transact` contends on — for the ref
+ * move, and awaits the caller's `afterMove` inside it. The API's store
+ * refresh and in-memory rebuild run there, so no write can commit between
+ * the ref move and the end of the rebuild. The fetch runs before, outside
+ * the lock. See plugins/reconcile.ts.
  */
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-import { openRepo, type SyncResult } from 'gitsheets';
-
-const exec = promisify(execFile);
+import type { Repository, SyncResult } from 'gitsheets';
 
 export const AUTHOR_NAME = 'Code for Philly API';
 export const AUTHOR_EMAIL = 'api@users.noreply.codeforphilly.org';
@@ -77,57 +69,59 @@ export interface ReconcileLogger {
 }
 
 export interface ReconcileOptions {
-  /** Absolute path to the bare data clone. */
-  readonly repoPath: string;
+  /**
+   * The serving Repository on the bare data clone. Sync takes its write
+   * lock, so `afterMove` is atomic with respect to its `transact`s.
+   */
+  readonly repo: Repository;
   /** Branch to reconcile. */
   readonly branch: string;
   /** Remote name to fetch/push against. Default: 'origin'. */
   readonly remote?: string;
   /** Logger; mirrors Fastify's pino interface. */
   readonly logger: ReconcileLogger;
-  /**
-   * Skip the fetch: the caller already ran {@link fetchRemoteBranch} (the
-   * API does, outside the repository write lock, so a slow network never
-   * blocks writes).
-   */
+  /** Skip the fetch: the caller already ran {@link fetchRemoteBranch}. */
   readonly skipFetch?: boolean;
   /**
-   * Publish `branch` after an ahead or rebased outcome. The API hands the
-   * commit to the gitsheets push daemon so every push of the working branch
-   * goes through one place; at boot (no daemon yet) the daemon's startup
-   * backlog pushes it. Omitted, nothing is pushed.
+   * Awaited under the repository's write lock after the reconcile moved the
+   * branch (gitsheets `sync`'s `afterMove`), before the lock is released:
+   * no `transact` can commit in between. It must not `transact` or
+   * `withLock` itself (`lock_held`). A throw propagates after the lock is
+   * released, with the branch already moved. Not called when nothing moved.
+   */
+  readonly afterMove?: (result: ReconcileResult) => Promise<void> | void;
+  /**
+   * Extra hand-off for an ahead or rebased tip, called after the sync.
+   * Only for a repository with no running push daemon: `repo.sync()`
+   * already notifies a running one, so passing this as well would notify
+   * twice. Omitted, nothing beyond sync's own hand-off happens.
    */
   readonly push?: (commit: string) => Promise<void> | void;
 }
 
 /**
  * Fetch `<remote>/<branch>` into `refs/remotes/<remote>/<branch>` without
- * touching any lock. Returns false (after logging) when the fetch fails.
- *
- * `repo.sync()` can fetch, but takes the write lock in the same call, and
- * the API must hold the lock across sync *and* rebuild — so it fetches here
- * first, outside any lock, then syncs with `skipFetch`. Same explicit
- * refspec sync uses, so a single-branch or bare clone still populates the
- * remote-tracking ref.
+ * taking the write lock (gitsheets `repo.fetch`, which never throws on a
+ * network or auth failure). Returns false (after logging) when the fetch
+ * fails. Same explicit refspec sync uses, so a single-branch or bare clone
+ * still populates the remote-tracking ref.
  */
 export async function fetchRemoteBranch(opts: {
-  readonly repoPath: string;
+  readonly repo: Repository;
   readonly branch: string;
   readonly remote?: string;
   readonly logger: ReconcileLogger;
 }): Promise<boolean> {
   const remote = opts.remote ?? 'origin';
-  const refspec = `+refs/heads/${opts.branch}:refs/remotes/${remote}/${opts.branch}`;
-  try {
-    await exec('git', ['fetch', '--prune', remote, refspec], { cwd: opts.repoPath });
-    return true;
-  } catch (err) {
+  const fetched = await opts.repo.fetch({ remote, branch: opts.branch });
+  if (!fetched.ok) {
     opts.logger.warn(
-      { err: describe(err), remote, branch: opts.branch },
+      { err: fetched.error, remote, branch: opts.branch },
       'data-repo fetch failed; continuing with local state',
     );
     return false;
   }
+  return true;
 }
 
 function describe(err: unknown): string {
@@ -154,48 +148,55 @@ function mapOutcome(outcome: SyncResult['outcome']): ReconcileOutcome {
  * Idempotent — calling repeatedly with no upstream changes is a no-op
  * (`outcome: 'in-sync'`).
  *
- * Concurrency: the API calls this while holding the serving Repository's
- * write lock (see the module comment). At boot there's no contention.
+ * Concurrency: the fetch runs outside any lock; the ref move and
+ * `afterMove` run in one critical section of `repo`'s write lock (see the
+ * module comment).
  */
 export async function reconcileDataRepo(
   opts: ReconcileOptions,
 ): Promise<ReconcileResult> {
   const remote = opts.remote ?? 'origin';
-  const { repoPath, branch, logger } = opts;
+  const { repo, branch, logger } = opts;
 
-  // A side handle — see the module comment on locking.
-  const repo = await openRepo({ gitDir: repoPath });
+  if (!opts.skipFetch && !(await fetchRemoteBranch({ repo, branch, remote, logger }))) {
+    const current = (await repo.resolveRef(`refs/heads/${branch}`)) ?? '';
+    return { outcome: 'fetch-failed', oldCommit: current, newCommit: current };
+  }
+
+  const afterMove = opts.afterMove;
   const raw = await repo.sync({
     remote,
     branch,
-    fetch: !opts.skipFetch,
+    fetch: false,
     onConflict: 'preserve-branch',
     conflictBranchPrefix: 'conflicts/',
     pushConflictBranch: true,
     committer: { name: AUTHOR_NAME, email: AUTHOR_EMAIL },
+    ...(afterMove ? { afterMove: (moved: SyncResult) => afterMove(toResult(moved)) } : {}),
   });
 
-  const outcome = mapOutcome(raw.outcome);
-  const { oldCommit, newCommit, ahead, behind } = raw;
+  const result = toResult(raw);
+  const { outcome, oldCommit, newCommit, ahead, behind } = result;
 
   switch (outcome) {
     case 'fetch-failed':
+      // Unreachable with fetch: false; kept for exhaustiveness.
       logger.warn(
         { err: raw.fetchError, remote, branch },
         'data-repo fetch failed; continuing with local state',
       );
-      return { outcome, oldCommit, newCommit };
+      return result;
 
     case 'in-sync':
       logger.info({ branch, commit: oldCommit }, 'data-repo in sync with remote');
-      return { outcome, oldCommit, newCommit, ahead, behind };
+      return result;
 
     case 'fast-forwarded':
       logger.info(
         { branch, behind, from: oldCommit, to: newCommit },
         'data-repo behind remote — fast-forwarding',
       );
-      return { outcome, oldCommit, newCommit, ahead, behind };
+      return result;
 
     case 'pushed-ahead':
     case 'rebased':
@@ -217,15 +218,14 @@ export async function reconcileDataRepo(
           );
         }
       }
-      return { outcome, oldCommit, newCommit, ahead, behind };
+      return result;
 
     case 'conflict-escaped': {
-      const conflictBranch = (raw.conflictBranch ?? '').replace(/^refs\/heads\//, '');
       const fields = {
         branch,
         ahead,
         behind,
-        conflictBranch,
+        conflictBranch: result.conflictBranch,
         preservedCommit: raw.conflictCommit ?? oldCommit,
         remoteCommit: newCommit,
       };
@@ -235,7 +235,18 @@ export async function reconcileDataRepo(
           ? 'data-repo replay conflicted — divergent commits preserved on remote; operator must investigate'
           : 'data-repo replay conflicted — divergent commits preserved LOCALLY only (push failed); operator must investigate',
       );
-      return { outcome, oldCommit, newCommit, conflictBranch, ahead, behind };
+      return result;
     }
   }
+}
+
+/** gitsheets' sync result → ours. */
+function toResult(raw: SyncResult): ReconcileResult {
+  const outcome = mapOutcome(raw.outcome);
+  const { oldCommit, newCommit, ahead, behind } = raw;
+  if (outcome === 'conflict-escaped') {
+    const conflictBranch = (raw.conflictBranch ?? '').replace(/^refs\/heads\//, '');
+    return { outcome, oldCommit, newCommit, conflictBranch, ahead, behind };
+  }
+  return { outcome, oldCommit, newCommit, ahead, behind };
 }
