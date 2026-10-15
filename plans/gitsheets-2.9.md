@@ -40,16 +40,26 @@ follow-up; #307 import-merge runbook.
 
 ## Validation
 
-- [ ] `gitsheets` resolves to 2.9.x; the musl core-napi is in the lockfile
+- [x] `gitsheets` resolves to 2.9.x; the musl core-napi is in the lockfile
       and loads in the Alpine image
-- [ ] Attachments: 200 streams with `Content-Length` and `ETag`; 304 and
+- [x] Attachments: 200 streams with `Content-Length` and `ETag`; 304 and
       404 unchanged; a > 1 MiB blob streams intact (test)
-- [ ] No `takeAttachments`/`restoreAttachments` left; rename tests
+- [x] No `takeAttachments`/`restoreAttachments` left; rename tests
       (person, project, event, cascade) still show attachments moved;
       buzz regenerateSlug keeps its image (test)
-- [ ] `type-check` + `lint` + full suite green
+- [x] `type-check` + `lint` + full suite green
 - [ ] Sandbox and production boot on the release
 
 ## Notes
+
+- 2.9 needed no code changes to pass: every template field became required
+  in [`slug-references`](slug-references.md), so #304's open-time check
+  holds.
+- Renames render the old path with `sheet.pathForRecord(existing)` rather
+  than reading the path annotation, because a record re-parsed through
+  Zod loses the symbol. Verified identical to the annotation `queryAll()`
+  sets, on real data.
+- The musl core-napi build is in the lockfile. Loading it in the Alpine
+  image is verified when the release image runs on sandbox.
 
 ## Follow-ups
