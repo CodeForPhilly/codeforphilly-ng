@@ -78,6 +78,7 @@ If slug is unknown or soft-deleted (and caller isn't staff): 404 page.
 4. **Share**
    - "Copy link" button (copies `https://codeforphilly.org/projects/<slug>`)
    - "Share to Slack" button — opens a system share or copies a pre-formatted Slack message
+   - "Table card" button → `/projects/<slug>/table-card`, a printable sign with a QR code for the project's table at a hack night ([project-table-card.md](project-table-card.md))
    - _Twitter/X share removed_, see [deferred.md](../deferred.md)
 
 5. **Info**
@@ -120,6 +121,7 @@ All modals are shadcn `Dialog` components. Forms post via fetch, show server val
 - `/projects/<slug>/updates/<number>` (permalink on individual updates)
 - `/projects/<slug>/buzz/<buzzSlug>` (permalink on individual buzz)
 - `/projects/<slug>/buzz/new`
+- `/projects/<slug>/table-card`
 - `/tags/<namespace>/<slug>` (tag chips)
 - External: `usersUrl`, `developersUrl`, Slack channel
 
