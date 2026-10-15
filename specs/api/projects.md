@@ -145,7 +145,7 @@ Fetches a single project by slug.
 
 ## POST /api/projects
 
-Create a new project. Caller becomes the maintainer and is added as a `Founder` membership.
+Create a new project. Caller becomes the maintainer, is added as a `Founder` membership, and is recorded as the project's `createdById` (never changed afterwards; not part of any request or update).
 
 ### Request
 

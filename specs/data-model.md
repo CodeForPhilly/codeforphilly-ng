@@ -210,6 +210,7 @@ A periodic background task (in-process) sweeps `revocations` for records whose `
 | overview | string nullable | long-form project description in markdown. Renamed from laddr's `README` because it is _not_ the same thing as the project's GitHub README — see [deferred.md](deferred.md#cached-github-readme-on-project-pages) for the planned cached-github-readme alongside. |
 | stage | enum | `commenting` \| `bootstrapping` \| `prototyping` \| `testing` \| `maintaining` \| `drifting` \| `hibernating`. Default `commenting`. See [behaviors/project-stages.md](behaviors/project-stages.md). |
 | maintainerId | uuid nullable | references people.id |
+| createdById | uuid nullable | references people.id — who created the project on the site; set once on create, never changed (a maintainer change leaves it alone). Absent on projects imported from laddr. Purge uses it ([person-lifecycle.md](behaviors/person-lifecycle.md#purge-cascading-hard-delete-admin-only)). |
 | usersUrl | string nullable | public-facing site for the project |
 | developersUrl | string nullable | repo URL |
 | chatChannel | string nullable | slack channel name, stored without `#` |

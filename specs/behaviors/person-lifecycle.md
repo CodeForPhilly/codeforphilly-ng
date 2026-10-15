@@ -25,8 +25,14 @@ The garbage-collection path for spam — the runtime sibling of the offline spam
 
 - **Who:** administrators only.
 - **Mechanism:** one write-mutex transaction that hard-deletes: the `people` record; their `project-membership`; their `help-wanted-interest`; their person `tag-assignment`; AND their authored `project-update`, `project-buzz`, and `blog-post` records (unlike the prune which nulls authorId — purge DELETES the content, it's garbage).
+- **Projects only they touched go too.** In the same transaction, purge hard-deletes every project the person created that nobody else has touched — spam accounts create spam projects, and a project left behind with no members is a soft-deleted husk an admin can't clear. A project qualifies when both hold:
+  1. **Created by the person:** `createdById` is the person; for a project with no `createdById` (imported from laddr, or created before the field existed), the person is its `maintainerId`.
+  2. **No one else touched it:** every membership is the person's, every update was authored by them, every buzz posted by them, every help-wanted role posted by them with no interest from anyone else, and no RSVP from anyone else names the project.
+
+  A qualifying project is deleted with everything that hangs off it: the project record and its attachments, its memberships, updates, buzz, help-wanted roles and their interest, its tag-assignments, and RSVPs naming it (slug-history entries are left to expire). A project anyone else touched is left exactly as it is (the person's own records on it are removed as above).
 - **Atomic + git-revertable** (one commit).
 - **Surface:** person "Danger Zone" (admin only), behind a confirm dialog.
+- **Preview:** the confirm dialog lists the projects that will be deleted with the person (`GET /api/people/:slug/purge-preview`), or says none will be.
 
 ## Authorization summary
 

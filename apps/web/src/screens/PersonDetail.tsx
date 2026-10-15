@@ -36,6 +36,15 @@ export function PersonDetail() {
     queryFn: () => api.people.get(slug),
   });
 
+  // Projects that go with the person (specs/behaviors/person-lifecycle.md),
+  // fetched only once an admin opens the purge dialog.
+  const purgePreviewQ = useQuery({
+    queryKey: ['purge-preview', slug],
+    queryFn: () => api.people.purgePreview(slug),
+    enabled: confirmPurgeOpen,
+  });
+  const purgeProjects = purgePreviewQ.data?.data.projects ?? [];
+
   if (personQ.isLoading) {
     return <div className="container mx-auto px-4 py-12 text-muted-foreground">Loading member…</div>;
   }
@@ -326,6 +335,24 @@ export function PersonDetail() {
                           accounts.
                         </DialogDescription>
                       </DialogHeader>
+                      <div className="text-sm" data-testid="purge-preview">
+                        {purgePreviewQ.isLoading ? (
+                          <p className="text-muted-foreground">Checking their projects…</p>
+                        ) : purgeProjects.length > 0 ? (
+                          <>
+                            <p className="font-medium">
+                              Also deletes {purgeProjects.length === 1 ? 'this project' : `these ${purgeProjects.length} projects`}, which nobody else has touched:
+                            </p>
+                            <ul className="mt-1 list-disc pl-5">
+                              {purgeProjects.map((p) => (
+                                <li key={p.slug}>{p.title}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : (
+                          <p className="text-muted-foreground">No projects will be deleted.</p>
+                        )}
+                      </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setConfirmPurgeOpen(false)}>
                           Cancel

@@ -11,6 +11,8 @@ export const ProjectSchema = z.object({
     .enum(['commenting', 'bootstrapping', 'prototyping', 'testing', 'maintaining', 'drifting', 'hibernating'])
     .default('commenting'),
   maintainerId: z.string().uuid().nullable().optional(),
+  /** Who created the project on the site; never changed. Absent on laddr imports. */
+  createdById: z.string().uuid().nullable().optional(),
   usersUrl: z.string().url().startsWith('https://').nullable().optional(),
   developersUrl: z.string().url().startsWith('https://').nullable().optional(),
   chatChannel: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,40}$/).nullable().optional(),

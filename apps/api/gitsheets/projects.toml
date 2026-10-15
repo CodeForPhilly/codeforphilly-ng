@@ -1,4 +1,4 @@
 [gitsheet]
 root = 'projects'
 path = '${{ slug }}'
-implements = ["codeforphilly.org/projects/v1"]
+implements = ["codeforphilly.org/projects/v2"]

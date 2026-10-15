@@ -949,6 +949,10 @@ export const api = {
       request(`/api/people/${encodeURIComponent(slug)}/deactivate`, { method: 'POST' }),
     reactivate: (slug: string): Promise<SuccessEnvelope<PersonDetail>> =>
       request(`/api/people/${encodeURIComponent(slug)}/reactivate`, { method: 'POST' }),
+    purgePreview: (
+      slug: string,
+    ): Promise<SuccessEnvelope<{ projects: Array<{ slug: string; title: string }> }>> =>
+      request(`/api/people/${encodeURIComponent(slug)}/purge-preview`),
     purge: (slug: string): Promise<void> =>
       request(`/api/people/${encodeURIComponent(slug)}/purge`, { method: 'POST' }),
   },
