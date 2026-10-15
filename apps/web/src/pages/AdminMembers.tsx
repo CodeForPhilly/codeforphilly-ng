@@ -125,6 +125,13 @@ function rowTint(row: MemberRow): string {
   return 'border-l-4 border-l-transparent';
 }
 
+/** The scheduled spam purge chip (specs/screens/admin-members.md). */
+function purgeLabel(purgeAfter: string, now: Date = new Date()): string {
+  return Date.parse(purgeAfter) <= now.getTime()
+    ? 'Purging at the next daily sweep'
+    : `Purges ${formatAbsoluteDate(purgeAfter, { dateStyle: 'medium' })}`;
+}
+
 function VoteBadge({ vote, hiddenByVote }: { vote: VoteView; hiddenByVote: boolean }) {
   const spam = vote.verdict === 'spam';
   return (
@@ -292,6 +299,14 @@ function MemberRowView({
             {row.deletedAt && (
               <span className="rounded bg-muted px-1.5 py-0.5 text-xs">
                 {hiddenByVote ? `Hidden by ${row.latestVote?.voter.fullName ?? 'vote'}` : 'Deactivated'}
+              </span>
+            )}
+            {row.purgeAfter && (
+              <span
+                className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive"
+                title="Scheduled spam purge: every staff vote is spam. A Not spam vote or reactivating them stops it."
+              >
+                {purgeLabel(row.purgeAfter)}
               </span>
             )}
           </div>

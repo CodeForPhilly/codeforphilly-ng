@@ -807,6 +807,8 @@ export interface MemberRow {
     readonly tags: number;
   };
   readonly latestVote: VoteView | null;
+  /** When the scheduled spam purge will take this member, or null. */
+  readonly purgeAfter: string | null;
   readonly signals: string[];
   readonly attention: number;
 }
