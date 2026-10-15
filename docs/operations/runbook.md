@@ -204,6 +204,33 @@ The helper script resolves the current pod by label selector, so it survives res
 
 **Read-only by design** — `git upload-pack` only serves fetch; pushing back to the pod would bypass gitsheets + in-memory state and fight the push daemon. Pull what you need to your local clone, reason about it there, then push to `origin` if appropriate.
 
+## Private data left behind by purges
+
+Purge deletes a person's private data (profile, legacy password, reset tokens,
+claim requests, sessions) in the same transaction since v0.10.3. People purged
+or pruned before that still have private data. An administrator clears it from
+the running API — never with an out-of-process script, because the API holds
+the private store in memory and would write the old files back:
+
+```js
+// In the browser console on the site, signed in as an administrator.
+const run = (apply) => fetch('/api/admin/private-data/purge-orphans', {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apply }),
+}).then((r) => r.json()).then((j) => console.log(j.data));
+run(false); // counts only — check them
+run(true);  // deletes; cannot be undone (the private store is not versioned)
+```
+
+It answers counts only, never emails. Spec:
+[api/moderation.md](../../specs/api/moderation.md#post-apiadminprivate-datapurge-orphans).
+
+## Scheduled spam purge runs on production only
+
+`CFP_SCHEDULED_PURGE=true` is set in cfp-live-cluster alone
+([deploy.md](deploy.md)). Sandbox shares `published`, so a sandbox pod with
+the flag on would delete production data. A pod logs
+`scheduled spam purge disabled` at boot when the flag is off.
+
 ## Helpful commands
 
 ```bash

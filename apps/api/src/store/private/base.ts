@@ -174,6 +174,7 @@ export abstract class BasePrivateStore implements PrivateStore {
     const profilesSnapshot = new Map(this.profiles);
     const legacySnapshot = new Map(this.legacyPasswords);
     const claimRequestsSnapshot = new Map(this.claimRequests);
+    const passwordTokensSnapshot = new Map(this.passwordTokens);
 
     // Staged mutations applied only in-memory during the handler
     const stagedProfilePuts: Map<string, PrivateProfile> = new Map();
@@ -181,6 +182,7 @@ export abstract class BasePrivateStore implements PrivateStore {
     const stagedLegacyPuts: Map<string, LegacyPasswordCredential> = new Map();
     const stagedLegacyDeletes: Set<string> = new Set();
     const stagedClaimRequestPuts: Map<string, AccountClaimRequest> = new Map();
+    const stagedPersonPurges: Set<string> = new Set();
 
     const tx: PrivateStoreTx = {
       putProfile: (profile) => {
@@ -205,6 +207,11 @@ export abstract class BasePrivateStore implements PrivateStore {
         const parsed = AccountClaimRequestSchema.parse(req);
         stagedClaimRequestPuts.set(parsed.id, parsed);
       },
+      deletePersonData: (personId) => {
+        stagedPersonPurges.add(personId);
+        stagedProfilePuts.delete(personId);
+        stagedLegacyPuts.delete(personId);
+      },
     };
 
     let result: T;
@@ -215,6 +222,7 @@ export abstract class BasePrivateStore implements PrivateStore {
       this.profiles = profilesSnapshot;
       this.legacyPasswords = legacySnapshot;
       this.claimRequests = claimRequestsSnapshot;
+      this.passwordTokens = passwordTokensSnapshot;
       this.rebuildIndices();
       throw err;
     }
@@ -235,18 +243,32 @@ export abstract class BasePrivateStore implements PrivateStore {
     for (const [id, req] of stagedClaimRequestPuts) {
       this.claimRequests.set(id, req);
     }
+    for (const personId of stagedPersonPurges) {
+      this.profiles.delete(personId);
+      this.legacyPasswords.delete(personId);
+      for (const [id, req] of this.claimRequests) {
+        if (req.claimedPersonId === personId || req.requesterPersonId === personId) this.claimRequests.delete(id);
+      }
+      for (const [hash, token] of this.passwordTokens) {
+        if (token.personId === personId) this.passwordTokens.delete(hash);
+      }
+    }
     this.rebuildIndices();
 
     // Flush to backend
     const flushOps: Promise<void>[] = [];
-    if (stagedProfilePuts.size > 0 || stagedProfileDeletes.size > 0) {
+    const purging = stagedPersonPurges.size > 0;
+    if (purging || stagedProfilePuts.size > 0 || stagedProfileDeletes.size > 0) {
       flushOps.push(this.flushProfiles());
     }
-    if (stagedLegacyPuts.size > 0 || stagedLegacyDeletes.size > 0) {
+    if (purging || stagedLegacyPuts.size > 0 || stagedLegacyDeletes.size > 0) {
       flushOps.push(this.flushLegacyPasswords());
     }
-    if (stagedClaimRequestPuts.size > 0) {
+    if (purging || stagedClaimRequestPuts.size > 0) {
       flushOps.push(this.flushClaimRequests());
+    }
+    if (purging) {
+      flushOps.push(this.flushPasswordTokens());
     }
 
     try {
@@ -257,6 +279,7 @@ export abstract class BasePrivateStore implements PrivateStore {
       this.profiles = profilesSnapshot;
       this.legacyPasswords = legacySnapshot;
       this.claimRequests = claimRequestsSnapshot;
+      this.passwordTokens = passwordTokensSnapshot;
       this.rebuildIndices();
       throw new PrivateStoreError(
         'private_store_unavailable',

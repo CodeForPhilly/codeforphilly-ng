@@ -79,6 +79,7 @@ export class Store {
     const stagedLegacyPasswordPuts: LegacyPasswordCredential[] = [];
     const stagedLegacyPasswordDeletes: string[] = [];
     const stagedClaimRequestPuts: AccountClaimRequest[] = [];
+    const stagedPersonPurges: string[] = [];
 
     const privateTx: PrivateStoreTx = {
       putProfile: (profile) => { stagedPrivatePuts.push(profile); },
@@ -86,6 +87,7 @@ export class Store {
       putLegacyPassword: (cred) => { stagedLegacyPasswordPuts.push(cred); },
       deleteLegacyPassword: (personId) => { stagedLegacyPasswordDeletes.push(personId); },
       putClaimRequest: (req) => { stagedClaimRequestPuts.push(req); },
+      deletePersonData: (personId) => { stagedPersonPurges.push(personId); },
     };
 
     const hasPrivateMutations = () =>
@@ -93,7 +95,8 @@ export class Store {
       stagedPrivateProfileDeletes.length > 0 ||
       stagedLegacyPasswordPuts.length > 0 ||
       stagedLegacyPasswordDeletes.length > 0 ||
-      stagedClaimRequestPuts.length > 0;
+      stagedClaimRequestPuts.length > 0 ||
+      stagedPersonPurges.length > 0;
 
     const flushPrivate = async (): Promise<void> => {
       if (!hasPrivateMutations()) return;
@@ -103,6 +106,7 @@ export class Store {
         for (const cred of stagedLegacyPasswordPuts) tx.putLegacyPassword(cred);
         for (const id of stagedLegacyPasswordDeletes) tx.deleteLegacyPassword(id);
         for (const req of stagedClaimRequestPuts) tx.putClaimRequest(req);
+        for (const id of stagedPersonPurges) tx.deletePersonData(id);
       });
     };
 

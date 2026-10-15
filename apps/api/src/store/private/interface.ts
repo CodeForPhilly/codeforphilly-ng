@@ -26,6 +26,12 @@ export interface PrivateStoreTx {
   putLegacyPassword(cred: LegacyPasswordCredential): void;
   deleteLegacyPassword(personId: string): void;
   putClaimRequest(req: AccountClaimRequest): void;
+  /**
+   * Delete everything the private store holds for a person: profile, legacy
+   * password, password-reset tokens, and account-claim requests naming them
+   * (specs/behaviors/person-lifecycle.md → Purge).
+   */
+  deletePersonData(personId: string): void;
 }
 
 /**

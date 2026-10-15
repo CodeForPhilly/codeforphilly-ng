@@ -54,6 +54,19 @@ export class SessionMetadataStore {
     await this.flush(privateStore);
   }
 
+  /** Forget every session of a purged person. */
+  async removeAllFor(personId: string, privateStore: PrivateStore): Promise<number> {
+    let removed = 0;
+    for (const [jti, meta] of this.#map) {
+      if (meta.personId === personId) {
+        this.#map.delete(jti);
+        removed++;
+      }
+    }
+    if (removed > 0) await this.flush(privateStore);
+    return removed;
+  }
+
   getAll(personId: string): SessionMeta[] {
     const result: SessionMeta[] = [];
     for (const meta of this.#map.values()) {
