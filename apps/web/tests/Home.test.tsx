@@ -64,7 +64,7 @@ describe('Home', () => {
       </AuthProvider>,
     );
 
-    expect(screen.getByRole('heading', { name: 'Sponsor' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Join us on Slack' }).closest('a')).toHaveAttribute('href', '/chat');
     expect(screen.getByRole('heading', { name: 'Start a Project' })).toBeInTheDocument();
   });
 

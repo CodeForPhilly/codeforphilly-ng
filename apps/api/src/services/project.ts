@@ -35,7 +35,7 @@ export interface ProjectListResult {
   readonly facets: ProjectFacets;
 }
 
-const ALLOWED_SORT_KEYS = new Set(['createdAt', 'updatedAt', 'title', 'stage']);
+const ALLOWED_SORT_KEYS = new Set(['createdAt', 'updatedAt', 'title', 'stage', 'activity']);
 const STAGE_ORDER = ['commenting', 'bootstrapping', 'prototyping', 'testing', 'maintaining', 'drifting', 'hibernating'];
 
 function parseSortSpec(sort: string | undefined): Array<{ key: string; desc: boolean }> | null {
@@ -51,10 +51,28 @@ function parseSortSpec(sort: string | undefined): Array<{ key: string; desc: boo
   return result;
 }
 
-function compareProjects(a: Project, b: Project, sortSpec: Array<{ key: string; desc: boolean }>): number {
+function compareProjects(
+  a: Project,
+  b: Project,
+  sortSpec: Array<{ key: string; desc: boolean }>,
+  activity?: Map<string, string>,
+): number {
   for (const { key, desc } of sortSpec) {
     let cmp = 0;
-    if (key === 'title') {
+    if (key === 'activity') {
+      // Projects with no activity sort last in either direction
+      // (specs/api/projects.md), then by most recently updated.
+      const aAt = activity?.get(a.slug);
+      const bAt = activity?.get(b.slug);
+      if (!aAt || !bAt) {
+        if (aAt) return -1;
+        if (bAt) return 1;
+        cmp = b.updatedAt.localeCompare(a.updatedAt);
+        if (cmp !== 0) return cmp;
+        continue;
+      }
+      cmp = aAt.localeCompare(bAt);
+    } else if (key === 'title') {
       cmp = a.title.localeCompare(b.title);
     } else if (key === 'stage') {
       cmp = STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage);
@@ -226,9 +244,10 @@ export class ProjectService {
     const filtered = allProjects.filter(buildMatcher());
     // A search with no explicit sort lists by relevance (specs/api/projects.md);
     // otherwise by the sort spec (default -updatedAt).
+    const activity = sortSpec.some((s) => s.key === 'activity') ? this.#lastActivity() : undefined;
     const rank = ftsRank;
     filtered.sort((a, b) =>
-      rank ? (rank.get(a.slug) ?? Infinity) - (rank.get(b.slug) ?? Infinity) : compareProjects(a, b, sortSpec),
+      rank ? (rank.get(a.slug) ?? Infinity) - (rank.get(b.slug) ?? Infinity) : compareProjects(a, b, sortSpec, activity),
     );
     const totalItems = filtered.length;
 
@@ -289,6 +308,27 @@ export class ProjectService {
       buzzCount,
       permissions,
     });
+  }
+
+  /**
+   * Each project's most recent sign of life: an RSVP naming it, an update, or
+   * a buzz item logged (specs/api/projects.md → `sort=activity`).
+   */
+  // Keyed by project slug.
+  #lastActivity(): Map<string, string> {
+    const latest = new Map<string, string>();
+    const note = (projectSlug: string | undefined, at: string) => {
+      if (!projectSlug) return;
+      const prev = latest.get(projectSlug);
+      if (!prev || at > prev) latest.set(projectSlug, at);
+    };
+    for (const r of this.#state.eventRsvps.values()) {
+      // An RSVP still names its project by id (not a path field).
+      if (r.plan === 'project' && r.projectId) note(this.#state.projects.get(r.projectId)?.slug, r.updatedAt);
+    }
+    for (const u of this.#state.projectUpdates.values()) note(u.projectSlug, u.createdAt);
+    for (const b of this.#state.projectBuzz.values()) note(b.projectSlug, b.createdAt);
+    return latest;
   }
 
   #serializeListItem(project: Project): ProjectListItem {

@@ -97,6 +97,36 @@ describe('ProjectService search order', () => {
   });
 });
 
+describe('ProjectService activity sort', () => {
+  it('orders by the latest RSVP, update or buzz; projects with none come last', () => {
+    const { state } = setupState();
+    const live = [...state.projects.values()].filter((p) => !p.deletedAt);
+    const [a, b, c] = live;
+    if (!a || !b || !c) throw new Error('fixture needs three live projects');
+    // Only the fields the activity sort reads.
+    state.projectUpdates.set('u1', { id: 'u1', projectSlug: a.slug, createdAt: '2026-01-01T00:00:00Z' } as never);
+    state.projectBuzz.set('z1', { id: 'z1', projectSlug: b.slug, createdAt: '2026-03-01T00:00:00Z' } as never);
+    state.eventRsvps.set('r1', {
+      id: 'r1',
+      plan: 'project',
+      projectId: c.id,
+      updatedAt: '2026-05-01T00:00:00Z',
+    } as never);
+    // A newcomer RSVP names no project and counts for nothing.
+    state.eventRsvps.set('r2', { id: 'r2', plan: 'newcomer', projectId: null, updatedAt: '2026-09-01T00:00:00Z' } as never);
+    const service = new ProjectService(state, noopFts);
+
+    const desc = service.list({ sort: '-activity', perPage: 100 });
+    if ('error' in desc) throw new Error(desc.error);
+    expect(desc.items.slice(0, 3).map((p) => p.slug)).toEqual([c.slug, b.slug, a.slug]);
+    expect(desc.items).toHaveLength(live.length);
+
+    const asc = service.list({ sort: 'activity', perPage: 100 });
+    if ('error' in asc) throw new Error(asc.error);
+    expect(asc.items.slice(0, 3).map((p) => p.slug)).toEqual([a.slug, b.slug, c.slug]);
+  });
+});
+
 function setupState(): {
   state: InMemoryState;
   service: ProjectService;

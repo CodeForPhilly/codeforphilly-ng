@@ -5,23 +5,37 @@ import { Button } from '@/components/ui/button';
 import { ActivityCard, mergeActivity, type ActivityItem } from '@/components/ActivityCard';
 import { HelpWantedCard } from '@/components/HelpWantedCard';
 import { HeroSlideshow } from '@/components/HeroSlideshow';
+import { StageBadge } from '@/components/StageBadge';
 import { UpcomingEventsStrip } from '@/components/UpcomingEventsStrip';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-function FeaturedTile({ title, summary, slug, imageUrl }: { title: string; summary: string | null; slug: string; imageUrl?: string | null }) {
+function FeaturedTile({
+  title,
+  summary,
+  slug,
+  stage,
+  imageUrl,
+}: {
+  title: string;
+  summary: string | null;
+  slug: string;
+  stage: string;
+  imageUrl?: string | null;
+}) {
   return (
     <Link
       to={`/projects/${slug}`}
       className="group flex flex-col rounded-lg overflow-hidden border border-border bg-card hover:shadow-lg transition-shadow"
     >
-      {imageUrl ? (
-        <img src={imageUrl} alt="" className="w-full h-44 object-cover" loading="lazy" />
-      ) : (
-        <div className="w-full h-44 bg-gradient-to-br from-primary/10 to-primary/30" />
-      )}
+      {/* No placeholder panel without an image: six blank panels read as a
+          dead page (specs/screens/home.md). */}
+      {imageUrl && <img src={imageUrl} alt="" className="w-full h-44 object-cover" loading="lazy" />}
       <div className="p-4">
+        <div className="mb-2">
+          <StageBadge stage={stage} />
+        </div>
         <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
           {title}
         </h3>
@@ -33,6 +47,8 @@ function FeaturedTile({ title, summary, slug, imageUrl }: { title: string; summa
   );
 }
 
+const FEATURED_TILES = 6;
+
 const ACTIVITY_FILTERS = ['all', 'updates', 'buzz'] as const;
 type ActivityFilter = (typeof ACTIVITY_FILTERS)[number];
 
@@ -41,9 +57,23 @@ export function Home() {
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
 
   const featuredQ = useQuery({
-    queryKey: ['projects', { featured: true, perPage: 8 }],
-    queryFn: () => api.projects.list({ featured: true, perPage: 8 }),
+    queryKey: ['projects', { featured: true, perPage: FEATURED_TILES }],
+    queryFn: () => api.projects.list({ featured: true, perPage: FEATURED_TILES }),
   });
+
+  // Tops up the curated picks so the section is never empty for want of
+  // curation (specs/screens/home.md → Featured projects).
+  const activeQ = useQuery({
+    queryKey: ['projects', { sort: '-activity', perPage: FEATURED_TILES * 2 }],
+    queryFn: () => api.projects.list({ sort: '-activity', perPage: FEATURED_TILES * 2 }),
+  });
+
+  const tiles = useMemo(() => {
+    const seen = new Set<string>();
+    return [...(featuredQ.data?.data ?? []), ...(activeQ.data?.data ?? [])]
+      .filter((p) => !seen.has(p.slug) && seen.add(p.slug))
+      .slice(0, FEATURED_TILES);
+  }, [featuredQ.data, activeQ.data]);
 
   const totalCountQ = useQuery({
     queryKey: ['projects', { perPage: 1, count: true }],
@@ -104,16 +134,17 @@ export function Home() {
       {/* Featured projects */}
       <section className="container mx-auto px-4 py-12">
         <h2 className="text-2xl font-bold mb-6">Join a Project</h2>
-        {featuredQ.isLoading ? (
-          <p className="text-muted-foreground">Loading featured projects…</p>
+        {featuredQ.isLoading || activeQ.isLoading ? (
+          <p className="text-muted-foreground">Loading projects…</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {(featuredQ.data?.data ?? []).map((p) => (
+            {tiles.map((p) => (
               <FeaturedTile
                 key={p.slug}
                 title={p.title}
                 summary={p.summary || p.overviewExcerpt}
                 slug={p.slug}
+                stage={p.stage}
                 imageUrl={p.featuredImageUrl ?? null}
               />
             ))}
@@ -130,10 +161,11 @@ export function Home() {
       <section className="bg-muted/30 border-y border-border">
         <div className="container mx-auto px-4 py-12">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link to="/sponsor" className="block rounded-lg border border-border bg-card p-6 hover:shadow-md transition-shadow">
-              <h3 className="text-lg font-semibold mb-1">Sponsor</h3>
-              <p className="text-sm text-muted-foreground">Sponsor an event</p>
-            </Link>
+            {/* A plain anchor: /chat is a server redirect (specs/screens/chat.md). */}
+            <a href="/chat" className="block rounded-lg border border-border bg-card p-6 hover:shadow-md transition-shadow">
+              <h3 className="text-lg font-semibold mb-1">Join us on Slack</h3>
+              <p className="text-sm text-muted-foreground">Say hello in #general and meet the community</p>
+            </a>
             <Link
               to={person ? '/projects/create' : '/login?return=/projects/create'}
               className="block rounded-lg border border-border bg-card p-6 hover:shadow-md transition-shadow"

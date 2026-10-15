@@ -27,7 +27,7 @@ Three cards in a row at ≥ md, stacked below:
 
 1. **Join Slack** — "We coordinate everything in our Slack workspace." Button: "Open Slack →" → `/chat`
 2. **Pick a project** — "Browse 268 active projects and find one that matches your interests." Button: "Browse projects →" → `/projects`
-3. **Show up to meetups** — "We meet weekly. Bring your laptop, or just yourself." Button: "When we meet →" → external link to the Meetup group (`https://www.meetup.com/Code-for-Philly/`), where upcoming hack nights are listed. Same target as the footer's Meetup social link.
+3. **Come to a hack night** — "We meet every month. Bring your laptop, or just yourself." Button: "When we meet →" → `/events`, the site's own calendar and RSVP.
 
 The "268" is read from a cheap call to `GET /api/projects?perPage=1` and rendered live; falls back to "hundreds of" if the call fails.
 
@@ -42,7 +42,15 @@ If the help-wanted call returns zero results, hide the section.
 
 ### "Not a coder?" section
 
-Static content emphasizing the non-developer roles (designers, project managers, researchers, community organizers). Three example "non-coder" pathways with paragraph descriptions and links to relevant tag pages (`/tags/topic/research`, etc.).
+Static content emphasizing the non-developer roles (designers, project managers, researchers, community organizers). Three example "non-coder" pathways, each linking to a list that actually has projects in it:
+
+| Pathway | Link |
+| ------- | ---- |
+| Design & UX | `/projects?q=design` |
+| Research | `/projects?q=research` |
+| Community organizing | `/tags/topic/civicengagement` |
+
+A link to a tag that doesn't exist is a 404 to the visitor most likely to give up; when a tag is renamed or merged, these links move with it.
 
 ### "Start your own project" CTA
 
@@ -59,7 +67,7 @@ All navigation. No mutations.
 
 **To here:** Home page hero CTA, header nav, every "Volunteer" link across the site.
 
-**From here:** `/login`, `/projects`, `/chat`, `/help-wanted`, `/projects/create`.
+**From here:** `/login`, `/projects`, `/chat`, `/events`, `/help-wanted`, `/projects/create`, `/tags/topic/civicengagement`.
 
 ## Authorization
 

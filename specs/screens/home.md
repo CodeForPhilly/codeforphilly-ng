@@ -13,7 +13,8 @@ This v1 page is a blend: marketing hero + featured projects + live activity. The
 
 ## Data Requirements
 
-- `GET /api/projects?featured=true&perPage=8` — featured project list (Project list items)
+- `GET /api/projects?featured=true&perPage=6` — featured project list (Project list items)
+- `GET /api/projects?sort=-activity&perPage=12` — the most active projects, to top up the featured list
   - `featured` is a new boolean column on `projects` (add to [data-model.md](../data-model.md#project)). Staff toggles it.
 - `GET /api/events?when=upcoming&perPage=3` — the upcoming-events strip
 - `GET /api/project-updates?perPage=10` — recent activity for the activity stream
@@ -49,22 +50,22 @@ When there are no upcoming events the strip is **hidden entirely** (unlike the f
 
 - Heading: "Join a Project"
 - Grid: responsive — 3 columns ≥ md, 2 columns ≥ sm, 1 column < sm
-- Up to 8 featured tiles. Each tile shows:
-  - Project image — `project.featuredImageKey` (required field when `project.featured = true`; see [data-model.md#project](../data-model.md#project))
+- Six tiles: the staff-featured projects first (in their list order), then the most active projects (`sort=-activity`) not already shown, until there are six. A curated pick always wins a slot; the activity fill means the section is never empty just because nobody has curated it. Each tile shows:
+  - Project image — `project.featuredImageKey` when set (required when `project.featured = true`; see [data-model.md#project](../data-model.md#project)); otherwise no image area at all, since a grid of blank placeholder panels reads as a dead page
+  - Stage badge
   - Title
   - Tagline = `project.summary`, or first line of `overviewExcerpt` if `summary` is null
   - Click: links to `/projects/<slug>`
 - Below the grid: "See all 268 projects →" link to `/projects`. The count is `metadata.totalItems` from a separate cheap `HEAD`-style call (or piggybacked from the featured response — implementer's call).
 
-If no featured projects have a `featuredImageKey` set, the section renders no tiles (rendered empty rather than hidden — the heading stays so staff notice).
 
 ### 3. Get involved
 
-Three side-by-side cards (current site has these; they translate cleanly):
+Three side-by-side cards. Slack comes first: it's where a newcomer actually meets people. Sponsoring stays one click away in the footer and the About menu.
 
 | Card | Heading | Body | Link |
 | ---- | ------- | ---- | ---- |
-| Sponsor | "Sponsor" | "Sponsor an event" | `/sponsor` |
+| Slack | "Join us on Slack" | "Say hello in #general and meet the community" | `/chat` (a full-page navigation — [chat.md](chat.md#linking-to-it-from-the-app)) |
 | Start a Project | "Start a Project" | "Start or get help on a project" | `/projects/create` for signed-in users, else `/login?return=/projects/create` |
 | Volunteer | "Volunteer" | "Join our projects" | `/volunteer` |
 

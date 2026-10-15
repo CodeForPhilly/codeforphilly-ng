@@ -37,7 +37,7 @@ Use **302** (temporary) rather than 301 so we can change the destination later w
 
 ## Linking to it from the app
 
-Every in-app link to `/chat` (the footer's "Slack", the Volunteer page's
+Every in-app link to `/chat` (the header and footer "Slack", the home page's "Join us on Slack" card, the Volunteer page's
 "Open Slack", the events empty state, the project "Chat Channel" button and
 the project card's "Chat") is a **full-page navigation** — a plain anchor,
 never a client-side router link. `/chat` exists only on the server; a

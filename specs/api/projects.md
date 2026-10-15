@@ -30,7 +30,7 @@ See [data-model.md](../data-model.md#project) for the entity shape, [behaviors/p
 | `memberSlug` | string | Person slug — returns projects where this person is in `project-memberships`. |
 | `helpWanted` | bool | If `true`, only projects with at least one `helpWantedRoles.status = 'open'`. |
 | `featured` | bool | If `true`, only projects with `featured = true`. Used by the home page. |
-| `sort` | sort spec | Default `-updatedAt`, except that a request with `q` and no `sort` lists in relevance order. Allowed keys: `createdAt`, `updatedAt`, `title`, `stage` (stage ordered by `project-stages.md` rank). |
+| `sort` | sort spec | Default `-updatedAt`, except that a request with `q` and no `sort` lists in relevance order. Allowed keys: `createdAt`, `updatedAt`, `title`, `stage` (stage ordered by `project-stages.md` rank), `activity` — the project's most recent sign of life: the latest of an RSVP naming it (`updatedAt`), a project update (`createdAt`), or a buzz item logged (`createdAt`, not the article's `publishedAt`). Projects with no activity sort after every project that has some, in either direction, then by `-updatedAt`. Used by the home page to top up "Join a Project". |
 | `page`, `perPage` | int | See [conventions.md](conventions.md#pagination). |
 
 Soft-deleted projects (`deletedAt is not null`) are excluded for non-staff and included for staff. Staff filter: `?includeDeleted=true`.
