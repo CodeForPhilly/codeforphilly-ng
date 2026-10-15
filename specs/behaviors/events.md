@@ -76,7 +76,7 @@ An event may carry an **agenda**: an ordered list of time slots within that one 
 
 ## RSVP
 
-An RSVP is a public statement by a signed-in member that they're coming. It is **binary**: an `EventRsvp` record exists (going) or it doesn't. There is no "maybe" and no stored "not going" — withdrawing an RSVP deletes the record. Meetup dropped "maybe" years ago for the same reason: it tells organizers nothing.
+An RSVP is a public statement by a signed-in member that they're coming. It is **binary**: an `EventRsvp` record exists (going) or it doesn't. There is no "maybe" and no stored "not going" — withdrawing an RSVP deletes the record. Meetup dropped "maybe" years ago for the same reason: it tells organizers nothing. Someone unsure says yes, adds the event to their calendar, and cancels if plans change; cancelling is one visible button on the event page, and the event description asks people to cancel so the space goes to someone else.
 
 ### Who can RSVP
 
@@ -97,11 +97,11 @@ RSVP records live in the public data repo and the attendee list on the event pag
 | Choice | `EventRsvp.plan` | Attendee list group |
 | ------ | ---------------- | ------------------- |
 | "I'm new to Code for Philly" | `newcomer` | **New to Code for Philly** |
-| "I don't have a project yet" | `no_project` | **Looking for a project** |
+| "I don't have a project yet" | `no_project` | **No project yet** |
 | "I'm coming to work on …" + project picker | `project` + `projectId` | the project |
-| *(unanswered)* | absent | **Not sure yet** |
+| *(unanswered)* | absent | *(no heading — listed first)* |
 
-The answer can be changed any time while the RSVP window is open and never sends mail. The point is organizational, not gatekeeping: the attendee list groups going members by project (ordered by attendee count, then title), then **New to Code for Philly**, then **Looking for a project**, then **Not sure yet**. Organizers see at a glance who to welcome at the door and which tables will be full; newcomers see that they won't be the only new face. This is what laddr's check-in-by-project did well, with the newcomer case made explicit.
+The answer can be changed any time while the RSVP window is open and never sends mail. The point is organizational, not gatekeeping: the attendee list shows going members who haven't answered first, directly under the "Going" heading with no subheading of their own, then groups the rest by project (ordered by attendee count, then title), then **New to Code for Philly**, then **No project yet**. Group names mirror the choice the member clicked; the unanswered get no label because any label ("Not sure yet", "Undecided") reads as doubt about attending, and listing them first keeps them from looking like members of the last labelled group. Organizers see at a glance who to welcome at the door and which tables will be full; newcomers see that they won't be the only new face. This is what laddr's check-in-by-project did well, with the newcomer case made explicit.
 
 ### Side effects of RSVPing
 
