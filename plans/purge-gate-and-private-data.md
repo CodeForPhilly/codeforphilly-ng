@@ -5,6 +5,7 @@ specs:
   - specs/behaviors/person-lifecycle.md
   - specs/api/moderation.md
 issues: []
+pr: 255
 ---
 
 # Plan: Gate the scheduled purge to production; purge private data too
