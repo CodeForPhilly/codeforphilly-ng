@@ -33,10 +33,10 @@ Sticky at the top of the viewport. Background opaque, slight shadow on scroll.
 - Logo (`/img/logo.png`) — 32px tall, links to `/`
 - Site name "Code for Philly" — visible at ≥ md, hidden below to save space
 
-### Center / right at ≥ md
+### Center / right at ≥ lg
 
 Two clusters. The **content cluster** sits next to the logo; the **utility
-cluster** is pinned to the right edge and carries the outbound link, search,
+cluster** is pinned to the right edge and carries the outbound links, search,
 auth, and the call to action.
 
 Content cluster, items in this order:
@@ -53,6 +53,7 @@ Utility cluster, items in this order (left to right):
 
 | Item | Target | Style |
 | ---- | ------ | ----- |
+| Slack | `/chat` | icon-only link, accessible name "Join Code for Philly on Slack", opens in a new tab; a full-page navigation to the server redirect ([chat.md](../screens/chat.md#linking-to-it-from-the-app)) |
 | GitHub | `https://github.com/CodeForPhilly` | icon-only external link, accessible name "Code for Philly on GitHub", opens in a new tab |
 | Search 🔍 | inline expand | icon button |
 | Sign in / account menu | see [Auth controls](#auth-controls) | button / avatar dropdown |
@@ -61,6 +62,15 @@ Utility cluster, items in this order (left to right):
 **Volunteer is the rightmost element in the header.** It sits after the auth
 control rather than among the content links so the call to action reads as the
 header's terminal step, not as one more section.
+
+**Slack is always one step from the header.** It is where the community
+actually works, and a newcomer looking for it should not have to scroll to
+the footer. The footer's Connect column keeps its Slack link too.
+
+**The desktop header starts at lg (1024px).** Below that the content
+cluster and the utility cluster do not fit on one line (the content links
+wrap and Volunteer runs off the edge), so tablets in portrait get the
+mobile header and its sheet.
 
 ### About dropdown
 
@@ -93,9 +103,9 @@ sheet.
 - **Administrator:** Staff items plus "Admin" section:
   - "Manage members" → `/members?staff=true&accountLevel=all`
 
-### Mobile (< md)
+### Mobile (< lg)
 
-Header collapses to: logo + hamburger menu + auth control. Hamburger opens a sheet (right-side overlay) with all nav items stacked vertically — the content-cluster links, the About items under an "About" label, the GitHub link, and Volunteer last, mirroring the desktop order. Search is inside the sheet, not inline. The auth control stays in the header bar, outside the sheet.
+Header collapses to: logo + hamburger menu + auth control. Hamburger opens a sheet (right-side overlay) with all nav items stacked vertically — the content-cluster links, the About items under an "About" label, the Slack and GitHub links, and Volunteer last, mirroring the desktop order. Search is inside the sheet, not inline. The auth control stays in the header bar, outside the sheet.
 
 Every item in the sheet closes the sheet when activated.
 
@@ -200,7 +210,7 @@ It does not block initial paint waiting on `me`. Auth controls render skeletons 
 - All dropdowns are keyboard-navigable
 - The mobile sheet traps focus while open and returns it to the trigger on close
 - The mobile sheet is a dialog with the accessible name "Menu"
-- At ≥ md the header exposes two navigation landmarks: "Primary navigation" (the content cluster) and "Utility" (GitHub, search, auth, Volunteer)
+- At ≥ lg the header exposes two navigation landmarks: "Primary navigation" (the content cluster) and "Utility" (Slack, GitHub, search, auth, Volunteer)
 - Every icon-only control carries an accessible name; controls with visible text use that text as their accessible name rather than duplicating it in a label
 
 ## Print
