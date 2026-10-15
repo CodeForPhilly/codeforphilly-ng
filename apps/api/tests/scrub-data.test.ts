@@ -639,6 +639,45 @@ describe('scrubRepo', () => {
   );
 
   it(
+    'rewrites person slug references to the pseudonymized slug, moving the records with them',
+    async () => {
+      const { repo, path, cleanup } = await createTestRepo([
+        'people',
+        'projects',
+        'project-memberships',
+        'event-rsvps',
+        'person-evaluations',
+      ]);
+      sourceTmp = { path, cleanup };
+      await repo.transact({ message: 'seed', author: { name: 't', email: 't@cfp.test' } }, async (tx) => {
+        await tx.sheet('people').upsert({ id: uuid(1), slug: 'alice', fullName: 'Alice Smith', accountLevel: 'user', createdAt: NOW, updatedAt: NOW });
+        await tx.sheet('projects').upsert({ id: uuid(2), slug: 'proj', title: 'Proj', stage: 'bootstrapping', createdAt: NOW, updatedAt: NOW });
+        await tx.sheet('project-memberships').upsert({
+          id: uuid(3), projectSlug: 'proj', personSlug: 'alice', isMaintainer: false,
+          joinedAt: NOW, createdAt: NOW, updatedAt: NOW,
+        });
+        await tx.sheet('event-rsvps').upsert({
+          id: uuid(4), year: '2026', eventSlug: 'hack-night', personSlug: 'alice', createdAt: NOW, updatedAt: NOW,
+        });
+        await tx.sheet('person-evaluations').upsert({
+          personSlug: 'alice', evaluator: 'human-staff', verdict: 'legit', confidence: 1, flags: [], evaluatedAt: NOW,
+        });
+      });
+      targetTmp = await makeTmp();
+
+      await scrubRepo({ source: path, target: targetTmp.path, seed: 'refs-test' });
+      const pseudo = buildSlugMap(['alice'], 'refs-test').get('alice')!;
+      const files = await walkTomlFiles(targetTmp.path);
+      expect(files).toContain(`project-memberships/proj/${pseudo}.toml`);
+      expect(files).toContain(`event-rsvps/2026/hack-night/${pseudo}.toml`);
+      expect(files).toContain(`person-evaluations/${pseudo}/human-staff.toml`);
+      const membership = await readFile(join(targetTmp.path, `project-memberships/proj/${pseudo}.toml`), 'utf-8');
+      expect(membership).toContain(`personSlug = "${pseudo}"`);
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  it(
     'verification names the repo path of a leaking record (markdown body included)',
     async () => {
       const { repo, path, cleanup } = await createTestRepo(['people', 'blog-posts']);

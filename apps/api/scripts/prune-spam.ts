@@ -43,13 +43,18 @@ import { promisify } from 'node:util';
 import { ConfigError, openRepo, type Repository } from 'gitsheets';
 
 import { openPublicStore } from '../src/store/public.js';
+import { SHEET_REFERENCES } from '@cfp/shared';
 import { HUMAN_EVALUATOR_PREFIX } from '@cfp/shared/schemas';
-import type {
-  HelpWantedInterestExpression,
-  ProjectMembership,
-  ProjectUpdate,
-  TagAssignment,
-} from '@cfp/shared/schemas';
+import type { ProjectUpdate, TagAssignment } from '@cfp/shared/schemas';
+
+/**
+ * Records deleted with a pruned person: everything that references people by
+ * slug (specs/data-model.md → References), except the person-evaluations —
+ * the verdicts are the record of why the person was pruned and stay.
+ */
+const PRUNE_CASCADE = SHEET_REFERENCES.filter(
+  (r) => r.target.sheet === 'people' && r.target.field === 'slug' && r.sheet !== 'person-evaluations',
+);
 
 const exec = promisify(execFile);
 
@@ -288,15 +293,15 @@ async function partitionCandidates(
     }
   }
 
-  const memberPersonIds = new Set<string>();
+  const memberSlugs = new Set<string>();
   for await (const mem of q['project-memberships'].query()) {
-    const pid = (mem as Record<string, unknown>)['personId'];
-    if (typeof pid === 'string') memberPersonIds.add(pid);
+    const slug = (mem as Record<string, unknown>)['personSlug'];
+    if (typeof slug === 'string') memberSlugs.add(slug);
   }
 
   // Membership protects against machine verdicts only — a human looked at the
   // profile, so a human `spam` vote is not overridden by real-looking content.
-  const prune = candidates.filter((c) => humanSpam.has(c.slug) || !memberPersonIds.has(c.id));
+  const prune = candidates.filter((c) => humanSpam.has(c.slug) || !memberSlugs.has(c.slug));
   return { prune, protectedByMembership: candidates.length - prune.length };
 }
 
@@ -311,6 +316,7 @@ export interface PruneSummary {
   readonly protectedByMembership: number;
   readonly membershipsDeleted: number;
   readonly helpWantedInterestDeleted: number;
+  readonly eventRsvpsDeleted: number;
   readonly personTagAssignmentsDeleted: number;
   readonly projectUpdatesAuthorNulled: number;
   readonly commitHash: string | null;
@@ -390,8 +396,7 @@ export async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
   let peopleBefore = 0;
   let prunedPeople = 0;
   let protectedByMembership = 0;
-  let membershipsDeleted = 0;
-  let helpWantedInterestDeleted = 0;
+  const referencesDeleted = new Map<string, number>();
   let personTagAssignmentsDeleted = 0;
   let projectUpdatesAuthorNulled = 0;
 
@@ -432,6 +437,7 @@ export async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
       }
 
       const prunedIds = new Set<string>(prune.map((c) => c.id));
+      const prunedSlugs = new Set<string>(prune.map((c) => c.slug));
       for (const c of prune) {
         await tx.people.delete(c.record as Parameters<typeof tx.people.delete>[0]);
         prunedPeople++;
@@ -444,29 +450,28 @@ export async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
         return;
       }
 
-      // --- Step B: Cascade-delete project-memberships ---
-      // By construction members are protected from pruning, so this is
-      // normally 0; kept as a defensive sweep for any stale membership.
-      log(`[prune-spam] scanning project-memberships for cascade deletes`);
-      for await (const mem of tx['project-memberships'].query()) {
-        const m = mem as unknown as ProjectMembership;
-        if (prunedIds.has(m.personId)) {
-          await tx['project-memberships'].delete(mem as unknown as ProjectMembership);
-          membershipsDeleted++;
+      // --- Steps B–C: Cascade-delete every record that references a pruned
+      // person by slug (memberships, help-wanted interest, RSVPs) — the set
+      // comes from the references the schemas declare. Memberships are
+      // normally 0 (members are protected from machine verdicts); the sweep
+      // still runs for human-vote prunes and stale records.
+      for (const ref of PRUNE_CASCADE) {
+        log(`[prune-spam] scanning ${ref.sheet} for cascade deletes`);
+        const sheet = tx[ref.sheet] as unknown as {
+          query(): AsyncIterable<Record<string, unknown>>;
+          delete(record: unknown): Promise<void>;
+        };
+        let deleted = 0;
+        for await (const record of sheet.query()) {
+          const value = record[ref.field];
+          if (typeof value === 'string' && prunedSlugs.has(value)) {
+            await sheet.delete(record);
+            deleted++;
+          }
         }
+        referencesDeleted.set(ref.sheet, (referencesDeleted.get(ref.sheet) ?? 0) + deleted);
+        log(`[prune-spam] ${ref.sheet} deleted=${deleted}`);
       }
-      log(`[prune-spam] membershipsDeleted=${membershipsDeleted}`);
-
-      // --- Step C: Cascade-delete help-wanted-interest (path: roleId/personId) ---
-      log(`[prune-spam] scanning help-wanted-interest for cascade deletes`);
-      for await (const interest of tx['help-wanted-interest'].query()) {
-        const hw = interest as unknown as HelpWantedInterestExpression;
-        if (prunedIds.has(hw.personId)) {
-          await tx['help-wanted-interest'].delete(interest as unknown as HelpWantedInterestExpression);
-          helpWantedInterestDeleted++;
-        }
-      }
-      log(`[prune-spam] helpWantedInterestDeleted=${helpWantedInterestDeleted}`);
 
       // --- Step D: Cascade-delete person tag-assignments (path: taggableType/taggableId/tagId) ---
       log(`[prune-spam] scanning tag-assignments for cascade deletes (person type only)`);
@@ -506,8 +511,9 @@ export async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
     prunedPeople,
     peopleAfter,
     protectedByMembership,
-    membershipsDeleted,
-    helpWantedInterestDeleted,
+    membershipsDeleted: referencesDeleted.get('project-memberships') ?? 0,
+    helpWantedInterestDeleted: referencesDeleted.get('help-wanted-interest') ?? 0,
+    eventRsvpsDeleted: referencesDeleted.get('event-rsvps') ?? 0,
     personTagAssignmentsDeleted,
     projectUpdatesAuthorNulled,
     commitHash: result.commitHash,
@@ -541,6 +547,7 @@ function printSummary(summary: PruneSummary, args: CliArgs): void {
   lines.push(`protectedByMembership:        ${summary.protectedByMembership}`);
   lines.push(`membershipsDeleted:           ${summary.membershipsDeleted}`);
   lines.push(`helpWantedInterestDeleted:    ${summary.helpWantedInterestDeleted}`);
+  lines.push(`eventRsvpsDeleted:            ${summary.eventRsvpsDeleted}`);
   lines.push(`personTagAssignmentsDeleted:  ${summary.personTagAssignmentsDeleted}`);
   lines.push(`projectUpdatesAuthorNulled:   ${summary.projectUpdatesAuthorNulled}`);
   if (args.dryRun) {

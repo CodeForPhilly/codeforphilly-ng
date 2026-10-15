@@ -514,9 +514,9 @@ export function translateMembership(
 ): MembershipResult | null {
   const projectLegacyId = row.ProjectID;
   const personLegacyId = row.MemberID;
-  const projectId = ctx.idMaps.projectByLegacy.get(projectLegacyId);
-  const personId = ctx.idMaps.personByLegacy.get(personLegacyId);
-  if (!projectId || !personId) {
+  const projectSlug = ctx.idMaps.projectSlugByLegacy.get(projectLegacyId);
+  const personSlug = ctx.idMaps.personSlugByLegacy.get(personLegacyId);
+  if (!projectSlug || !personSlug) {
     ctx.warnings.push(
       `[project-memberships] project=${projectLegacyId} person=${personLegacyId} — unresolved FK; skipped`,
     );
@@ -530,8 +530,8 @@ export function translateMembership(
   return {
     membership: {
       id: idFor(ctx, `project-memberships/${projectLegacyId}-${personLegacyId}`),
-      projectId,
-      personId,
+      projectSlug,
+      personSlug,
       role: role ?? undefined,
       isMaintainer,
       joinedAt,
@@ -554,7 +554,8 @@ export function translateUpdate(
   const legacyId = row.ID;
   const projectLegacyId = row.ProjectID;
   const projectId = ctx.idMaps.projectByLegacy.get(projectLegacyId);
-  if (!projectId) {
+  const projectSlug = ctx.idMaps.projectSlugByLegacy.get(projectLegacyId);
+  if (!projectId || !projectSlug) {
     ctx.warnings.push(
       `[project-updates] legacyId=${legacyId} project=${projectLegacyId} — unresolved FK; skipped`,
     );
@@ -579,7 +580,7 @@ export function translateUpdate(
     update: {
       id: idFor(ctx, `project-updates/${legacyId}`),
       legacyId,
-      projectId,
+      projectSlug,
       authorId: authorId ?? undefined,
       body: nonEmptyStr(row.Body) ?? '(no body)',
       number,
@@ -636,7 +637,7 @@ export function translateBuzz(
     buzz: {
       id: idFor(ctx, `project-buzz/${legacyId}`),
       legacyId,
-      projectId,
+      projectSlug,
       postedById: postedById ?? undefined,
       slug,
       headline,
