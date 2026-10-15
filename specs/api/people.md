@@ -15,7 +15,8 @@ See [data-model.md](../data-model.md#person).
 | `PATCH` | `/api/people/:slug/newsletter` | self \| staff | Update newsletter opt-in state (private-store mutation; no public commit). |
 | `POST` | `/api/people/:slug/deactivate` | self \| staff | Soft-deactivate (sets `deletedAt`). |
 | `POST` | `/api/people/:slug/reactivate` | self \| staff | Reactivate (clears `deletedAt`). |
-| `POST` | `/api/people/:slug/purge` | administrator | Cascading hard-delete of person + their content. |
+| `POST` | `/api/people/:slug/purge` | administrator | Cascading hard-delete of person + their content, and projects only they touched. |
+| `GET` | `/api/people/:slug/purge-preview` | administrator | Projects a purge would delete along with the person. |
 | `POST` | `/api/people/:slug/account-level` | administrator | Change `accountLevel` (audit-logged). |
 
 ## GET /api/people
@@ -204,11 +205,28 @@ Self or staff. Clears `deletedAt`. Person becomes visible again.
 
 ## POST /api/people/:slug/purge
 
-Administrator-only. Atomically hard-deletes the person record and cascades: project-memberships, help-wanted-interest, event-rsvps, person tag-assignments, project-updates (authored), project-buzz (posted), and blog-posts (authored). All in one gitsheets commit. Git-revertable.
+Administrator-only. Atomically hard-deletes the person record and cascades: project-memberships, help-wanted-interest, event-rsvps, person tag-assignments, project-updates (authored), project-buzz (posted), and blog-posts (authored). It also hard-deletes every project the person created that nobody else touched, with all of that project's records — the rule is in [person-lifecycle.md](../behaviors/person-lifecycle.md#purge-cascading-hard-delete-admin-only). All in one gitsheets commit. Git-revertable.
 
 Unlike the offline spam-prune (which nulls `authorId` on updates), purge DELETES the authored content — it is the on-demand garbage-collection path for spam accounts.
 
 ### Response — 204
+
+### Errors
+
+- `403 forbidden` — caller is not an administrator
+- `404 not_found` — slug doesn't exist
+
+## GET /api/people/:slug/purge-preview
+
+Administrator-only. What a purge of this person would delete beyond their own records, so the confirm dialog can say so before anything happens. Read-only.
+
+### Response — 200
+
+```json
+{ "success": true, "data": { "projects": [{ "slug": "zombievideo", "title": "zombievideo" }] } }
+```
+
+`projects` is empty when no project qualifies.
 
 ### Errors
 
