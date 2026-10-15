@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [slug-history-config]
 specs:
   - specs/behaviors/slug-handles.md
@@ -51,7 +51,7 @@ later commit once the move API ships.
 - [x] Test: rename a person with an avatar; the avatar is served at the new
       key and `avatarKey` matches
 - [x] Test: rename a project; no attachments are orphaned
-- [ ] (after upstream) no delete-then-upsert left in the rename paths
+- [x] (after upstream) no delete-then-upsert left in the rename paths
 - [x] `type-check` + `lint` + full api suite green
 
 ## Risks / unknowns
@@ -64,5 +64,9 @@ later commit once the move API ships.
   read before the delete and re-attached by blob hash, and `avatarKey` /
   `featuredImageKey` are rewritten. What's left is swapping this for a native
   gitsheets move once one exists (see `awaits`).
+
+- Finished by [`gitsheets-2.9`](gitsheets-2.9.md) (PR #243): gitsheets#302
+  shipped native rename-on-upsert that moves attachments, and every rename
+  path now uses it via `upsertMoved`. The take/restore interim is removed.
 
 ## Follow-ups
