@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [purge-created-projects]
 specs:
   - specs/behaviors/person-lifecycle.md
@@ -44,12 +44,12 @@ record).
 
 ## Validation
 
-- [ ] `npm run type-check && npm run lint && npm test` clean.
-- [ ] Tests: queue selection (fresh vote, a legit vote, reactivated and
+- [x] `npm run type-check && npm run lint && npm test` clean.
+- [x] Tests: queue selection (fresh vote, a legit vote, reactivated and
   staff are held back); one commit by `cfp-api` listing the slugs; a
   project only the batch touched goes; an empty queue writes nothing;
   `purgeAfter` dates.
-- [ ] Devbox: the roster shows the chip on spam-voted members.
+- [x] Devbox: the roster shows the chip on spam-voted members.
 
 ## Risks / unknowns
 
@@ -58,4 +58,15 @@ record).
 
 ## Notes
 
+- Sized on devbox against a copy of production `published` (12958c930,
+  2026-10-15): the first sweep purged **27** accounts in one `cfp-api`
+  commit (`people: scheduled spam purge (27)`, 35 files), none with a
+  project only they touched. The 39 accounts voted spam that day showed
+  "Purges Oct 18, 2026" on the roster.
+- The roster intro said "the next pipeline run removes them"; it now
+  describes the three-day purge.
+
 ## Follow-ups
+
+- **Issue-worthy, not filed:** a vote response could return the row's new
+  `purgeAfter` so the chip appears without a reload.
