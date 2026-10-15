@@ -6,6 +6,7 @@ specs:
   - specs/data-model.md
   - specs/behaviors/storage.md
   - specs/behaviors/slug-handles.md
+pr: 240
 ---
 
 # Plan: child records reference path-keyed parents by slug
@@ -82,15 +83,15 @@ Out:
 
 ## Validation
 
-- [ ] The six schemas hold slug references; reference map derived; v2
+- [x] The six schemas hold slug references; reference map derived; v2
       contracts published, v1 unchanged
-- [ ] No `projectId`/`personId`/`eventId` left on the six sheets' records
+- [x] No `projectId`/`personId`/`eventId` left on the six sheets' records
       or in their indexes (grep), API responses unchanged (existing API
       tests green)
-- [ ] Generic rename test covers every entry in the reference map
-- [ ] Migration: idempotent; refuses to write if any reference doesn't
+- [x] Generic rename test covers every entry in the reference map
+- [x] Migration: idempotent; refuses to write if any reference doesn't
       resolve; `contracts verify` passes after it on every branch
-- [ ] `type-check` + `lint` + full suite green
+- [x] `type-check` + `lint` + full suite green
 - [ ] `published` migrated and adopted in lockstep with the release;
       sandbox and production boot
 
@@ -105,4 +106,25 @@ Out:
 
 ## Notes
 
+- Rehearsed on a copy of production `published`: 1,450 records rewritten
+  (the diff is deletions only, since the slugs were already on disk from
+  write-time injection), `contracts verify` ok, the second run a no-op, and
+  the new code boots in declared mode and loads in 1.9s.
+- `empty`, `fixture` and `legacy-import` adopted v2 from `a60d226` (pinned in
+  `sources.toml`; merge #240 with a merge commit so it stays reachable),
+  migrated, and verify.
+- Fixes from the refactor: prune-spam's member protection compared ids
+  that no longer exist (it protected no one); it also deletes the pruned
+  person's RSVPs. Account-claim merge re-points the requester's RSVPs.
+  scrub-data pseudonymizes every person-slug reference consistently.
+- Remaining before `done`: migrate and adopt on `published` in lockstep
+  with the release, then boot sandbox and production.
+
 ## Follow-ups
+
+- Tracked as: a buzz item's own `?regenerateSlug` still doesn't carry its
+  image attachment (pre-existing; gitsheets 2.8+ rename-on-upsert fixes it
+  with the 2.9 bump).
+- Tracked as: the gitsheets 2.9 bump ([`gitsheets-2.8`](gitsheets-2.8.md),
+  to be retitled) lands next. #304's open-time check passes because every
+  template field is now required.
