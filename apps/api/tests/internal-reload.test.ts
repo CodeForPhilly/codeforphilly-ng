@@ -662,4 +662,89 @@ describe('POST /api/_internal/reload-data — freshness + locking', () => {
     expect(tree).toContain('After.');
     await git(rig.local, 'merge-base', '--is-ancestor', upstreamHead, 'HEAD');
   });
+
+  it('holds the write lock from the ref move through the rebuild', async () => {
+    // Deterministic version of the race above. A write queued on the lock
+    // behind the reload must not get it between the ref move and the
+    // rebuild (it would validate against pre-reload in-memory state and
+    // could clobber what the reload brought in); it runs after, on top.
+    await advanceRemoteWithAdmin(rig);
+    await advanceRemoteWithProject(rig, {
+      id: '01951a3c-0000-7000-8000-00000000b004',
+      slug: 'edited-in-the-gap',
+      title: 'Edited In The Gap',
+      summary: 'Before.',
+    });
+    app = await buildTestApp({ CFP_DATA_RELOAD_SECRET: VALID_SECRET });
+    const live = app;
+    const { accessToken } = await mintSessionFor(
+      ADMIN_ID,
+      'administrator',
+      'test-jwt-signing-key-at-least-32-chars!!',
+    );
+    const bootHead = await git(rig.local, 'rev-parse', 'HEAD');
+    const upstreamHead = await advanceRemoteWithProject(rig, {
+      id: '01951a3c-0000-7000-8000-00000000b005',
+      slug: 'arrived-in-the-gap',
+      title: 'Arrived In The Gap',
+    });
+
+    // Hold the lock so the reload and then the write queue on it in that
+    // order (the mutex is FIFO). Everything starts from the test's own
+    // async context: gitsheets tracks the lock holder per async context.
+    let releaseHold!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+    let lockHeld!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      lockHeld = resolve;
+    });
+    const hold = live.publicRepo.withLock(async () => {
+      lockHeld();
+      await held;
+    });
+    await holding;
+
+    let writeSettled = false;
+    let headInRebuild: string | undefined;
+    const reconciling = live.reconcileDataRepo({
+      onMoved: async () => {
+        headInRebuild = await git(rig.local, 'rev-parse', 'HEAD');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(writeSettled).toBe(false);
+      },
+    });
+    // Let the reload finish its (lock-free) fetch and queue on the lock.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const write = live.inject({
+      method: 'PATCH',
+      url: '/api/projects/edited-in-the-gap',
+      headers: { cookie: `cfp_session=${accessToken}` },
+      payload: { summary: 'After.' },
+    });
+    void write.then(() => {
+      writeSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    // The ref move itself waits for the lock.
+    expect(await git(rig.local, 'rev-parse', 'HEAD')).toBe(bootHead);
+    releaseHold();
+    await hold;
+
+    const result = await reconciling;
+    expect(result.outcome).toBe('fast-forwarded');
+    expect(result.newCommit).toBe(upstreamHead);
+    // Nothing committed between the ref move and the rebuild.
+    expect(headInRebuild).toBe(upstreamHead);
+
+    const res = await write;
+    expect(res.statusCode).toBe(200);
+    expect(await git(rig.local, 'rev-parse', 'HEAD^')).toBe(upstreamHead);
+    expect(await git(rig.local, 'show', 'HEAD:projects/edited-in-the-gap.toml')).toContain(
+      'After.',
+    );
+    const edited = await live.inject({ method: 'GET', url: '/api/projects/edited-in-the-gap' });
+    expect(edited.json<{ data: { summary: string } }>().data.summary).toBe('After.');
+  });
 });

@@ -8,9 +8,9 @@
  * Branch model:
  *   - On first run, `legacy-import` is created from the `empty` branch (which
  *     carries only `.gitsheets/` configs, no records).
- *   - On subsequent runs, the importer opens the gitsheets store, reads the
- *     previous snapshot's record UUIDs at the branch tip
- *     (to keep them stable across re-runs), then opens a single transaction
+ *   - On subsequent runs, the importer reads the previous snapshot's record
+ *     UUIDs through a store pinned at the branch tip (to keep them stable
+ *     across re-runs), then opens a single transaction
  *     that clears each importer-owned sheet and re-upserts the fresh data.
  *   - Files are written by gitsheets per each sheet's path template
  *     (e.g. `people/${{ slug }}.toml`) — the runtime API reads the same paths.
@@ -22,21 +22,17 @@
  * directly on `transact`).
  *
  * Side effects:
- *   - Creates the local target branch on first run (from origin/<branch> or
- *     the initial parent)
  *   - Creates one commit on the local `legacy-import` branch via gitsheets
- *     `transact({ parent, branch })`; the data repo's HEAD is not moved
+ *     `transact({ parent, branch })`. On first run the commit is parented on
+ *     origin/<branch> (or the initial parent) and gitsheets creates the local
+ *     branch. The data repo's HEAD is not moved
  *   - Does NOT push to origin (operator's call)
  *
  * Private-store side: out of scope for this importer. The JSON endpoints
  * expose only public fields; private data (emails, password hashes,
  * newsletter prefs) will be imported separately on a future plan.
  */
-import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
-import { promisify } from 'node:util';
-
-const exec = promisify(execFile);
 
 import {
   BlogPostSchema,
@@ -59,9 +55,14 @@ import type {
   TagAssignment,
 } from '@cfp/shared/schemas';
 
-import type { Repository } from 'gitsheets';
+import { openStore, type Repository } from 'gitsheets';
 
-import { openPublicStore, type PublicStore, type PublicStoreTx } from '../../src/store/public.js';
+import {
+  openPublicStore,
+  PUBLIC_SHEET_SCHEMAS,
+  type PublicStore,
+  type PublicStoreTx,
+} from '../../src/store/public.js';
 import { processAvatar } from '../../src/lib/avatar.js';
 import {
   fetchAllPages,
@@ -189,7 +190,7 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   //    against the last even when nothing changed upstream.
   // -------------------------------------------------------------------------
   let store: PublicStore | null = null;
-  let branchRef: string | null = null;
+  let target: { branchRef: string; parent: string } | null = null;
   let existingIds: ExistingIds;
 
   if (opts.dryRun) {
@@ -197,8 +198,8 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   } else {
     const opened = await openPublicStore(repo);
     store = opened.store;
-    branchRef = await resolveTargetBranch(opened.repo, repo, branch, initialParent);
-    existingIds = await collectExistingIdsAt(store, opened.repo, branchRef, log);
+    target = await resolveTargetBranch(opened.repo, repo, branch, initialParent);
+    existingIds = await collectExistingIdsAt(opened.repo, target.parent, log);
   }
 
   const ctx: TranslateCtx = { idMaps, warnings, now: runAt, existingIds };
@@ -481,14 +482,14 @@ export async function importLaddrFromJson(opts: ImportOptions): Promise<ImportRe
   //    - clear() each importer-owned sheet (deletes capture for free)
   //    - upsert() every translated record (path-template + schema validation)
   // -------------------------------------------------------------------------
-  if (store === null || branchRef === null) throw new Error('[import-laddr] internal: store not opened');
+  if (store === null || target === null) throw new Error('[import-laddr] internal: store not opened');
 
   const message = buildCommitMessage({ runAt, sourceHost: opts.sourceHost, counts });
 
   const result = await store.transact(
     {
-      parent: branchRef,
-      branch: branchRef,
+      parent: target.parent,
+      branch: target.branchRef,
       message,
       author: { name: AUTHOR_NAME, email: AUTHOR_EMAIL },
       trailers: {
@@ -626,61 +627,42 @@ function describe(err: unknown): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve `refs/heads/<branch>` in the data repo, creating it on first run
- * from `origin/<branch>` if available, falling back to `initialParent`
- * (typically `origin/empty`). Returns the full ref name; the snapshot
- * transaction then commits onto it with `transact({ parent, branch })`.
- *
- * Creating the ref stays on raw git: gitsheets 2.7's `transact({ branch })`
- * only advances an existing branch (compare-and-swap against `parent`) and
- * exposes no public "create branch" call.
+ * Resolve where the snapshot commits: the local `refs/heads/<branch>` and the
+ * parent to build on — the branch itself, or on first run `origin/<branch>`
+ * (falling back to `initialParent`, typically `origin/empty`), resolved to a
+ * commit. `transact({ parent, branch })` creates the branch when the snapshot
+ * commits.
  */
 async function resolveTargetBranch(
   repo: Repository,
   repoPath: string,
   branch: string,
   initialParent: string,
-): Promise<string> {
-  const ref = `refs/heads/${branch}`;
-  if ((await repo.resolveRef(ref)) !== null) return ref;
+): Promise<{ branchRef: string; parent: string }> {
+  const branchRef = `refs/heads/${branch}`;
+  if ((await repo.resolveRef(branchRef)) !== null) return { branchRef, parent: branchRef };
 
   const start =
     (await repo.resolveRef(`refs/remotes/origin/${branch}`)) ?? (await repo.resolveRef(initialParent));
   if (start === null) {
     throw new Error(
-      `[import-laddr] cannot create ${ref}: neither origin/${branch} nor ${initialParent} resolves in ${repoPath}`,
+      `[import-laddr] cannot create ${branchRef}: neither origin/${branch} nor ${initialParent} resolves in ${repoPath}`,
     );
   }
-  // Create-only (empty old value): fails rather than clobbering a racing writer.
-  await exec('git', ['update-ref', ref, start, ''], { cwd: repoPath });
-  return ref;
+  return { branchRef, parent: start };
 }
 
 /**
- * Read the previous snapshot's ids at the branch tip. gitsheets 2.7 has no
- * public "sheet at a ref" handle, so this reads inside a transaction parented
- * on the tip's commit hash and mutates nothing — it finalizes without a
- * commit and moves no ref. Swap for ref-scoped read-only sheets once
- * gitsheets ships them.
+ * Read the previous snapshot's ids at `ref` (the commit the snapshot builds
+ * on) through a read-only store pinned there.
  */
 async function collectExistingIdsAt(
-  store: PublicStore,
   repo: Repository,
   ref: string,
   log: (msg: string) => void,
 ): Promise<ExistingIds> {
-  const tip = await repo.resolveRef(ref);
-  if (tip === null) throw new Error(`[import-laddr] internal: ${ref} vanished`);
-  const { value, commitHash } = await store.transact(
-    {
-      parent: tip,
-      message: 'import-laddr: read existing ids (never committed)',
-      author: { name: AUTHOR_NAME, email: AUTHOR_EMAIL },
-    },
-    (tx) => collectExistingIds(tx, log),
-  );
-  if (commitHash !== null) throw new Error('[import-laddr] internal: read-only transaction committed');
-  return value;
+  const pinned = await openStore(repo, { validators: PUBLIC_SHEET_SCHEMAS, ref });
+  return collectExistingIds(pinned, log);
 }
 
 // ---------------------------------------------------------------------------

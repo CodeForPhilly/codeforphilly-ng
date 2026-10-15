@@ -125,6 +125,13 @@ function rowTint(row: MemberRow): string {
   return 'border-l-4 border-l-transparent';
 }
 
+/** The scheduled spam purge chip (specs/screens/admin-members.md). */
+function purgeLabel(purgeAfter: string, now: Date = new Date()): string {
+  return Date.parse(purgeAfter) <= now.getTime()
+    ? 'Purging at the next daily sweep'
+    : `Purges ${formatAbsoluteDate(purgeAfter, { dateStyle: 'medium' })}`;
+}
+
 function VoteBadge({ vote, hiddenByVote }: { vote: VoteView; hiddenByVote: boolean }) {
   const spam = vote.verdict === 'spam';
   return (
@@ -292,6 +299,14 @@ function MemberRowView({
             {row.deletedAt && (
               <span className="rounded bg-muted px-1.5 py-0.5 text-xs">
                 {hiddenByVote ? `Hidden by ${row.latestVote?.voter.fullName ?? 'vote'}` : 'Deactivated'}
+              </span>
+            )}
+            {row.purgeAfter && (
+              <span
+                className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive"
+                title="Scheduled spam purge: every staff vote is spam. A Not spam vote or reactivating them stops it."
+              >
+                {purgeLabel(row.purgeAfter)}
               </span>
             )}
           </div>
@@ -514,8 +529,8 @@ export function AdminMembers() {
     <div className="container mx-auto max-w-5xl px-4 py-8">
       <h1 className="text-2xl font-bold">Members roster</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Newest signups first. Votes are recorded under your name; a spam vote hides the member immediately and the next
-        pipeline run removes them. Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>s</kbd> spam, <kbd>n</kbd> not spam,{' '}
+        Newest signups first. Votes are recorded under your name; a spam vote hides the member immediately, and three
+        days later they're purged unless someone votes Not spam. Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>s</kbd> spam, <kbd>n</kbd> not spam,{' '}
         <kbd>Enter</kbd> details.
       </p>
 

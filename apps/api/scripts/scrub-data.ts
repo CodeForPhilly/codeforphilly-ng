@@ -27,19 +27,32 @@
  * would land on another record's path — fails the run instead of being
  * silently collapsed.
  *
+ * The source's `.gitsheets/` files (configs + vendored contracts) are copied
+ * with `tx.writeFile` into a detached gitsheets orphan commit that the record
+ * transaction builds on; the staged tree is then re-committed as the
+ * parentless snapshot on `snapshot-<seed>-scrubbed`, HEAD pointed at it and a
+ * same-named tag added (`.github/workflows/snapshot.yml` pushes HEAD's
+ * branch).
+ *
  * If verification fails the script exits non-zero and no target ref moves
  * (the staged objects are left unreferenced).
  */
 
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { faker } from '@faker-js/faker';
-import { getFormat, openRepo, RECORD_PATH_KEY, type BlobHandle, type UpsertResult } from 'gitsheets';
+import {
+  getFormat,
+  openRepo,
+  RECORD_PATH_KEY,
+  type BlobHandle,
+  type Repository,
+  type UpsertResult,
+} from 'gitsheets';
 import { SHEET_REFERENCES } from '@cfp/shared';
 
 const exec = promisify(execFile);
@@ -387,6 +400,10 @@ interface ScrubbedRecord {
   readonly attachments: Record<string, BlobHandle> | null;
 }
 
+/**
+ * Open the target repo, `git init`-ing it first when absent. Raw git:
+ * gitsheets opens existing repositories but has no init.
+ */
 async function initOrOpenTargetRepo(targetPath: string): Promise<GitRunner> {
   await mkdir(targetPath, { recursive: true });
   const git: GitRunner = (...args) => exec('git', args, { cwd: targetPath });
@@ -403,50 +420,29 @@ async function initOrOpenTargetRepo(targetPath: string): Promise<GitRunner> {
   return git;
 }
 
-async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  return Buffer.concat(chunks);
-}
-
 /**
- * Write a parentless commit holding only the source's `.gitsheets/` configs,
- * for the record transaction to build on.
+ * Write a parentless commit holding only the source's `.gitsheets/` files
+ * (configs plus vendored contracts), for the record transaction to build on:
+ * an orphan `transact({ parent: null })` staging each file with
+ * `tx.writeFile`. No branch is named, so the commit is detached and no ref
+ * moves.
  *
- * Stays on raw git plumbing (hash-object / mktree / commit-tree): gitsheets
- * 2.7 has no public API for writing non-record files (`tx.writeFile` is
- * internal) or for orphan commits. Swap once upstream exposes them.
+ * The configs can't go in the record transaction itself: a transaction's
+ * sheets load their configs from its parent commit (from HEAD for an orphan),
+ * never from files staged with `tx.writeFile` in the same transaction.
  */
 async function writeConfigRootCommit(
-  targetPath: string,
-  configs: ReadonlyArray<{ name: string; content: Buffer }>,
+  repo: Repository,
+  configs: ReadonlyArray<{ path: string; content: Buffer }>,
 ): Promise<string> {
-  // A throwaway index builds the nested `.gitsheets/` tree (configs plus
-  // `contracts/<host>/<path>.toml`) without touching any real index.
-  const indexFile = join(await mkdtemp(join(tmpdir(), 'cfp-scrub-index-')), 'index');
-  const indexEnv = { ...process.env, GIT_INDEX_FILE: indexFile };
-  for (const { name, content } of configs) {
-    const hash = await new Promise<string>((resolvePromise, reject) => {
-      const child = execFile(
-        'git',
-        ['hash-object', '-w', '--stdin'],
-        { cwd: targetPath },
-        (err, stdout) => (err ? reject(err) : resolvePromise(stdout.trim())),
-      );
-      child.stdin?.end(content);
-    });
-    await exec('git', ['update-index', '--add', '--cacheinfo', `100644,${hash},.gitsheets/${name}`], {
-      cwd: targetPath,
-      env: indexEnv,
-    });
-  }
-  const rootTree = (await exec('git', ['write-tree'], { cwd: targetPath, env: indexEnv })).stdout.trim();
-  await rm(dirname(indexFile), { recursive: true, force: true });
-  const { stdout } = await exec('git', ['commit-tree', rootTree, '-m', 'scrub-data: sheet configs'], {
-    cwd: targetPath,
-    env: { ...process.env, ...gitIdentityEnv(new Date().toISOString()) },
-  });
-  return stdout.trim();
+  const { commitHash } = await repo.transact(
+    { parent: null, message: 'scrub-data: sheet configs', author: SNAPSHOT_AUTHOR },
+    async (tx) => {
+      for (const { path, content } of configs) tx.writeFile(path, content);
+    },
+  );
+  if (commitHash === null) throw new Error('scrub-data: internal: config root transaction produced no commit');
+  return commitHash;
 }
 
 function gitIdentityEnv(timestamp: string): Record<string, string> {
@@ -556,24 +552,23 @@ export async function scrubRepo(opts: ScrubOptions): Promise<ScrubResult> {
   //    moves; its tree is re-committed as the orphan snapshot in step 9.
   // -------------------------------------------------------------------------
   const git = await initOrOpenTargetRepo(target);
+  // Raw git: resolves a non-bare target's `.git` for openRepo.
   const targetGitDir = (await git('rev-parse', '--absolute-git-dir')).stdout.trim();
   const targetRepo = await openRepo({ gitDir: targetGitDir });
 
   // Everything under the source's `.gitsheets/`: sheet configs plus the
   // vendored schema contracts (`contracts/…`) that configs may declare.
   const sourceRef = sourceHeadHash ?? 'HEAD';
+  // Raw git: gitsheets reads a blob at a path but has no subtree listing.
   const configPaths = (
     await exec('git', ['ls-tree', '-r', '--name-only', sourceRef, '.gitsheets/'], { cwd: source })
   ).stdout
     .split('\n')
     .filter((p) => p.length > 0);
   const configs = await Promise.all(
-    configPaths.map(async (path) => ({
-      name: path.slice('.gitsheets/'.length),
-      content: await streamToBuffer(await sourceRepo.readBlobStream(sourceRef, path)),
-    })),
+    configPaths.map(async (path) => ({ path, content: await (await sourceRepo.readBlob(sourceRef, path)).read() })),
   );
-  const configRoot = await writeConfigRootCommit(target, configs);
+  const configRoot = await writeConfigRootCommit(targetRepo, configs);
 
   const writtenFiles: SnapshotFile[] = [];
   const scrubCounts: Record<string, number> = {};
@@ -649,13 +644,22 @@ export async function scrubRepo(opts: ScrubOptions): Promise<ScrubResult> {
   // -------------------------------------------------------------------------
   // 9. Commit: orphan squashed commit of the staged tree
   //
-  //    Stays on raw git (commit-tree / update-ref / symbolic-ref / tag):
-  //    gitsheets 2.7 can't write a parentless commit. The snapshot workflow
-  //    pushes HEAD and tags it, so HEAD must point at the new branch.
+  //    Stays on raw git, each step for want of a gitsheets API:
+  //    - commit-tree: re-committing the staged tree as a parentless commit.
+  //      gitsheets 2.9's orphan transact starts from an empty tree, and its
+  //      sheets can't see configs staged in the same transaction (see
+  //      writeConfigRootCommit), so the records can't be written straight
+  //      into an orphan.
+  //    - update-ref: gitsheets can't point a branch at an existing commit
+  //      (only commit onto one), and a same-seed re-run overwrites the branch.
+  //    - symbolic-ref HEAD: gitsheets never moves HEAD. The snapshot workflow
+  //      pushes the branch HEAD is on, so HEAD must point at the new branch.
+  //    - tag: gitsheets has no tag API.
   // -------------------------------------------------------------------------
   const timestamp = new Date().toISOString();
   const branchName = `snapshot-${seed.replace(/[^a-z0-9]/gi, '-')}-scrubbed`;
 
+  // Raw git: HEAD's tree hash, which gitsheets doesn't expose.
   const currentTree = await git('rev-parse', '--verify', '--quiet', 'HEAD^{tree}')
     .then((r) => r.stdout.trim())
     .catch(() => null);
@@ -686,7 +690,8 @@ See apps/api/scripts/scrub-data.ts and specs/behaviors/storage.md.`;
   await git('symbolic-ref', 'HEAD', `refs/heads/${branchName}`);
   await exec('git', ['tag', '-f', branchName, commitHash], { cwd: target, env: commitEnv });
 
-  // Bring a non-bare target's working tree in line with the new HEAD.
+  // Bring a non-bare target's working tree in line with the new HEAD. Raw
+  // git: gitsheets works bare-style and never touches a working tree.
   if ((await git('rev-parse', '--is-bare-repository')).stdout.trim() !== 'true') {
     for (const entry of await readdir(target, { withFileTypes: true })) {
       if (entry.name === '.git') continue;

@@ -43,6 +43,7 @@ import markdownPlugin from './plugins/markdown.js';
 import slugRedirectPlugin from './plugins/slug-redirect.js';
 import legacyRedirectPlugin from './plugins/legacy-redirect.js';
 import eventRemindersPlugin from './plugins/event-reminders.js';
+import spamPurgePlugin from './plugins/spam-purge.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import idempotencyPlugin from './plugins/idempotency.js';
 import sessionMiddlewarePlugin from './auth/middleware.js';
@@ -157,6 +158,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(slugRedirectPlugin);
   await fastify.register(legacyRedirectPlugin);
   await fastify.register(eventRemindersPlugin);
+  await fastify.register(spamPurgePlugin);
 
   // ----- 7. Session middleware (JWT auth) -----
   // Before rate-limit and idempotency: all three use onRequest hooks, which run

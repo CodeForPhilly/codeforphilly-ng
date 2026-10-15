@@ -35,7 +35,8 @@ import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from './tag.write.js';
 import type { PrivateStore } from '../store/private/index.js';
 import { cascadeRename } from './reference-cascade.js';
-import { purgeableProjects, purgeProject } from './project-purge.js';
+import { purgePeople } from './person-purge.js';
+import { purgeableProjects } from './project-purge.js';
 import { rekeyAttachment, upsertMoved } from './slug-rename.js';
 
 function nowIso(): string {
@@ -282,80 +283,7 @@ export class PersonWriteService {
     if (!existing) throw new ApiNotFoundError(`Person '${slug}' not found`);
 
     const stateApply = new StateApply();
-    const personId = existing.id;
-
-    // 0. Projects only this person touched go first, whole (computed before
-    //    anything is deleted). Every id deleted is tracked so the person's
-    //    own cascade below skips what the project purge already removed.
-    const deleted = new Set<string>();
-    for (const project of purgeableProjects(this.#state, existing)) {
-      await purgeProject(tx, this.#state, stateApply, project, deleted);
-    }
-
-    // 1. Delete the person record.
-    await tx.public.people.delete(existing);
-    stateApply.removePerson(personId, existing.slug);
-
-    // 2. Cascade-delete project-memberships.
-    const membershipIds = this.#state.membershipsByPerson.get(existing.slug) ?? new Set<string>();
-    for (const mId of membershipIds) {
-      const m = this.#state.projectMemberships.get(mId);
-      if (m && !deleted.has(m.id)) {
-        await tx.public['project-memberships'].delete(m);
-        stateApply.removeMembership(m);
-      }
-    }
-
-    // 3. Cascade-delete help-wanted-interest.
-    for (const interest of this.#state.helpWantedInterest.values()) {
-      if (interest.personSlug === existing.slug && !deleted.has(interest.id)) {
-        await tx.public['help-wanted-interest'].delete(interest);
-        stateApply.removeInterest(interest);
-      }
-    }
-
-    // 3b. Cascade-delete event RSVPs (path: year/eventSlug/personSlug).
-    for (const rsvpId of this.#state.rsvpsByPerson.get(existing.slug) ?? new Set<string>()) {
-      const rsvp = this.#state.eventRsvps.get(rsvpId);
-      if (rsvp && !deleted.has(rsvp.id)) {
-        await tx.public['event-rsvps'].delete(rsvp);
-        stateApply.removeEventRsvp(rsvp);
-      }
-    }
-
-    // 4. Cascade-delete person tag-assignments.
-    const taIds = this.#state.tagAssignmentsByTaggable.get(personId) ?? new Set<string>();
-    for (const taId of taIds) {
-      const ta = this.#state.tagAssignments.get(taId);
-      if (ta && ta.taggableType === 'person') {
-        await tx.public['tag-assignments'].delete(ta);
-        stateApply.removeTagAssignment(ta);
-      }
-    }
-
-    // 5. Delete authored project-updates.
-    for (const update of this.#state.projectUpdates.values()) {
-      if (update.authorId === personId && !deleted.has(update.id)) {
-        await tx.public['project-updates'].delete(update);
-        stateApply.removeProjectUpdate(update);
-      }
-    }
-
-    // 6. Delete posted project-buzz.
-    for (const buzz of this.#state.projectBuzz.values()) {
-      if (buzz.postedById === personId && !deleted.has(buzz.id)) {
-        await tx.public['project-buzz'].delete(buzz);
-        stateApply.removeProjectBuzz(buzz);
-      }
-    }
-
-    // 7. Delete authored blog-posts.
-    for (const post of this.#state.blogPosts.values()) {
-      if (post.authorId === personId) {
-        await tx.public['blog-posts'].delete(post);
-        stateApply.removeBlogPost(post);
-      }
-    }
+    await purgePeople(tx, this.#state, stateApply, [existing]);
 
     return { stateApply };
   }
@@ -371,7 +299,7 @@ export class PersonWriteService {
     const person = id ? this.#state.people.get(id) : undefined;
     if (!person) throw new ApiNotFoundError(`Person '${slug}' not found`);
     return {
-      projects: purgeableProjects(this.#state, person).map((p) => ({ slug: p.slug, title: p.title })),
+      projects: purgeableProjects(this.#state, [person]).map((p) => ({ slug: p.slug, title: p.title })),
     };
   }
 

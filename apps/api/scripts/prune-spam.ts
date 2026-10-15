@@ -31,16 +31,15 @@
  *   --verbose          Increase logging verbosity.
  *
  * All reads and the prune commit go through gitsheets: evaluations are read
- * at their refs through read-only transactions, and the prune commits onto
- * `refs/heads/<branch>` via `transact({ parent, branch })`. The data repo's
- * HEAD is never moved.
+ * through sheets pinned at their refs, and the prune commits onto
+ * `refs/heads/<branch>` via `transact({ parent, branch })`, which creates the
+ * local branch from `origin/<branch>` on a fresh clone. The data repo's HEAD
+ * is never moved.
  */
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 
-import { ConfigError, openRepo, type Repository } from 'gitsheets';
+import { ConfigError, openRepo, RefError, type Repository } from 'gitsheets';
 
 import { openPublicStore } from '../src/store/public.js';
 import { SHEET_REFERENCES } from '@cfp/shared';
@@ -55,8 +54,6 @@ import type { ProjectUpdate, TagAssignment } from '@cfp/shared/schemas';
 const PRUNE_CASCADE = SHEET_REFERENCES.filter(
   (r) => r.target.sheet === 'people' && r.target.field === 'slug' && r.sheet !== 'person-evaluations',
 );
-
-const exec = promisify(execFile);
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
@@ -139,9 +136,6 @@ export interface PersonVerdict {
   humanEvaluatedAt: string | null;
 }
 
-/** Author stamped on the read-only transactions; they never commit. */
-const READ_AUTHOR = { name: 'prune-spam (read-only)', email: 'api@users.noreply.codeforphilly.org' };
-
 /**
  * Open a gitsheets Repository on a bare or non-bare clone. The evaluations
  * repo (the private spam-detection clone) is usually a working-tree clone.
@@ -195,14 +189,8 @@ export function foldEvaluation(
 
 /**
  * Read every person-evaluation at `ref` in `repo` and fold it into
- * `verdictMap`.
- *
- * gitsheets 2.7 has no public "sheet at a ref" handle, so this opens a
- * transaction parented on `ref` and only reads from it: a transaction with
- * no mutations finalizes to `commitHash: null` and moves no ref. Swap for
- * ref-scoped read-only sheets once gitsheets ships them (see the plan's
- * `awaits`). A ref without a person-evaluations sheet config contributes
- * nothing.
+ * `verdictMap`, through a read-only sheet pinned at `ref`. A ref without a
+ * person-evaluations sheet config contributes nothing.
  */
 export async function aggregateVerdicts(
   repoPath: string,
@@ -213,21 +201,16 @@ export async function aggregateVerdicts(
 ): Promise<Map<string, PersonVerdict>> {
   log(`[prune-spam] reading person-evaluations in ${repoPath} at ref=${ref}`);
   const repo = await openAnyRepo(repoPath);
-  // Parent on the resolved commit hash: the core takes branch names or
-  // hashes (not `HEAD`), and a hash parent never updates any ref.
-  const commit = await repo.resolveRef(ref);
-  if (commit === null) throw new Error(`[prune-spam] ref '${ref}' not found in ${repoPath}`);
-  const { value: records } = await repo.transact(
-    { parent: commit, message: 'prune-spam: read person-evaluations (never committed)', author: READ_AUTHOR },
-    async (tx) => {
-      try {
-        return await tx.sheet('person-evaluations').queryAll();
-      } catch (err) {
-        if (err instanceof ConfigError && err.code === 'config_missing') return [];
-        throw err;
-      }
-    },
-  );
+  let records: readonly Record<string, unknown>[];
+  try {
+    records = await (await repo.openSheet('person-evaluations', { ref })).queryAll();
+  } catch (err) {
+    if (err instanceof RefError && err.code === 'ref_not_found') {
+      throw new Error(`[prune-spam] ref '${ref}' not found in ${repoPath}`, { cause: err });
+    }
+    if (err instanceof ConfigError && err.code === 'config_missing') records = [];
+    else throw err;
+  }
   log(`[prune-spam] found ${records.length} evaluation records`);
   for (const record of records) foldEvaluation(verdictMap, record, threshold);
   return verdictMap;
@@ -328,22 +311,21 @@ export interface PruneSummary {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the local branch the prune commits onto, creating it from
- * `origin/<branch>` when a fresh clone lacks it. HEAD is not touched — the
- * commit is aimed at the branch through `transact({ parent, branch })`.
- *
- * Creating the ref stays on raw git: gitsheets 2.7's `transact({ branch })`
- * only advances an existing branch (compare-and-swap against `parent`), and
- * exposes no public "create branch" call.
+ * Resolve where the prune commits: the local `refs/heads/<branch>` and the
+ * parent to build on — the branch itself, or `origin/<branch>`'s commit when a
+ * fresh clone lacks the local branch. `transact({ parent, branch })` then
+ * creates the branch if the prune commits. HEAD is not touched.
  */
-async function resolveTargetBranch(repo: Repository, repoPath: string, branch: string): Promise<string> {
-  const ref = `refs/heads/${branch}`;
-  if ((await repo.resolveRef(ref)) !== null) return ref;
+async function resolveTargetBranch(
+  repo: Repository,
+  repoPath: string,
+  branch: string,
+): Promise<{ branchRef: string; parent: string }> {
+  const branchRef = `refs/heads/${branch}`;
+  if ((await repo.resolveRef(branchRef)) !== null) return { branchRef, parent: branchRef };
   const origin = await repo.resolveRef(`refs/remotes/origin/${branch}`);
   if (origin === null) throw new Error(`[prune-spam] branch '${branch}' not found in ${repoPath}`);
-  // Create-only (empty old value): fails rather than clobbering a racing writer.
-  await exec('git', ['update-ref', ref, origin, ''], { cwd: repoPath });
-  return ref;
+  return { branchRef, parent: origin };
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +365,7 @@ export async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
   // 2. Open the data store and resolve the target branch
   // -------------------------------------------------------------------------
   const { store, repo } = await openPublicStore(args.dataRepo);
-  const branchRef = await resolveTargetBranch(repo, args.dataRepo, args.branch);
+  const { branchRef, parent } = await resolveTargetBranch(repo, args.dataRepo, args.branch);
   log(`[prune-spam] pruning ${args.dataRepo} ${branchRef}`);
 
   // -------------------------------------------------------------------------
@@ -402,7 +384,7 @@ export async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
 
   const result = await store.transact(
     {
-      parent: branchRef,
+      parent,
       branch: branchRef,
       message: `prune: remove confident-spam people from published (${runAt})\n\nThreshold: ${args.threshold}, pruneSet: ${pruneSet.size} slugs evaluated.\n`,
       author: { name: AUTHOR_NAME, email: AUTHOR_EMAIL },

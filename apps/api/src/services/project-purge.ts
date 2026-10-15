@@ -14,38 +14,52 @@ function idsIn(index: Map<string, Set<string>>, key: string): string[] {
   return [...(index.get(key) ?? [])];
 }
 
-/** Whether `person` created `project` — the field, else the maintainer for older records. */
-function createdBy(project: Project, person: Person): boolean {
-  return project.createdById ? project.createdById === person.id : project.maintainerId === person.id;
+/** The people being purged together: one person, or a scheduled batch. */
+interface Batch {
+  readonly ids: ReadonlySet<string>;
+  readonly slugs: ReadonlySet<string>;
 }
 
-/** Whether anyone but `person` has a record on `project`. */
-function touchedByOthers(state: InMemoryState, project: Project, person: Person): boolean {
+function batchOf(people: readonly Person[]): Batch {
+  return { ids: new Set(people.map((p) => p.id)), slugs: new Set(people.map((p) => p.slug)) };
+}
+
+/** Whether someone in the batch created `project` — the field, else the maintainer for older records. */
+function createdBy(project: Project, batch: Batch): boolean {
+  const creator = project.createdById ?? project.maintainerId;
+  return !!creator && batch.ids.has(creator);
+}
+
+/** Whether anyone outside the batch has a record on `project`. */
+function touchedByOthers(state: InMemoryState, project: Project, batch: Batch): boolean {
+  const outsiderSlug = (slug: string | undefined) => !slug || !batch.slugs.has(slug);
+  const outsiderId = (id: string | null | undefined) => !id || !batch.ids.has(id);
   for (const id of idsIn(state.membershipsByProject, project.slug)) {
-    if (state.projectMemberships.get(id)?.personSlug !== person.slug) return true;
+    if (outsiderSlug(state.projectMemberships.get(id)?.personSlug)) return true;
   }
   for (const id of idsIn(state.updatesByProject, project.slug)) {
-    if (state.projectUpdates.get(id)?.authorId !== person.id) return true;
+    if (outsiderId(state.projectUpdates.get(id)?.authorId)) return true;
   }
   for (const id of idsIn(state.buzzByProject, project.slug)) {
-    if (state.projectBuzz.get(id)?.postedById !== person.id) return true;
+    if (outsiderId(state.projectBuzz.get(id)?.postedById)) return true;
   }
   for (const roleId of idsIn(state.helpWantedByProject, project.slug)) {
-    if (state.helpWantedRoles.get(roleId)?.postedById !== person.id) return true;
+    if (outsiderId(state.helpWantedRoles.get(roleId)?.postedById)) return true;
     for (const id of idsIn(state.interestByRole, roleId)) {
-      if (state.helpWantedInterest.get(id)?.personSlug !== person.slug) return true;
+      if (outsiderSlug(state.helpWantedInterest.get(id)?.personSlug)) return true;
     }
   }
   for (const rsvp of state.eventRsvps.values()) {
-    if (rsvp.projectId === project.id && rsvp.personSlug !== person.slug) return true;
+    if (rsvp.projectId === project.id && outsiderSlug(rsvp.personSlug)) return true;
   }
   return false;
 }
 
-/** Live or soft-deleted projects a purge of `person` deletes, by title. */
-export function purgeableProjects(state: InMemoryState, person: Person): Project[] {
+/** Live or soft-deleted projects a purge of `people` deletes, by title. */
+export function purgeableProjects(state: InMemoryState, people: readonly Person[]): Project[] {
+  const batch = batchOf(people);
   return [...state.projects.values()]
-    .filter((p) => createdBy(p, person) && !touchedByOthers(state, p, person))
+    .filter((p) => createdBy(p, batch) && !touchedByOthers(state, p, batch))
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
