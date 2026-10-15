@@ -1,10 +1,8 @@
 ---
-status: planned
+status: in-progress
 depends: [gitsheets-freshness]
 specs:
   - specs/behaviors/storage.md
-awaits:
-  - "https://github.com/JarvusInnovations/gitsheets/issues/301 — opt-in repo.sync() fetch/replay primitive + repo.isAncestor — replaces store/reconcile.ts"
 ---
 
 # Plan: replace hand-rolled reconcile with upstream `repo.sync()`
