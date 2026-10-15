@@ -182,7 +182,7 @@ people/janedoe/avatar.jpg
 people/janedoe/avatar-128.jpg
 ```
 
-The on-record key (`avatarKey`) references the attachment path relative to the data repo root, `<sheet>/<record path>/<name>`. Web serves attachments via `GET /api/attachments/<key>`, which resolves the key through the sheet's current read snapshot. The response carries `ETag: "<blob hash>"` and `Cache-Control: public, max-age=3600`; a request whose `If-None-Match` matches gets `304` with no body. A key outside any sheet, or with no blob, is `404`; an empty blob is a `200` with an empty body.
+The on-record key (`avatarKey`) references the attachment path relative to the data repo root, `<sheet>/<record path>/<name>`. Web serves attachments via `GET /api/attachments/<key>`, which resolves the key through the sheet's current read snapshot. The response streams the blob with `Content-Length`, `ETag: "<blob hash>"` and `Cache-Control: public, max-age=3600`; a request whose `If-None-Match` matches gets `304` with no body. A key outside any sheet, or with no blob, is `404`; an empty blob is a `200` with an empty body.
 
 ## In-memory representation
 
