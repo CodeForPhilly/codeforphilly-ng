@@ -7,7 +7,7 @@
 import { uuidv7 } from 'uuidv7';
 import { ProjectBuzzSchema, type Project, type ProjectBuzz } from '@cfp/shared/schemas';
 import type { DualStoreTx } from '../store/store.js';
-import type { InMemoryState } from '../store/memory/state.js';
+import { projectChildKey, type InMemoryState } from '../store/memory/state.js';
 import { StateApply } from '../store/state-apply.js';
 import { ApiNotFoundError, ApiValidationError, ConflictError } from '../lib/errors.js';
 import { ensureUniqueSlug, isValidBuzzSlug, slugify } from '../lib/slug.js';
@@ -16,10 +16,6 @@ import type { SessionContext } from '../auth/middleware.js';
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function withProjectPath<T extends object>(record: T, projectSlug: string): Record<string, unknown> {
-  return { ...record, projectSlug };
 }
 
 function normalizePublishedAt(input: string): string {
@@ -62,8 +58,8 @@ export class ProjectBuzzWriteService {
 
     const publishedAt = normalizePublishedAt(input.publishedAt);
 
-    // Uniqueness on (projectId, url)
-    for (const id of this.#state.buzzByProject.get(project.id) ?? new Set()) {
+    // Uniqueness on (projectSlug, url)
+    for (const id of this.#state.buzzByProject.get(project.slug) ?? new Set()) {
       const b = this.#state.projectBuzz.get(id);
       if (b && b.url === input.url) {
         throw new ConflictError('URL already logged for this project', 'duplicate_url');
@@ -79,7 +75,7 @@ export class ProjectBuzzWriteService {
     }
     const slug = ensureUniqueSlug(
       baseSlug,
-      (s) => this.#state.buzzByProjectAndSlug.has(`${project.id}:${s}`),
+      (s) => this.#state.buzzByProjectAndSlug.has(projectChildKey(project.slug, s)),
       100,
     );
     if (!isValidBuzzSlug(slug)) {
@@ -89,7 +85,7 @@ export class ProjectBuzzWriteService {
     const now = nowIso();
     const buzz: ProjectBuzz = ProjectBuzzSchema.parse({
       id: uuidv7(),
-      projectId: project.id,
+      projectSlug: project.slug,
       postedById: session.person!.id,
       slug,
       headline: input.headline,
@@ -101,9 +97,7 @@ export class ProjectBuzzWriteService {
       updatedAt: now,
     });
 
-    await tx.public['project-buzz'].upsert(
-      withProjectPath(buzz, project.slug) as unknown as ProjectBuzz,
-    );
+    await tx.public['project-buzz'].upsert(buzz);
 
     const stateApply = new StateApply().upsertProjectBuzz(buzz);
     return { buzz, stateApply };
@@ -124,7 +118,7 @@ export class ProjectBuzzWriteService {
     session: SessionContext,
   ): Promise<{ buzz: ProjectBuzz; stateApply: StateApply }> {
     const project = this.#projectOrThrow(projectSlug);
-    const existing = this.#buzzOrThrow(project.id, buzzSlug);
+    const existing = this.#buzzOrThrow(project.slug, buzzSlug);
     requireAuth('poster | staff', { session, ownerId: existing.postedById ?? undefined });
 
     if (input.headline !== undefined && (input.headline.length < 1 || input.headline.length > 200)) {
@@ -136,7 +130,7 @@ export class ProjectBuzzWriteService {
 
     // URL change must remain unique within project
     if (input.url !== undefined && input.url !== existing.url) {
-      for (const id of this.#state.buzzByProject.get(project.id) ?? new Set()) {
+      for (const id of this.#state.buzzByProject.get(project.slug) ?? new Set()) {
         if (id === existing.id) continue;
         const b = this.#state.projectBuzz.get(id);
         if (b && b.url === input.url) {
@@ -157,7 +151,7 @@ export class ProjectBuzzWriteService {
       newSlug = ensureUniqueSlug(
         base,
         (s) =>
-          s !== existing.slug && this.#state.buzzByProjectAndSlug.has(`${project.id}:${s}`),
+          s !== existing.slug && this.#state.buzzByProjectAndSlug.has(projectChildKey(project.slug, s)),
         100,
       );
       slugChanged = newSlug !== existing.slug;
@@ -181,15 +175,11 @@ export class ProjectBuzzWriteService {
     const stateApply = new StateApply();
 
     if (slugChanged) {
-      await tx.public['project-buzz'].delete(
-        withProjectPath(existing, project.slug) as unknown as ProjectBuzz,
-      );
+      await tx.public['project-buzz'].delete(existing);
       stateApply.removeProjectBuzz(existing);
     }
 
-    await tx.public['project-buzz'].upsert(
-      withProjectPath(updated, project.slug) as unknown as ProjectBuzz,
-    );
+    await tx.public['project-buzz'].upsert(updated);
     stateApply.upsertProjectBuzz(updated);
 
     return { buzz: updated, stateApply };
@@ -202,12 +192,10 @@ export class ProjectBuzzWriteService {
     session: SessionContext,
   ): Promise<{ stateApply: StateApply }> {
     const project = this.#projectOrThrow(projectSlug);
-    const existing = this.#buzzOrThrow(project.id, buzzSlug);
+    const existing = this.#buzzOrThrow(project.slug, buzzSlug);
     requireAuth('poster | staff', { session, ownerId: existing.postedById ?? undefined });
 
-    await tx.public['project-buzz'].delete(
-      withProjectPath(existing, project.slug) as unknown as ProjectBuzz,
-    );
+    await tx.public['project-buzz'].delete(existing);
 
     const stateApply = new StateApply().removeProjectBuzz(existing);
     return { stateApply };
@@ -225,8 +213,8 @@ export class ProjectBuzzWriteService {
     return p;
   }
 
-  #buzzOrThrow(projectId: string, buzzSlug: string): ProjectBuzz {
-    const id = this.#state.buzzByProjectAndSlug.get(`${projectId}:${buzzSlug}`);
+  #buzzOrThrow(projectSlug: string, buzzSlug: string): ProjectBuzz {
+    const id = this.#state.buzzByProjectAndSlug.get(projectChildKey(projectSlug, buzzSlug));
     if (!id) throw new ApiNotFoundError(`Buzz '${buzzSlug}' not found`);
     const b = this.#state.projectBuzz.get(id);
     if (!b) throw new ApiNotFoundError(`Buzz '${buzzSlug}' not found`);

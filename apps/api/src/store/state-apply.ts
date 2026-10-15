@@ -41,8 +41,14 @@ import {
   indexSlugHistory,
   indexTag,
   indexTagAssignment,
-  rsvpKey,
+  unindexEventRsvp,
   unindexEventSeries,
+  unindexHelpWantedInterest,
+  unindexHelpWantedRole,
+  unindexMembership,
+  unindexPersonEvaluation,
+  unindexProjectBuzz,
+  unindexProjectUpdate,
   type InMemoryState,
 } from './memory/state.js';
 
@@ -177,11 +183,7 @@ export class StateApply {
   }
 
   removeMembership(m: ProjectMembership): this {
-    this.#ops.push((state) => {
-      state.projectMemberships.delete(m.id);
-      state.membershipsByProject.get(m.projectId)?.delete(m.id);
-      state.membershipsByPerson.get(m.personId)?.delete(m.id);
-    });
+    this.#ops.push((state) => unindexMembership(state, m));
     return this;
   }
 
@@ -191,11 +193,7 @@ export class StateApply {
   }
 
   removeProjectUpdate(u: ProjectUpdate): this {
-    this.#ops.push((state) => {
-      state.projectUpdates.delete(u.id);
-      state.updatesByProject.get(u.projectId)?.delete(u.id);
-      state.updateByProjectAndNumber.delete(`${u.projectId}:${u.number}`);
-    });
+    this.#ops.push((state) => unindexProjectUpdate(state, u));
     return this;
   }
 
@@ -205,12 +203,7 @@ export class StateApply {
   }
 
   removeProjectBuzz(b: ProjectBuzz): this {
-    this.#ops.push((state) => {
-      state.projectBuzz.delete(b.id);
-      state.buzzByProject.get(b.projectId)?.delete(b.id);
-      state.buzzByProjectAndSlug.delete(`${b.projectId}:${b.slug}`);
-      state.buzzIdBySlug.delete(b.slug);
-    });
+    this.#ops.push((state) => unindexProjectBuzz(state, b));
     return this;
   }
 
@@ -224,8 +217,7 @@ export class StateApply {
 
   removeHelpWantedRole(r: HelpWantedRole): this {
     this.#ops.push((state, fts) => {
-      state.helpWantedRoles.delete(r.id);
-      state.helpWantedByProject.get(r.projectId)?.delete(r.id);
+      unindexHelpWantedRole(state, r);
       fts.removeHelpWanted(r.id);
     });
     return this;
@@ -237,11 +229,7 @@ export class StateApply {
   }
 
   removeInterest(e: HelpWantedInterestExpression): this {
-    this.#ops.push((state) => {
-      state.helpWantedInterest.delete(e.id);
-      state.interestByRole.get(e.roleId)?.delete(e.id);
-      state.interestByRoleAndPerson.delete(`${e.roleId}:${e.personId}`);
-    });
+    this.#ops.push((state) => unindexHelpWantedInterest(state, e));
     return this;
   }
 
@@ -279,6 +267,11 @@ export class StateApply {
 
   upsertPersonEvaluation(record: PersonEvaluation): this {
     this.#ops.push((state) => indexPersonEvaluation(state, record));
+    return this;
+  }
+
+  removePersonEvaluation(record: PersonEvaluation): this {
+    this.#ops.push((state) => unindexPersonEvaluation(state, record));
     return this;
   }
 
@@ -328,12 +321,7 @@ export class StateApply {
   }
 
   removeEventRsvp(rsvp: EventRsvp): this {
-    this.#ops.push((state) => {
-      state.eventRsvps.delete(rsvp.id);
-      state.rsvpsByEvent.get(rsvp.eventId)?.delete(rsvp.id);
-      state.rsvpsByPerson.get(rsvp.personId)?.delete(rsvp.id);
-      state.rsvpIdByEventAndPerson.delete(rsvpKey(rsvp.eventId, rsvp.personId));
-    });
+    this.#ops.push((state) => unindexEventRsvp(state, rsvp));
     return this;
   }
 

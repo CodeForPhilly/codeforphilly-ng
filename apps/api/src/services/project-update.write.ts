@@ -12,7 +12,7 @@ import {
   type ProjectUpdate,
 } from '@cfp/shared/schemas';
 import type { DualStoreTx } from '../store/store.js';
-import type { InMemoryState } from '../store/memory/state.js';
+import { projectChildKey, type InMemoryState } from '../store/memory/state.js';
 import { StateApply } from '../store/state-apply.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { requireAuth } from '../auth/require.js';
@@ -22,10 +22,6 @@ const MAX_BODY = 20_000;
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function withProjectPath<T extends object>(record: T, projectSlug: string): Record<string, unknown> {
-  return { ...record, projectSlug };
 }
 
 export class ProjectUpdateWriteService {
@@ -49,7 +45,7 @@ export class ProjectUpdateWriteService {
     }
 
     // Next number for this project
-    const existing = this.#state.updatesByProject.get(project.id) ?? new Set();
+    const existing = this.#state.updatesByProject.get(project.slug) ?? new Set();
     let maxNumber = 0;
     for (const id of existing) {
       const u = this.#state.projectUpdates.get(id);
@@ -60,7 +56,7 @@ export class ProjectUpdateWriteService {
     const now = nowIso();
     const update: ProjectUpdate = ProjectUpdateSchema.parse({
       id: uuidv7(),
-      projectId: project.id,
+      projectSlug: project.slug,
       authorId: session.person!.id,
       body: input.body,
       number,
@@ -68,9 +64,7 @@ export class ProjectUpdateWriteService {
       updatedAt: now,
     });
 
-    await tx.public['project-updates'].upsert(
-      withProjectPath(update, project.slug) as unknown as ProjectUpdate,
-    );
+    await tx.public['project-updates'].upsert(update);
 
     const stateApply = new StateApply().upsertProjectUpdate(update);
     return { update, stateApply };
@@ -98,9 +92,7 @@ export class ProjectUpdateWriteService {
       updatedAt: nowIso(),
     });
 
-    await tx.public['project-updates'].upsert(
-      withProjectPath(updated, project.slug) as unknown as ProjectUpdate,
-    );
+    await tx.public['project-updates'].upsert(updated);
 
     const stateApply = new StateApply().upsertProjectUpdate(updated);
     return { update: updated, stateApply };
@@ -117,9 +109,7 @@ export class ProjectUpdateWriteService {
 
     requireAuth('author | staff', { session, ownerId: existing.authorId ?? undefined });
 
-    await tx.public['project-updates'].delete(
-      withProjectPath(existing, project.slug) as unknown as ProjectUpdate,
-    );
+    await tx.public['project-updates'].delete(existing);
 
     const stateApply = new StateApply().removeProjectUpdate(existing);
     return { stateApply };
@@ -135,7 +125,7 @@ export class ProjectUpdateWriteService {
     const p = this.#state.projects.get(id);
     if (!p || p.deletedAt) throw new ApiNotFoundError(`Project '${slug}' not found`);
 
-    const mIds = this.#state.membershipsByProject.get(id) ?? new Set();
+    const mIds = this.#state.membershipsByProject.get(p.slug) ?? new Set();
     const memberships = [...mIds]
       .map((mId) => this.#state.projectMemberships.get(mId))
       .filter((m): m is ProjectMembership => m !== undefined);
@@ -143,7 +133,7 @@ export class ProjectUpdateWriteService {
   }
 
   #updateOrThrow(project: Project, number: number): ProjectUpdate {
-    const id = this.#state.updateByProjectAndNumber.get(`${project.id}:${number}`);
+    const id = this.#state.updateByProjectAndNumber.get(projectChildKey(project.slug, number));
     if (!id) throw new ApiNotFoundError(`Update #${number} not found on project '${project.slug}'`);
     const u = this.#state.projectUpdates.get(id);
     if (!u) throw new ApiNotFoundError(`Update #${number} not found on project '${project.slug}'`);

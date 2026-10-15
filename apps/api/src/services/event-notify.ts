@@ -8,7 +8,7 @@ import type { Event, EventRsvp, Person, Project } from '@cfp/shared/schemas';
 import { formatEventWhen } from '../lib/event-time.js';
 import { eventUrl } from '../lib/ics.js';
 import type { EventEmailFacts } from '../notify/index.js';
-import type { InMemoryState } from '../store/memory/state.js';
+import { personBySlug, type InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/interface.js';
 
 export function eventEmailFacts(event: Event, siteHost: string): EventEmailFacts {
@@ -54,7 +54,7 @@ export async function collectAttendees(
 ): Promise<Attendee[]> {
   const out: Attendee[] = [];
   for (const rsvp of rsvps) {
-    const person = state.people.get(rsvp.personId);
+    const person = personBySlug(state, rsvp.personSlug);
     if (!person || person.deletedAt) continue;
     const profile = await privateStore.getProfile(person.id);
     if (!profile?.email) continue;

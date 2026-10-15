@@ -190,11 +190,11 @@ export class ProjectService {
 
         if (opts.memberSlug) {
           if (!memberPersonId) return false;
-          const personMemberships = this.#state.membershipsByPerson.get(memberPersonId);
+          const personMemberships = this.#state.membershipsByPerson.get(opts.memberSlug);
           if (!personMemberships) return false;
           let found = false;
           for (const mId of personMemberships) {
-            if (this.#state.projectMemberships.get(mId)?.projectId === p.id) {
+            if (this.#state.projectMemberships.get(mId)?.projectSlug === p.slug) {
               found = true;
               break;
             }
@@ -203,7 +203,7 @@ export class ProjectService {
         }
 
         if (opts.helpWanted) {
-          const roles = this.#state.helpWantedByProject.get(p.id);
+          const roles = this.#state.helpWantedByProject.get(p.slug);
           if (!roles) return false;
           let hasOpen = false;
           for (const rId of roles) {
@@ -262,19 +262,19 @@ export class ProjectService {
       caller?.accountLevel === 'staff' || caller?.accountLevel === 'administrator';
     if (project.deletedAt && !isStaff) return null;
 
-    const memberships = this.#getMembershipsForProject(project.id);
+    const memberships = this.#getMembershipsForProject(project.slug);
     const memberPeople = this.#getPeopleForMemberships(memberships);
     const maintainer = project.maintainerId
       ? (this.#state.people.get(project.maintainerId) ?? null)
       : null;
 
-    const openHelpWantedRoles = this.#getOpenHelpWantedRoles(project.id);
+    const openHelpWantedRoles = this.#getOpenHelpWantedRoles(project.slug);
     const helpWantedTags = this.#getHelpWantedTags(openHelpWantedRoles.map((r) => r.id));
 
     const projectTags = this.#getTagsForEntity(project.id, 'project');
 
-    const updateCount = this.#state.updatesByProject.get(project.id)?.size ?? 0;
-    const buzzCount = this.#state.buzzByProject.get(project.id)?.size ?? 0;
+    const updateCount = this.#state.updatesByProject.get(project.slug)?.size ?? 0;
+    const buzzCount = this.#state.buzzByProject.get(project.slug)?.size ?? 0;
 
     const permissions = computeProjectPermissions(caller, project, memberships);
 
@@ -292,13 +292,13 @@ export class ProjectService {
   }
 
   #serializeListItem(project: Project): ProjectListItem {
-    const memberships = this.#getMembershipsForProject(project.id);
+    const memberships = this.#getMembershipsForProject(project.slug);
     const memberPeople = this.#getPeopleForMemberships(memberships);
     const maintainer = project.maintainerId
       ? (this.#state.people.get(project.maintainerId) ?? null)
       : null;
 
-    const openHelpWantedCount = [...(this.#state.helpWantedByProject.get(project.id) ?? [])]
+    const openHelpWantedCount = [...(this.#state.helpWantedByProject.get(project.slug) ?? [])]
       .filter((rId) => this.#state.helpWantedRoles.get(rId)?.status === 'open').length;
 
     const tagAssignments = [...(this.#state.tagAssignmentsByTaggable.get(project.id) ?? [])]
@@ -316,24 +316,26 @@ export class ProjectService {
     });
   }
 
-  #getMembershipsForProject(projectId: string): ProjectMembership[] {
-    const mIds = this.#state.membershipsByProject.get(projectId) ?? new Set();
+  #getMembershipsForProject(projectSlug: string): ProjectMembership[] {
+    const mIds = this.#state.membershipsByProject.get(projectSlug) ?? new Set();
     return [...mIds]
       .map((id) => this.#state.projectMemberships.get(id))
       .filter((m): m is ProjectMembership => m !== undefined);
   }
 
+  /** Member people keyed by slug (memberships reference people by slug). */
   #getPeopleForMemberships(memberships: ProjectMembership[]): Map<string, Person> {
     const map = new Map<string, Person>();
     for (const m of memberships) {
-      const p = this.#state.people.get(m.personId);
-      if (p) map.set(p.id, p);
+      const id = this.#state.personIdBySlug.get(m.personSlug);
+      const p = id ? this.#state.people.get(id) : undefined;
+      if (p) map.set(p.slug, p);
     }
     return map;
   }
 
-  #getOpenHelpWantedRoles(projectId: string): HelpWantedRole[] {
-    const rIds = this.#state.helpWantedByProject.get(projectId) ?? new Set();
+  #getOpenHelpWantedRoles(projectSlug: string): HelpWantedRole[] {
+    const rIds = this.#state.helpWantedByProject.get(projectSlug) ?? new Set();
     return [...rIds]
       .map((id) => this.#state.helpWantedRoles.get(id))
       .filter((r): r is HelpWantedRole => r !== undefined && r.status === 'open');

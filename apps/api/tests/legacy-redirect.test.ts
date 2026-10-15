@@ -51,7 +51,6 @@ async function seedProject(slug: string, id: string, legacyId?: number): Promise
 }
 
 async function seedBuzz(opts: {
-  projectId: string;
   projectSlug: string;
   buzzId: string;
   buzzSlug: string;
@@ -61,7 +60,7 @@ async function seedBuzz(opts: {
     `project-buzz/${opts.projectSlug}/${opts.buzzSlug}.toml`,
     [
       `id = "${opts.buzzId}"`,
-      `projectId = "${opts.projectId}"`,
+      `projectSlug = "${opts.projectSlug}"`,
       `slug = "${opts.buzzSlug}"`,
       `headline = "Test buzz ${opts.buzzSlug}"`,
       `url = "https://example.com/${opts.buzzSlug}"`,
@@ -169,7 +168,6 @@ describe('legacy-redirect plugin', () => {
       const buzzId = '01951a3c-0000-7000-8000-000000000502';
       await seedProject('news-project', projectId, undefined);
       await seedBuzz({
-        projectId,
         projectSlug: 'news-project',
         buzzId,
         buzzSlug: 'press-mention',
@@ -186,7 +184,6 @@ describe('legacy-redirect plugin', () => {
       const buzzId = '01951a3c-0000-7000-8000-000000000504';
       await seedProject('news-project', projectId, undefined);
       await seedBuzz({
-        projectId,
         projectSlug: 'news-project',
         buzzId,
         buzzSlug: 'press-mention',

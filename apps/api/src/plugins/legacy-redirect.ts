@@ -196,8 +196,8 @@ async function legacyRedirectPlugin(fastify: FastifyInstance): Promise<void> {
       if (buzzId !== undefined) {
         const buzz = state.projectBuzz.get(buzzId);
         if (buzz) {
-          const projectSlug = state.projectSlugById.get(buzz.projectId);
-          if (projectSlug) {
+          const projectSlug = buzz.projectSlug;
+          if (state.projectIdBySlug.has(projectSlug)) {
             await sendRedirect(
               reply,
               `/projects/${projectSlug}/buzz/${buzzSlug}${suffix}${query}`,

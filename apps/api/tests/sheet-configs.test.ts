@@ -1,7 +1,8 @@
 /**
  * Every sheet config's path template must render for any record its schema
  * accepts — i.e. each `${{ field }}` must be a required key of the sheet's
- * Zod schema. A template naming a field the schema lacks throws
+ * Zod schema, with no exemptions (specs/principles.md → A record holds
+ * everything its path needs). A template naming a field the schema lacks throws
  * `path_render_failed` on every upsert, which is how slug-history broke in
  * production (plans/slug-history-config.md).
  *
@@ -22,21 +23,6 @@ import { SHEET_CONFIG_DIR } from './helpers/sheet-configs.js';
 
 /** This repo's published contract documents (repo-root `contracts/`). */
 const PUBLISHED_CONTRACTS_DIR = join(SHEET_CONFIG_DIR, '..', '..', '..', 'contracts');
-
-/**
- * Fields that exist only to render a sheet's path: the schemas don't declare
- * them, and the write services add them before upsert (`withProjectPath`,
- * `withInterestPath`, `withMembershipPath` and friends). Anything else a
- * template names must be a required schema field.
- */
-const WRITE_INJECTED_PATH_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  'project-memberships': ['projectSlug', 'personSlug'],
-  'project-updates': ['projectSlug'],
-  'project-buzz': ['projectSlug'],
-  'help-wanted-roles': ['projectSlug'],
-  'help-wanted-interest': ['personSlug'],
-  'event-rsvps': ['year', 'eventSlug', 'personSlug'],
-};
 
 function templateFields(config: string): string[] {
   const path = /^path\s*=\s*['"](.*)['"]\s*$/m.exec(config)?.[1];
@@ -66,8 +52,7 @@ describe('sheet configs', () => {
     it(`${sheet}: path template only uses required schema fields`, async () => {
       const config = await readFile(join(SHEET_CONFIG_DIR, `${sheet}.toml`), 'utf8');
       const required = requiredKeys(schema as z.ZodType);
-      const injected = WRITE_INJECTED_PATH_FIELDS[sheet] ?? [];
-      const missing = templateFields(config).filter((f) => !required.has(f) && !injected.includes(f));
+      const missing = templateFields(config).filter((f) => !required.has(f));
       expect(missing, `template fields ${sheet}'s records may lack`).toEqual([]);
     });
   }

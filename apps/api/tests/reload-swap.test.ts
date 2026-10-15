@@ -84,10 +84,10 @@ function makePerson(n: number, slug: string): Person {
   } as Person;
 }
 
-function makeBuzz(n: number, projectId: string, slug: string): ProjectBuzz {
+function makeBuzz(n: number, projectSlug: string, slug: string): ProjectBuzz {
   return {
     id: uuid(n),
-    projectId,
+    projectSlug,
     slug,
     headline: slug,
     url: `https://example.test/${slug}`,
@@ -110,32 +110,32 @@ function makeAssignment(n: number, tagId: string, projectId: string): TagAssignm
  * (ids + foreign keys). Cast rather than spell out every schema field —
  * this test is about index bookkeeping, not record validation.
  */
-function makeMembership(n: number, projectId: string, personId: string): ProjectMembership {
-  return { id: uuid(n), projectId, personId, role: 'member', createdAt: NOW, updatedAt: NOW } as unknown as ProjectMembership;
+function makeMembership(n: number, projectSlug: string, personSlug: string): ProjectMembership {
+  return { id: uuid(n), projectSlug, personSlug, role: 'member', createdAt: NOW, updatedAt: NOW } as unknown as ProjectMembership;
 }
 
-function makeUpdate(n: number, projectId: string, number: number): ProjectUpdate {
-  return { id: uuid(n), projectId, number, createdAt: NOW, updatedAt: NOW } as unknown as ProjectUpdate;
+function makeUpdate(n: number, projectSlug: string, number: number): ProjectUpdate {
+  return { id: uuid(n), projectSlug, number, createdAt: NOW, updatedAt: NOW } as unknown as ProjectUpdate;
 }
 
 function makeBlogPost(n: number, slug: string, legacyId: number): BlogPost {
   return { id: uuid(n), slug, legacyId, createdAt: NOW, updatedAt: NOW } as unknown as BlogPost;
 }
 
-function makeRole(n: number, projectId: string): HelpWantedRole {
-  return { id: uuid(n), projectId, createdAt: NOW, updatedAt: NOW } as unknown as HelpWantedRole;
+function makeRole(n: number, projectSlug: string): HelpWantedRole {
+  return { id: uuid(n), projectSlug, createdAt: NOW, updatedAt: NOW } as unknown as HelpWantedRole;
 }
 
-function makeInterest(n: number, roleId: string, personId: string): HelpWantedInterestExpression {
-  return { id: uuid(n), roleId, personId, createdAt: NOW } as unknown as HelpWantedInterestExpression;
+function makeInterest(n: number, roleId: string, personSlug: string): HelpWantedInterestExpression {
+  return { id: uuid(n), roleId, personSlug, createdAt: NOW } as unknown as HelpWantedInterestExpression;
 }
 
 function makeEvent(n: number, slug: string, legacyId: number): Event {
   return { id: uuid(n), slug, legacyId, title: slug, status: 'scheduled', startsAt: NOW, endsAt: NOW, icsSequence: 0, createdAt: NOW, updatedAt: NOW } as unknown as Event;
 }
 
-function makeRsvp(n: number, eventId: string, personId: string): EventRsvp {
-  return { id: uuid(n), eventId, personId, createdAt: NOW, updatedAt: NOW } as unknown as EventRsvp;
+function makeRsvp(n: number, year: string, eventSlug: string, personSlug: string): EventRsvp {
+  return { id: uuid(n), year, eventSlug, personSlug, createdAt: NOW, updatedAt: NOW } as unknown as EventRsvp;
 }
 
 function makeSlugHistory(n: number, entityId: string, oldSlug: string, newSlug: string): SlugHistory {
@@ -160,24 +160,24 @@ function buildState(base: number, slugs: { project: string; buzz: string; oldSlu
   const project = makeProject(base + 1, slugs.project, 42);
   const person = makePerson(base + 2, 'jane');
   const tag = makeTag(base + 4, 'flutter');
-  const role = makeRole(base + 9, project.id);
+  const role = makeRole(base + 9, project.slug);
 
   indexProject(state, project);
   indexPerson(state, person);
-  indexProjectBuzz(state, makeBuzz(base + 3, project.id, slugs.buzz));
+  indexProjectBuzz(state, makeBuzz(base + 3, project.slug, slugs.buzz));
   indexTag(state, tag);
   indexTagAssignment(state, makeAssignment(base + 5, tag.id, project.id));
-  indexMembership(state, makeMembership(base + 6, project.id, person.id));
-  indexProjectUpdate(state, makeUpdate(base + 7, project.id, 1));
+  indexMembership(state, makeMembership(base + 6, project.slug, person.slug));
+  indexProjectUpdate(state, makeUpdate(base + 7, project.slug, 1));
   indexBlogPost(state, makeBlogPost(base + 8, `${slugs.project}-post`, 7));
   indexHelpWantedRole(state, role);
-  indexHelpWantedInterest(state, makeInterest(base + 10, role.id, person.id));
+  indexHelpWantedInterest(state, makeInterest(base + 10, role.id, person.slug));
   indexSlugHistory(state, makeSlugHistory(base + 11, project.id, slugs.oldSlug, slugs.project));
   const series = { id: uuid(base + 14), slug: `${slugs.project}-series`, title: 'Series', createdAt: NOW, updatedAt: NOW };
   indexEventSeries(state, series);
   const event = makeEvent(base + 12, `${slugs.project}-hack-night`, 8);
   indexEvent(state, { ...event, seriesId: series.id });
-  indexEventRsvp(state, makeRsvp(base + 13, event.id, person.id));
+  indexEventRsvp(state, makeRsvp(base + 13, NOW.slice(0, 4), event.slug, person.slug));
   indexPersonEvaluation(state, {
     personSlug: person.slug,
     evaluator: 'human-voter' + base,

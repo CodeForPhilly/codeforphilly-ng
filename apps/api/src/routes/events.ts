@@ -76,11 +76,11 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
   const facts = (event: Event) => eventEmailFacts(event, siteHost());
 
   /** Every going attendee with a deliverable address, as `{ email, fullName }`. */
-  async function attendees(eventId: string): Promise<Array<{ email: string; fullName: string }>> {
+  async function attendees(eventSlug: string): Promise<Array<{ email: string; fullName: string }>> {
     const all = await collectAttendees(
       fastify.inMemoryState,
       fastify.store.private,
-      fastify.services.events.rsvpsFor(eventId),
+      fastify.services.events.rsvpsFor(eventSlug),
     );
     return all.map(({ email, fullName }) => ({ email, fullName }));
   }
@@ -272,7 +272,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       };
       return ok({
         rsvp: serializedRsvp,
-        rsvpCount: fastify.services.events.rsvpCount(event.id),
+        rsvpCount: fastify.services.events.rsvpCount(event.slug),
         confirmationDelivered,
       });
     },
@@ -346,7 +346,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         fanOut(request, 'event updated', async () => {
           const ics = buildEventIcs(event, siteHost());
           const described = changes.map(describeChange);
-          for (const a of await attendees(event.id)) {
+          for (const a of await attendees(event.slug)) {
             await fastify.notifier.notifyEventUpdated({ ...a, event: facts(event), changes: described, ics });
           }
         });
@@ -393,7 +393,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       const { event } = result.value;
       fanOut(request, 'event cancelled', async () => {
         const ics = buildEventIcs(event, siteHost());
-        for (const a of await attendees(event.id)) {
+        for (const a of await attendees(event.slug)) {
           await fastify.notifier.notifyEventCancelled({
             ...a,
             event: facts(event),

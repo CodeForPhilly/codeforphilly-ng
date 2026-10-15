@@ -15,6 +15,8 @@ import type { HelpWantedRole } from '@cfp/shared/schemas';
 /** Minimal caller shape used by permission helpers. Derived from `request.session.person`. */
 export interface CallerSession {
   readonly id: string;
+  /** The caller's person slug — memberships reference people by slug. */
+  readonly slug: string;
   readonly accountLevel: 'user' | 'staff' | 'administrator';
 }
 
@@ -28,7 +30,7 @@ export function getCallerSession(request: FastifyRequest): CallerSession | undef
   if (!person) return undefined;
   const level = person.accountLevel;
   if (level !== 'user' && level !== 'staff' && level !== 'administrator') return undefined;
-  return { id: person.id, accountLevel: level };
+  return { id: person.id, slug: person.slug, accountLevel: level };
 }
 
 export interface ProjectPermissions {
@@ -78,16 +80,16 @@ function isMaintainerOf(
 ): boolean {
   if (!caller) return false;
   if (project.maintainerId === caller.id) return true;
-  return memberships.some((m) => m.personId === caller.id && m.isMaintainer);
+  return memberships.some((m) => m.personSlug === caller.slug && m.isMaintainer);
 }
 
 function isMemberOf(
   caller: CallerSession | undefined,
-  projectId: string,
+  projectSlug: string,
   memberships: ProjectMembership[],
 ): boolean {
   if (!caller) return false;
-  return memberships.some((m) => m.projectId === projectId && m.personId === caller.id);
+  return memberships.some((m) => m.projectSlug === projectSlug && m.personSlug === caller.slug);
 }
 
 export function computeProjectPermissions(
@@ -97,7 +99,7 @@ export function computeProjectPermissions(
 ): ProjectPermissions {
   const staff = isStaff(caller);
   const maintainer = isMaintainerOf(caller, project, memberships);
-  const member = isMemberOf(caller, project.id, memberships);
+  const member = isMemberOf(caller, project.slug, memberships);
   const authenticated = caller !== undefined;
 
   return {

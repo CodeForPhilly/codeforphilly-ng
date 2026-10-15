@@ -11,6 +11,7 @@ import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
+import { projectBySlug } from '../store/memory/state.js';
 import { computeBuzzPermissions } from '../services/permissions.js';
 import { serializeProjectBuzz } from '../services/serializers/project-buzz.js';
 
@@ -154,7 +155,7 @@ export async function projectBuzzRoutes(fastify: FastifyInstance): Promise<void>
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
 
-    const project = fastify.inMemoryState.projects.get(result.value.buzz.projectId)!;
+    const project = projectBySlug(fastify.inMemoryState, result.value.buzz.projectSlug)!;
     const postedBy = result.value.buzz.postedById
       ? (fastify.inMemoryState.people.get(result.value.buzz.postedById) ?? null)
       : null;
@@ -202,7 +203,7 @@ export async function projectBuzzRoutes(fastify: FastifyInstance): Promise<void>
         fastify.services.projectBuzzWrite.update(tx, slug, buzzSlug, input, request.session),
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
-    const project = fastify.inMemoryState.projects.get(result.value.buzz.projectId)!;
+    const project = projectBySlug(fastify.inMemoryState, result.value.buzz.projectSlug)!;
     const postedBy = result.value.buzz.postedById
       ? (fastify.inMemoryState.people.get(result.value.buzz.postedById) ?? null)
       : null;
