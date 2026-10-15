@@ -56,7 +56,7 @@ When there are no upcoming events the strip is **hidden entirely** (unlike the f
   - Title
   - Tagline = `project.summary`, or first line of `overviewExcerpt` if `summary` is null
   - Click: links to `/projects/<slug>`
-- Below the grid: "See all 268 projects →" link to `/projects`. The count is `metadata.totalItems` from a separate cheap `HEAD`-style call (or piggybacked from the featured response — implementer's call).
+- Below the grid: "Browse all 268 projects →" link to `/projects`, where the list can be searched and filtered ("Browse all projects →" until the count loads). The count is `metadata.totalItems` from a separate cheap `HEAD`-style call (or piggybacked from the featured response — implementer's call).
 
 
 ### 3. Get involved
