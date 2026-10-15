@@ -15,7 +15,9 @@ question is simple: *is this a real person?* Everyone listed here has already
 passed the offline spam pipeline (or arrived after its last run), so the page
 does **not** show machine evaluations. It shows the member's footprint on the
 site in one place, and lets staff record a **human judgment** the pipeline treats
-as final.
+as final. A spam vote hides the member at once; the [scheduled spam
+purge](../behaviors/person-lifecycle.md#scheduled-spam-purge) deletes them three
+days later unless another vote disagrees. The page intro says so.
 
 ## Data Requirements
 
@@ -60,7 +62,10 @@ See [api/moderation.md](../api/moderation.md).
   present), so the eye lands on the spam shape without reading every field.
   Rows with `has-footprint` and `attention = 0` stay plain.
 - Deactivated members render dimmed with a "Deactivated" chip; a member hidden by
-  a spam vote shows "Hidden by {voter}".
+  a spam vote shows "Hidden by {voter}". When `purgeAfter` is set, a red chip says when the
+  [scheduled spam purge](../behaviors/person-lifecycle.md#scheduled-spam-purge) takes
+  them: "Purges {date}", or "Purging at the next daily sweep" once the date has
+  passed; its tooltip says a Not spam vote or reactivation stops it.
 - **Keyboard triage**: `j` / `k` move the selection, `s` opens the Spam
   confirm for the selected row, `n` votes Not spam, `Enter` toggles details.
   The selected row is outlined and scrolled into view.

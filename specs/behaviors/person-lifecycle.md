@@ -34,6 +34,20 @@ The garbage-collection path for spam — the runtime sibling of the offline spam
 - **Surface:** person "Danger Zone" (admin only), behind a confirm dialog.
 - **Preview:** the confirm dialog lists the projects that will be deleted with the person (`GET /api/people/:slug/purge-preview`), or says none will be.
 
+## Scheduled spam purge
+
+A `spam` vote on the admin members screen deactivates the person at once; three days later, if nobody has disagreed, the site purges them on its own. Staff shouldn't have to come back and press a second button for every spam account, and three days is long enough for another staff member to look and object.
+
+- **When:** an in-process job runs once a day (and once shortly after boot).
+- **Who it takes:** every person who
+  1. has at least one human `spam` vote, and every human vote on them is `spam` — a `legit` or `uncertain` vote from anyone holds them back;
+  2. got their newest human vote at least **3 days** ago;
+  3. is still deactivated (`deletedAt` set) — reactivating someone takes them out of the queue;
+  4. is not `staff` or `administrator`.
+- **What it does:** exactly what Purge does for each of them, including projects they created that nobody else touched. Within one run, "nobody else" means nobody outside the batch: a project made by one queued spam account and joined only by others in the same queue goes too.
+- **One commit per run** for the whole batch, authored by the site (`cfp-api`), its message listing the purged slugs. A run with nobody queued writes nothing.
+- The human votes stay in `person-evaluations` as the record of why.
+
 ## Authorization summary
 
 | Action | Self | Staff | Admin |
@@ -41,6 +55,7 @@ The garbage-collection path for spam — the runtime sibling of the offline spam
 | Deactivate / Reactivate | ✓ (own) | ✓ (any) | ✓ (any) |
 | Spam / not-spam vote (deactivates / may reactivate) | – | ✓ | ✓ |
 | Purge | – | – | ✓ |
+| Scheduled spam purge | – | – (their spam vote queues it) | – (runs as the site) |
 
 ## Relationship to other specs
 

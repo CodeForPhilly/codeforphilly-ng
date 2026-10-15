@@ -50,6 +50,7 @@ a signal.
       "bioExcerpt": "first ~160 chars of bio, markdown stripped",
       "footprint": { "memberships": 2, "updates": 1, "buzz": 0, "blogPosts": 0, "helpWantedInterest": 1, "tags": 3 },
       "latestVote": { "verdict": "legit", "voter": { "slug": "chris", "fullName": "Chris Alfano" }, "evaluatedAt": "…" },
+      "purgeAfter": null,
       "signals": ["slack-sso", "has-footprint"],
       "attention": 0
     }
@@ -76,6 +77,8 @@ Field notes:
   token with the display name), `email-bounced:<type>`, `github-gone`,
   `github-new-account` (< 30 days), `github-no-activity` (0 repos and 0
   followers). Informational: `slack-sso`, `has-footprint`.
+
+`purgeAfter` is when the [scheduled spam purge](../behaviors/person-lifecycle.md#scheduled-spam-purge) will take the member — three days after the newest human vote, when every human vote is `spam` and the member is still deactivated and not staff — or `null`.
 
 None of it is reachable by a non-staff caller (who gets 404 anyway). `latestVote` is `null`
 when no human has voted.

@@ -7,6 +7,7 @@
  * records a `human-<voterSlug>` person-evaluation and applies the lifecycle
  * side effect from specs/behaviors/person-lifecycle.md.
  */
+import { spamPurgeDueAt } from './spam-purge.js';
 import {
   PersonSchema,
   PersonEvaluationSchema,
@@ -90,6 +91,8 @@ export interface MemberRow {
   readonly bioExcerpt: string;
   readonly footprint: FootprintCounts;
   readonly latestVote: VoteView | null;
+  /** When the scheduled spam purge will take this member, or null (specs/behaviors/person-lifecycle.md). */
+  readonly purgeAfter: string | null;
   /** Row-local facts worth a glance; see `computeSignals`. */
   readonly signals: string[];
   /** Number of negative signals — drives the roster's attention tint. */
@@ -458,6 +461,7 @@ export class ModerationService {
       bioExcerpt: bioExcerpt(p.bio),
       footprint,
       latestVote: this.latestHumanVote(p.slug),
+      purgeAfter: spamPurgeDueAt(this.#state, p)?.toISOString() ?? null,
       signals,
       attention,
     };
