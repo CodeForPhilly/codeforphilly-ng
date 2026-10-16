@@ -7,7 +7,7 @@ upstream-specs:
   - gitsheets:specs/api/repository.md
   - gitsheets:specs/api/transaction.md
   - gitsheets:specs/behaviors/push-sync.md
-pr:
+pr: 258
 ---
 
 # Plan: adopt gitsheets 2.11 and retire the reconcile side handle
