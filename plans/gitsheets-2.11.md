@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 depends: [gitsheets-sync, gitsheets-scripts-2.9]
 specs:
   - specs/behaviors/storage.md
@@ -72,21 +72,21 @@ follow-up), any behavior change to the webhook, boot or snapshot outputs.
 
 ## Validation
 
-- [ ] `gitsheets@^2.11.0` in `apps/api/package.json`;
+- [x] `gitsheets@^2.11.0` in `apps/api/package.json`;
       `@gitsheets/core-napi-linux-x64-musl` present in `package-lock.json`
-- [ ] Reconcile runs through the serving handle; no second `openRepo` and
+- [x] Reconcile runs through the serving handle; no second `openRepo` and
       no surrounding `withLock`
-- [ ] `internal-reload.test.ts` "serializes a write issued during a hot
+- [x] `internal-reload.test.ts` "serializes a write issued during a hot
       reload; neither change is lost" and "holds the write lock from the
       ref move through the rebuild" pass unchanged
-- [ ] Outcome vocabulary, webhook response shape, conflict branch naming and
+- [x] Outcome vocabulary, webhook response shape, conflict branch naming and
       boot behavior unchanged (existing tests)
-- [ ] scrub-data writes the snapshot in one orphan transaction; snapshot
+- [x] scrub-data writes the snapshot in one orphan transaction; snapshot
       tests (parentless commit, HEAD + tag, same-seed no-op, failure leaves
       no ref) pass
-- [ ] Every remaining raw `git` call in `apps/api/src` and `apps/api/scripts`
+- [x] Every remaining raw `git` call in `apps/api/src` and `apps/api/scripts`
       is listed in Notes with its reason
-- [ ] `type-check` + `lint` + full test suite green
+- [x] `type-check` + `lint` + full test suite green
 
 ## Risks / unknowns
 
@@ -98,4 +98,66 @@ follow-up), any behavior change to the webhook, boot or snapshot outputs.
 
 ## Notes
 
+- **Why `afterMove` keeps the guarantee.** `sync` acquires the serving
+  repository's write lock — the FIFO mutex every `transact` queues on —
+  moves the ref, rebinds live sheets, and awaits `afterMove` before
+  releasing it. The store refresh and the in-memory rebuild run in that
+  hook, so a write queued during a reload acquires the lock only after the
+  rebuild finished. That is the same critical section the old
+  `withLock` around a side-handle sync gave, now on one handle. Both
+  `internal-reload.test.ts` lock tests pass with no change to the file;
+  the lock-holding test's mechanism (`publicRepo.withLock` hold +
+  `onMoved`) never referenced the side handle.
+- **A throw in `afterMove`** propagates after the lock is released with the
+  ref moved, same as a throw inside the old `withLock`. The webhook still
+  500s with "pod restart required".
+- **Push hand-off.** `sync` notifies the repository's running push daemon
+  of an ahead/replayed tip itself, so the plugin no longer passes `push`.
+  Passing it as well would notify twice. `reconcileDataRepo` keeps the
+  option for a repository without a daemon (the unit tests use it). At
+  boot there's no daemon yet, and its startup backlog pushes, as before.
+- **Fetch-failed** now reports the branch's commit (`refs/heads/<branch>`)
+  rather than `HEAD`'s; the app's HEAD always points at that branch.
+- **reload.ts.** The incremental reload's config-change guard used raw
+  `git rev-parse <commit>:.gitsheets`. It now compares
+  `repo.listTree(commit, '.gitsheets')` listings (each entry carries its
+  hash, so equal listings mean equal trees). That was the last raw git in
+  `apps/api/src`.
+- **scrub-data re-run.** An orphan `transact` still refuses an existing
+  branch. A same-seed re-run commits detached, compares root `listTree`
+  listings with the branch (replacing `rev-parse HEAD^{tree}`), and returns
+  no commit when they match. When they differ it force-moves the branch
+  with `update-ref`. New test covers the changed-content re-run. The
+  commit date is now gitsheets' clock rather than the message timestamp
+  fed through `GIT_*_DATE`; the message still carries the timestamp.
+- **check-sheet-configs** loses `--depth=1`: `repo.fetch` has no depth
+  option. The `empty` branch holds only `.gitsheets/`, so the full fetch
+  is small. Verified by hand against a local bare remote (match → exit 0,
+  drift → exit 1, bad remote → throws).
+- **Raw `git` left:**
+  - `apps/api/src`: none.
+  - `scrub-data.ts`
+    - `rev-parse --git-dir`, `init`, `config`: init the target. gitsheets
+      has no init.
+    - `rev-parse --absolute-git-dir` / `--is-bare-repository`: locate a
+      non-bare target's git dir and detect a working tree.
+    - `update-ref`: same-seed re-run with changed content. gitsheets can't
+      repoint an existing branch at an unrelated commit.
+    - `symbolic-ref HEAD`: the snapshot workflow pushes HEAD's branch, and
+      gitsheets never moves HEAD.
+    - `reset --hard`: sync a non-bare target's working tree. gitsheets is
+      bare-style.
+  - `check-sheet-configs.ts`: `init --bare` (no init API) and
+    `remote add` (`repo.fetch` takes a remote name, not a URL).
+  - `backfill-laddr-events.ts`, `backfill-meetup-hack-nights.ts`: one
+    create-only `update-ref` each. Unchanged; see Follow-ups.
+
 ## Follow-ups
+
+- Tracked as: the `gitsheets-scripts-2.9` follow-up for the two
+  `backfill-*` scripts (no-op-transact reads and create-only `update-ref`)
+  stays open.
+- Tracked as: gitsheets gap. A way to point an existing branch at a given
+  commit (or an orphan transact that may replace a branch) would retire
+  scrub-data's last `update-ref`. A `repo.init` would retire the init
+  plumbing in scrub-data and check-sheet-configs.
