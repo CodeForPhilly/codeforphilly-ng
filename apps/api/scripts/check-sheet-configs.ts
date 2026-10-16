@@ -22,6 +22,8 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import { openRepo, type Repository } from 'gitsheets';
+
 const exec = promisify(execFile);
 
 // The data repo is private: SSH with a key that can read it (CI: a deploy key).
@@ -40,6 +42,17 @@ async function readTomlTree(dir: string): Promise<Map<string, string>> {
   return out;
 }
 
+/** Every file path under `dir` at `ref`, recursively. */
+async function listFilesUnder(repo: Repository, ref: string, dir: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const entry of (await repo.listTree(ref, dir)) ?? []) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.type === 'tree') out.push(...(await listFilesUnder(repo, ref, path)));
+    else if (entry.type === 'blob') out.push(path);
+  }
+  return out;
+}
+
 function arg(name: string, fallback: string): string {
   const prefix = `--${name}=`;
   return process.argv.find((a) => a.startsWith(prefix))?.slice(prefix.length) ?? fallback;
@@ -51,15 +64,18 @@ async function main(): Promise<number> {
 
   const gitDir = await mkdtemp(join(tmpdir(), 'cfp-sheet-configs-'));
   try {
-    const git = (...args: string[]) => exec('git', ['--git-dir', gitDir, ...args]);
+    // Raw git: gitsheets has no init, and fetches only from a named remote.
     await exec('git', ['init', '--bare', '-q', gitDir]);
-    await git('fetch', '-q', '--depth=1', remote, ref);
+    await exec('git', ['--git-dir', gitDir, 'remote', 'add', 'origin', remote]);
+    const repo = await openRepo({ gitDir });
+    const fetched = await repo.fetch({ remote: 'origin', branch: ref });
+    if (!fetched.ok) throw new Error(`fetching ${remote}#${ref} failed: ${fetched.error}`);
 
-    const { stdout: listing } = await git('ls-tree', '-r', '--name-only', 'FETCH_HEAD', '.gitsheets/');
     const upstream = new Map<string, string>();
-    for (const path of listing.split('\n').filter((p) => p.endsWith('.toml'))) {
-      const { stdout } = await git('show', `FETCH_HEAD:${path}`);
-      upstream.set(path.slice('.gitsheets/'.length), stdout);
+    for (const path of await listFilesUnder(repo, fetched.remoteCommit, '.gitsheets')) {
+      if (!path.endsWith('.toml')) continue;
+      const blob = await repo.readBlob(fetched.remoteCommit, path);
+      upstream.set(path.slice('.gitsheets/'.length), (await blob.read()).toString('utf8'));
     }
 
     const vendored = await readTomlTree(VENDORED_DIR);

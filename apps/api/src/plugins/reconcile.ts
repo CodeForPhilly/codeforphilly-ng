@@ -21,24 +21,21 @@
  *     re-clone if needed.
  *
  * Decorates Fastify with `reconcileDataRepo({ onMoved })`: fetch outside the
- * lock, then reconcile (gitsheets `repo.sync()`, see store/reconcile.ts)
- * under the repository's write lock — the same mutex
- * `transact` holds (gitsheets `repo.withLock`), so a reconcile can never race
- * a write. When the reconcile moves the branch, the public store is
- * refreshed and `onMoved` runs inside the same lock, so the hot-reload
- * rebuild can't interleave with a write either.
+ * lock, then reconcile (gitsheets `repo.sync()` on the serving repository,
+ * see store/reconcile.ts) under its write lock — the same mutex `transact`
+ * holds, so a reconcile can never race a write. When the reconcile moves the
+ * branch, sync's `afterMove` refreshes the public store and runs `onMoved`
+ * inside that same lock, so the hot-reload rebuild can't interleave with a
+ * write either.
  *
- * Pushes of the working branch go through the push daemon. At boot the
- * daemon isn't registered yet; its startup backlog pushes anything ahead.
+ * Pushes of the working branch go through the push daemon: `repo.sync()`
+ * notifies it of an ahead/replayed tip. At boot the daemon isn't registered
+ * yet; its startup backlog pushes anything ahead.
  */
 import type { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 
-import {
-  fetchRemoteBranch,
-  reconcileDataRepo,
-  type ReconcileResult,
-} from '../store/reconcile.js';
+import { reconcileDataRepo, type ReconcileResult } from '../store/reconcile.js';
 
 export interface ReconcileCallOptions {
   /**
@@ -61,7 +58,6 @@ declare module 'fastify' {
 }
 
 async function reconcilePlugin(fastify: FastifyInstance): Promise<void> {
-  const repoPath = fastify.config.CFP_DATA_REPO_PATH;
   const configuredBranch = fastify.config.CFP_DATA_BRANCH;
   const remote = fastify.config.CFP_DATA_REMOTE;
 
@@ -72,35 +68,17 @@ async function reconcilePlugin(fastify: FastifyInstance): Promise<void> {
       if (!branch) {
         throw new Error('reconcileDataRepo: CFP_DATA_BRANCH is unset');
       }
-      const logger = fastify.log;
-
-      // Network outside the lock: writes keep flowing during a slow fetch.
-      // gitsheets' sync moves refs compare-and-swap.
-      if (!(await fetchRemoteBranch({ repoPath, branch, logger }))) {
-        const head = (await fastify.publicRepo.resolveRef('HEAD')) ?? '';
-        return { outcome: 'fetch-failed', oldCommit: head, newCommit: head };
-      }
-
-      // One critical section of the serving repository's write lock covers
-      // the ref move, the store refresh and `onMoved` (the hot-reload
-      // rebuild), so no transact can run between them. reconcileDataRepo
-      // syncs through a side Repository handle because `repo.sync()` takes
-      // its own handle's lock and refuses to nest inside `withLock`.
-      return fastify.publicRepo.withLock(async () => {
-        const result = await reconcileDataRepo({
-          repoPath,
-          branch,
-          logger,
-          skipFetch: true,
-          push: (commit) => {
-            fastify.pushDaemon?.notifyCommit(commit);
-          },
-        });
-        if (result.newCommit !== result.oldCommit) {
+      // The fetch runs outside the lock, so writes keep flowing during a
+      // slow network; the ref move, the store refresh and `onMoved` (the
+      // hot-reload rebuild) share one critical section of the write lock.
+      return reconcileDataRepo({
+        repo: fastify.publicRepo,
+        branch,
+        logger: fastify.log,
+        afterMove: async (result) => {
           await fastify.store.public.refresh();
           await opts?.onMoved?.(result);
-        }
-        return result;
+        },
       });
     },
   );

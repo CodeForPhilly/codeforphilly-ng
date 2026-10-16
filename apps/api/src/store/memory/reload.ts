@@ -20,16 +20,12 @@
  * Used by `apps/api/src/routes/internal.ts` (the `POST
  * /api/_internal/reload-data` webhook).
  */
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
 import type { FastifyInstance } from 'fastify';
+import type { Repository } from 'gitsheets';
 import { invalidateFacets } from './facets.js';
 import { applyChanges, collectChanges } from './incremental.js';
 import { loadInMemoryState } from './loader.js';
 import type { InMemoryState } from './state.js';
-
-const exec = promisify(execFile);
 
 export interface ReloadOptions {
   /**
@@ -43,10 +39,12 @@ export interface ReloadOptions {
 export type ReloadMode = 'incremental' | 'full';
 
 /** Whether `.gitsheets/` (the sheet configs) differs between two commits. */
-async function sheetConfigsChanged(repoPath: string, from: string, to: string): Promise<boolean> {
-  const tree = async (commit: string): Promise<string> =>
-    (await exec('git', ['rev-parse', `${commit}:.gitsheets`], { cwd: repoPath })).stdout.trim();
-  const [a, b] = await Promise.all([tree(from), tree(to)]);
+async function sheetConfigsChanged(repo: Repository, from: string, to: string): Promise<boolean> {
+  // Direct entries carry each blob's and subtree's hash, so equal listings
+  // mean equal `.gitsheets/` trees (contracts/ included).
+  const listing = async (commit: string): Promise<string> =>
+    JSON.stringify(await repo.listTree(commit, '.gitsheets'));
+  const [a, b] = await Promise.all([listing(from), listing(to)]);
   return a !== b;
 }
 
@@ -83,8 +81,7 @@ export async function reloadInMemoryStateAndFts(
 ): Promise<ReloadMode> {
   const { fromCommit } = opts;
   if (fromCommit) {
-    const repoPath = fastify.config.CFP_DATA_REPO_PATH;
-    if (!(await sheetConfigsChanged(repoPath, fromCommit, 'HEAD'))) {
+    if (!(await sheetConfigsChanged(fastify.publicRepo, fromCommit, 'HEAD'))) {
       const changes = await collectChanges(fastify.store.public, fromCommit);
       if (changes) {
         applyChanges(fastify.inMemoryState, fastify.fts, changes);
