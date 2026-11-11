@@ -41,6 +41,8 @@ Tag ──── TagAssignment ──── (Project | Person | HelpWantedRole |
                               polymorphic via taggableType + taggableId
 
 Person ── has ── Revocation               (0:many; revoked JWT IDs)
+Person ── has ── AgentGrant               (0:many; only agent accounts)
+Person ── evaluated by ── PersonEvaluation (0:many; staff and agent spam votes)
 SlugHistory ── points at any renamed entity by (entityType, oldSlug)
 
 PRIVATE (S3-compatible bucket) ─────────────────────────────────────────
@@ -194,6 +196,39 @@ A periodic background task (in-process) sweeps `revocations` for records whose `
 **Secondary in-memory index:**
 
 - `revokedJtis: Set<jti>` — checked on every authenticated request
+
+## AgentGrant
+
+A scoped API grant for an [agent account](api/agents.md) — an automated
+moderator. Public so that which programs may act on the site, with which
+powers, granted by whom, is part of the civic record; the token itself never
+is (its hash is private — [private-storage.md](behaviors/private-storage.md)).
+
+**Sheet:** `agent-grants`
+**Path template:** `agent-grants/${personSlug}/${id}.toml`
+**Contract:** `codeforphilly.org/agent-grants/v1`
+
+| Field | Type | Notes |
+| ------- | ------ | ------- |
+| id | uuid | |
+| personSlug | string | the agent account. Follows renames like other slug references. |
+| label | string | 1–80 chars; what and where (e.g. "ops bot, host vm-1") |
+| scopes | string[] | from `moderation:read`, `moderation:vote` |
+| createdAt | iso8601 | |
+| createdBySlug | string | the administrator who minted it |
+| expiresAt | iso8601 | at most 180 days after `createdAt` |
+| revokedAt | iso8601 nullable | |
+
+A person with any `agent-grants` record is an agent account: never staff,
+never voted on, never taken by the scheduled spam purge.
+
+## PersonEvaluation
+
+One spam verdict per (person, evaluator) — `person-evaluations/${personSlug}/${evaluator}.toml`,
+contract `codeforphilly.org/person-evaluations/v2`. On `published` it holds
+staff votes (`evaluator = "human-<slug>"`) and agent votes
+(`"agent-<slug>"`). Field table, evaluator kinds and aggregation:
+[behaviors/spam-exclusion.md](behaviors/spam-exclusion.md#where-verdicts-come-from).
 
 ## Project
 

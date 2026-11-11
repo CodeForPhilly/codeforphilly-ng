@@ -37,6 +37,7 @@ Authorization rules in endpoint and screen specs use these markers. The vocabula
 | `poster` / `author` | Current user authored the resource (a buzz item, an update, a help-wanted role). |
 | `staff` | `accountLevel ∈ {staff, administrator}`. |
 | `administrator` | `accountLevel = administrator`. |
+| `agent:<scope>` | The request carries an active [agent grant](#agent-grants) that includes `<scope>`. |
 
 When multiple markers separated by `|` are listed (`maintainer | staff`), any one satisfying suffices.
 
@@ -128,6 +129,45 @@ A common pattern is to store the latest refresh-token `jti` per person and rejec
 
 - `401 unauthenticated` if no valid session (cookie missing, JWT invalid, JWT revoked, or refresh required) — frontend redirects to `/login?return=<current path>`
 - `403 forbidden` if the session is valid but the caller lacks the required marker — frontend shows an inline error or a 403 page; no redirect
+
+## Agent grants
+
+A grant is the one way a program reaches the API as itself rather than as a
+person: an opaque bearer token an administrator mints for an [agent
+account](../api/agents.md), with a fixed list of scopes and an expiry of at
+most 180 days. It exists so an automated moderator never needs a person's
+session, a browser sign-in, or staff powers.
+
+- **Presented as** `Authorization: Bearer cfpa_…`. The session middleware
+  hashes it (SHA-256), looks the hash up in the in-memory grant table (loaded
+  from the private store at boot, updated on every mint and revoke), and
+  checks: not revoked, not expired, the agent's person record exists, is not
+  deactivated, and is `accountLevel = user`. Any failure → `401 unauthenticated`
+  (`error.code = "grant_invalid"`), never a fall-through to anonymous, so a
+  broken token is loud. A request with both a grant and a session cookie is
+  refused the same way.
+- **What it satisfies.** Only `agent:<scope>` markers for its own scopes. For
+  every other marker — `user`, `self`, `staff`, and the optional-session
+  behaviour of `public` reads — the caller is anonymous. A grant cannot edit a
+  profile, join a project, refresh into a cookie session, or reach any endpoint
+  that does not name its scope.
+- **Who it is.** The request's `person` is the agent account, so commits are
+  authored by it and self-checks (no voting on yourself) apply. The commit adds
+  `Actor-Kind: agent` and `Grant-Id: <id>` ([storage.md](storage.md#commit-message-shape)).
+- **Revocation** is immediate and needs no signing-key rotation: the grant
+  table is the source of truth on every request, unlike a stateless JWT.
+- **Limits.** Agent requests count against the per-account rate limits like
+  anyone's; endpoints add their own (agent spam votes:
+  [api/moderation.md → Agent votes](../api/moderation.md#agent-votes)).
+- **Secret handling.** The token is shown once at mint and never stored,
+  logged (the `authorization` header is redacted from request logs), or written
+  to either data store; only its hash is kept, in the private store.
+
+Why not a staff account with a long-lived session: the session JWT lives in
+cookies minted by a browser sign-in, its refresh token is not rotated, and it
+carries the full `staff` level (every staff endpoint, every member's email,
+deactivating anyone). Votes cast that way would also be recorded as
+`human-<slug>` — false in a public record. A grant is narrower on every count.
 
 ## CSRF
 

@@ -35,12 +35,27 @@ Two `.jsonl` files in the bucket. Each holds the latest state of every record of
 ```text
 bucket/
 ├── profiles.jsonl              # private profile per Person — email, newsletter prefs, etc.
-└── legacy-passwords.jsonl      # imported from laddr; drains to zero post-migration
+├── legacy-passwords.jsonl      # imported from laddr; drains to zero post-migration
+└── agent-grant-secrets.jsonl   # SHA-256 hash of each agent grant's token (see below)
 ```
+
+(The store also holds `account-claim-requests.jsonl`, `password-tokens.jsonl`
+and session metadata; their shapes are in their own specs.)
 
 That's the entire on-disk footprint. No per-record files, no indexes on disk, no append-only log series.
 
 ### Record shapes
+
+**`agent-grant-secrets.jsonl`** — one line per [agent grant](authorization.md#agent-grants):
+
+```json
+{ "grantId": "0195…", "personId": "0195…", "tokenHash": "<sha-256 hex>", "lastUsedAt": "2026-11-12T03:10:00Z" }
+```
+
+Everything else about a grant (scopes, expiry, who minted it, revocation) is
+public, on the `agent-grants` sheet ([data-model.md](../data-model.md#agentgrant)).
+Only the hash lives here, so a leaked bucket yields no usable token. A purge of
+the agent account deletes its lines with the rest of its private data.
 
 **`profiles.jsonl`** — one line per Person:
 
@@ -164,7 +179,7 @@ The filesystem backend doesn't replicate versioning. Dev mode is lossy by design
 ## What's NOT in the bucket
 
 - **Authentication credentials** (passwords, hashed or otherwise) for the *active* system. v1 has no password auth — only GitHub OAuth — so this is trivially true. The `legacy-passwords.jsonl` is the one exception, drains to zero, and is treated as one-shot migration data.
-- **Auth tokens.** JWT signing keys live in the deploy environment, not the bucket. Revocation state is in-memory only (see [behaviors/authorization.md](authorization.md)).
+- **Auth tokens.** JWT signing keys live in the deploy environment, not the bucket. Revocation state is in-memory only (see [behaviors/authorization.md](authorization.md)). Agent grant tokens are not stored either — only their hashes (above).
 - **Public records.** Anything that the public site displays — project READMEs, member profiles, tags, help-wanted listings — stays in the public gitsheets repo.
 
 ## Audit

@@ -255,6 +255,8 @@ Administrator-only. Changes a person's `accountLevel`. This is the *only* way to
 
 `level` is one of `user` | `staff` | `administrator`. Setting the person's current level is an idempotent no-op (still 200).
 
+An [agent account](agents.md) (a person with any `agent-grants` record) cannot be raised above `user`: `409 conflict`, `error.code = "agent_account"`.
+
 ### Response — 200
 
 Returns the updated person (same shape as `GET /api/people/:slug`), so the caller sees the new `accountLevel`.

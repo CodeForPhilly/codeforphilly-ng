@@ -19,11 +19,20 @@ as final. A spam vote hides the member at once; the [scheduled spam
 purge](../behaviors/person-lifecycle.md#scheduled-spam-purge) deletes them three
 days later unless another vote disagrees. The page intro says so.
 
+An [agent](../api/agents.md) — an AI moderator staff have granted access — may
+cast votes too. Its votes are **staged**: they hide a member at once like a
+staff spam vote, but this page labels them as the agent's, shows its reasoning
+on the row, and lets any staff member overrule (**Not spam**) or confirm
+(**Spam**) them with one click. The intro says that as well, and names the
+date a staged vote purges.
+
 ## Data Requirements
 
 - `GET /api/admin/members` on entry and on every filter/sort/page change
 - `GET /api/admin/members/:slug` when a row is expanded or the detail route opens
 - `POST /api/admin/members/:slug/vote` on either vote button
+- `GET /api/admin/agents`, `POST /api/admin/agents/:slug/withdraw-votes` and the
+  grant endpoints in the Agents panel ([api/agents.md](../api/agents.md))
 
 See [api/moderation.md](../api/moderation.md).
 
@@ -32,8 +41,9 @@ See [api/moderation.md](../api/moderation.md).
 ### Roster
 
 - Newest signup first by default; sort toggles for name and last sign-in.
-- Filter bar: text search; **Vote**: any / **no vote yet (default)** / voted
-  spam / voted legit; **Origin**: any / signed up here / imported; joined date
+- Filter bar: text search; **Vote**: any / **no human vote yet (default)** /
+  staged by an agent / voted spam / voted legit — the default includes
+  agent-staged rows, so a staged vote is never out of the default view; **Origin**: any / signed up here / imported; joined date
   range; a "show deactivated" toggle (on by default — moderation needs to see
   what it hid).
 - Each row: avatar, `fullName` (link to the public profile, opens in a new tab),
@@ -46,6 +56,12 @@ See [api/moderation.md](../api/moderation.md).
   - no vote → two buttons **Spam** / **Not spam**
   - voted → a badge `Spam · by {voter} · {when}` or `Not spam · …` with a
     "Change" affordance that re-shows the buttons
+  - staged by an agent (`stagedVote`, no human vote) → a violet badge
+    `Staged spam · {agent} (AI) · {when}` or `Staged not spam · …`, the first
+    line of the agent's reasoning beside it (full text on hover and in the
+    detail), its flags as small chips, **and the two buttons still shown**: Not
+    spam overrules, Spam confirms. When `counts` is false the badge is grey and
+    reads `… · access revoked`, and its tooltip says it will not purge anyone.
 - **Badges** (from the row's `origin`, `github`, `lastSlackSsoAt`,
   `emailBounce`, and `signals`):
   - `Signed up here` (green) or `Imported` (neutral).
@@ -62,7 +78,8 @@ See [api/moderation.md](../api/moderation.md).
   present), so the eye lands on the spam shape without reading every field.
   Rows with `has-footprint` and `attention = 0` stay plain.
 - Deactivated members render dimmed with a "Deactivated" chip; a member hidden by
-  a spam vote shows "Hidden by {voter}". When `purgeAfter` is set, a red chip says when the
+  a spam vote shows "Hidden by {voter}" ("Hidden by {agent} (AI)" for a
+  staged vote). When `purgeAfter` is set, a red chip says when the
   [scheduled spam purge](../behaviors/person-lifecycle.md#scheduled-spam-purge) takes
   them: "Purges {date}", or "Purging at the next daily sweep" once the date has
   passed; its tooltip says a Not spam vote or reactivation stops it.
@@ -75,8 +92,24 @@ See [api/moderation.md](../api/moderation.md).
 Full bio (rendered markdown, server-side), then the footprint as lists with
 links: project memberships (role, joined), authored updates, buzz, blog posts,
 help-wanted interest, tags. Then the vote history, newest first, each with
-voter, verdict, reasoning, and time. Then the same two buttons, plus a link to
-the person's Danger Zone for admins (purge lives there, not here).
+voter, verdict, reasoning, and time; an agent's vote is marked "AI agent" and
+shows its flags, and once a human has voted the agent's votes read "overruled"
+or "confirmed". Then the same two buttons, plus a link to the person's Danger
+Zone for admins (purge lives there, not here).
+
+### Agents panel
+
+A collapsed **Agents** section at the foot of the page, one line per agent
+account (`GET /api/admin/agents`): its name (linking to its profile), how many
+votes it has staged now, and its grants (label, scopes, created by, expires,
+last used, active or revoked).
+
+- **Show staged** sets the Vote filter to "staged by an agent".
+- **Withdraw staged votes** (staff) — a confirm saying how many votes it removes
+  and how many members it un-hides, then `POST …/withdraw-votes`.
+- **Mint grant** / **Revoke** / **New agent** (administrators only). A minted
+  token is shown once, in a dialog with a copy button and the words "This is
+  the only time it is shown"; closing the dialog drops it from the page.
 
 ### Voting
 
@@ -86,7 +119,11 @@ the person's Danger Zone for admins (purge lives there, not here).
   in the same transaction.
 - **Not spam** calls the endpoint directly (reasoning optional via the same
   disclosure). If the member had been hidden by a spam vote, the row un-dims.
-- The buttons are disabled on the caller's own row.
+- The buttons are disabled on the caller's own row and on agent accounts'.
+- On a staged row, **Not spam** and **Spam** are ordinary staff votes: the
+  first un-hides the member and stops the purge; the second confirms it and
+  restarts the three days from now. Either way the row then shows the staff
+  vote, and the agent's vote moves to the history.
 - Errors surface as a toast; the row state is refetched, never guessed.
 
 ## Actions
@@ -97,16 +134,21 @@ the person's Danger Zone for admins (purge lives there, not here).
 | Expand row | `GET /api/admin/members/:slug` | Show footprint + votes |
 | Spam | `POST …/vote { verdict: "spam", reasoning? }` | Row → deactivated + vote badge |
 | Not spam | `POST …/vote { verdict: "legit", reasoning? }` | Row → vote badge; un-dim if vote-hidden |
+| Withdraw staged votes (Agents panel) | `POST /api/admin/agents/:slug/withdraw-votes` | Refetch roster; toast with the counts |
+| Mint / Revoke grant, New agent (Agents panel, admin) | [api/agents.md](../api/agents.md) | Refresh the panel; show a new token once |
 
 ## Authorization
 
 Staff and administrators. Purge is not offered here (admin-only, on the person
 page). Votes are attributed to the individual caller and can be changed by that
-caller at any time.
+caller at any time. Grants are minted and revoked by administrators only.
+Agents never see this page: they hold no session, only an API grant.
 
 ## Out of scope (v1)
 
-- Machine verdicts, confidence, or reasoning on this page — the pipeline's
-  concern, and its data lives in a private repo.
+- Offline machine verdicts, confidence, or reasoning on this page — the
+  pipeline's concern, and its data lives in a private repo. (Agent votes are
+  not machine verdicts in this sense: they are cast on the site, public, and
+  shown.)
 - Bulk actions.
 - Running the heuristic in-process at signup (natural follow-up).
