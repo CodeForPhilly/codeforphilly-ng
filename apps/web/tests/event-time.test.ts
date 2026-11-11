@@ -8,6 +8,7 @@ import {
   formatEventTime,
   formatEventTimeOnly,
   googleCalendarUrl,
+  outlookCalendarUrl,
   phillyWallClockToUtc,
   shiftOneMonthInPhilly,
   utcToPhillyWallClock,
@@ -157,5 +158,54 @@ describe('googleCalendarUrl', () => {
       'Bring a laptop.\n\nhttps://codeforphilly.org/events/2026-11-03-hack-night',
     );
     expect(url.searchParams.get('location')).toBe('Indy Hall, 709 N 2nd St');
+  });
+});
+
+describe('outlookCalendarUrl', () => {
+  it('builds a prefilled compose deeplink with %20 spaces and <br> line breaks', () => {
+    const href = outlookCalendarUrl(
+      {
+        slug: '2026-11-03-hack-night',
+        title: 'Hack Night',
+        startsAt: '2026-11-03T23:00:00Z',
+        endsAt: '2026-11-04T01:30:00Z',
+        description: 'Bring a **laptop**.',
+        venueName: 'Indy Hall',
+        venueAddress: '709 N 2nd St',
+        onlineUrl: null,
+      },
+      'https://codeforphilly.org',
+    );
+    expect(href).not.toContain('+');
+    const url = new URL(href);
+    expect(url.origin + url.pathname).toBe('https://outlook.live.com/calendar/0/deeplink/compose');
+    expect(url.searchParams.get('path')).toBe('/calendar/action/compose');
+    expect(url.searchParams.get('rru')).toBe('addevent');
+    expect(url.searchParams.get('subject')).toBe('Hack Night');
+    expect(url.searchParams.get('startdt')).toBe('2026-11-03T23:00:00Z');
+    expect(url.searchParams.get('enddt')).toBe('2026-11-04T01:30:00Z');
+    expect(url.searchParams.get('body')).toBe(
+      'Bring a laptop.<br><br>https://codeforphilly.org/events/2026-11-03-hack-night',
+    );
+    expect(url.searchParams.get('location')).toBe('Indy Hall, 709 N 2nd St');
+  });
+
+  it('HTML-escapes the body, since Outlook renders it as HTML', () => {
+    const href = outlookCalendarUrl(
+      {
+        slug: 'x',
+        title: 'Hack Night',
+        startsAt: '2026-11-03T23:00:00Z',
+        endsAt: '2026-11-04T01:30:00Z',
+        description: 'Pizza & <laptops>\nfor 1 < 2',
+        venueName: null,
+        venueAddress: null,
+        onlineUrl: null,
+      },
+      'https://codeforphilly.org',
+    );
+    expect(new URL(href).searchParams.get('body')).toBe(
+      'Pizza &amp; &lt;laptops&gt;<br>for 1 &lt; 2<br><br>https://codeforphilly.org/events/x',
+    );
   });
 });

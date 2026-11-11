@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { AddToCalendarMenu, canAddToCalendar } from '@/components/AddToCalendarMenu';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { MarkdownView } from '@/components/MarkdownView';
 import { PersonAvatar } from '@/components/PersonAvatar';
@@ -30,11 +31,7 @@ import {
 } from '@/lib/api';
 import { copyWithToast } from '@/lib/clipboard';
 import { groupAttendees } from '@/lib/event-attendees';
-import {
-  formatEventTime,
-  googleCalendarUrl,
-  isPastEvent,
-} from '@/lib/event-time';
+import { formatEventTime, isPastEvent } from '@/lib/event-time';
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
@@ -490,19 +487,9 @@ export function EventDetail() {
             </section>
 
             {/* Add to calendar */}
-            {!draft && (
-              <section aria-label="Add to calendar" className="flex flex-wrap gap-4 text-sm">
-                <a
-                  href={googleCalendarUrl(event, origin)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  Add to Google Calendar
-                </a>
-                <a href={event.icsUrl} download className="text-primary hover:underline">
-                  Download .ics
-                </a>
+            {canAddToCalendar(event) && (
+              <section aria-label="Add to calendar">
+                <AddToCalendarMenu event={event} />
               </section>
             )}
 

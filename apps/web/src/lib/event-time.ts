@@ -297,14 +297,19 @@ export function eventLocationString(e: Pick<CalendarLinkEvent, 'venueName' | 've
   return e.onlineUrl ?? '';
 }
 
-/**
- * Prefilled `calendar.google.com/calendar/render?action=TEMPLATE` link per
- * specs/behaviors/events.md#calendar-files.
- */
-export function googleCalendarUrl(event: CalendarLinkEvent, origin: string): string {
+/** Plain-text details: the description (markdown stripped) when held, then the canonical URL. */
+function calendarDetails(event: CalendarLinkEvent, origin: string): string {
   const canonical = `${origin}/events/${event.slug}`;
   const body = event.description ? stripMarkdown(event.description) : '';
-  const details = body ? `${body}\n\n${canonical}` : canonical;
+  return body ? `${body}\n\n${canonical}` : canonical;
+}
+
+/**
+ * Prefilled `calendar.google.com/calendar/render?action=TEMPLATE` link per
+ * specs/behaviors/events.md#add-to-calendar.
+ */
+export function googleCalendarUrl(event: CalendarLinkEvent, origin: string): string {
+  const details = calendarDetails(event, origin);
   const usp = new URLSearchParams({
     action: 'TEMPLATE',
     text: event.title,
@@ -314,4 +319,32 @@ export function googleCalendarUrl(event: CalendarLinkEvent, origin: string): str
   const location = eventLocationString(event);
   if (location) usp.set('location', location);
   return `https://calendar.google.com/calendar/render?${usp.toString()}`;
+}
+
+/**
+ * Prefilled Outlook.com compose deeplink per
+ * specs/behaviors/events.md#add-to-calendar. Built with encodeURIComponent
+ * rather than URLSearchParams: Outlook shows a `+` literally instead of
+ * reading it as a space, and renders the body as HTML, so the plain text is
+ * HTML-escaped (a literal `<` or `&` in a description must not be parsed as
+ * markup) and line breaks are sent as `<br>`.
+ */
+export function outlookCalendarUrl(event: CalendarLinkEvent, origin: string): string {
+  const body = calendarDetails(event, origin)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+  const params: Array<[string, string]> = [
+    ['path', '/calendar/action/compose'],
+    ['rru', 'addevent'],
+    ['subject', event.title],
+    ['startdt', toIsoZ(new Date(event.startsAt).getTime())],
+    ['enddt', toIsoZ(new Date(event.endsAt).getTime())],
+    ['body', body],
+  ];
+  const location = eventLocationString(event);
+  if (location) params.push(['location', location]);
+  const query = params.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return `https://outlook.live.com/calendar/0/deeplink/compose?${query}`;
 }

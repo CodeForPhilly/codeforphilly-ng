@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { ChevronDownIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { EventCard, calendarFeedUrls } from '@/components/EventCard';
 import { useAuth } from '@/hooks/useAuth';
@@ -24,8 +33,42 @@ function groupByMonth(events: EventSummary[]): Array<{ heading: string; events: 
   return groups;
 }
 
-function SubscribeControl() {
+const copyFeed = (url: string) => copyWithToast(url, 'Calendar feed URL copied', "Couldn't copy the feed URL");
+
+/**
+ * Signed out: the site feed as a link plus a copy fallback. Signed in: a menu
+ * offering the site feed and the member's own (events they RSVP'd to), each
+ * with its copy fallback (specs/screens/events-index.md#header).
+ */
+function SubscribeControl({ viewerSlug }: { viewerSlug: string | undefined }) {
   const urls = calendarFeedUrls();
+  if (viewerSlug) {
+    const mine = calendarFeedUrls(viewerSlug);
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm">
+            Subscribe to calendar
+            <ChevronDownIcon />
+          </Button>
+        </DropdownMenuTrigger>
+        {/* Size to the labels, not the trigger, so no choice wraps; keep clear of the screen edge on phones. */}
+        <DropdownMenuContent align="end" collisionPadding={16} className="w-auto">
+          <DropdownMenuLabel>All events</DropdownMenuLabel>
+          <DropdownMenuItem asChild>
+            <a href={urls.webcal}>Subscribe to all events</a>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => copyFeed(urls.https)}>Copy all-events feed URL</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Events I&rsquo;m going to</DropdownMenuLabel>
+          <DropdownMenuItem asChild>
+            <a href={mine.webcal}>Subscribe to events I&rsquo;m going to</a>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => copyFeed(mine.https)}>Copy my feed URL</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-2 text-sm">
       <a href={urls.webcal} className="text-primary hover:underline">
@@ -34,7 +77,7 @@ function SubscribeControl() {
       <button
         type="button"
         className="text-xs text-muted-foreground hover:text-foreground underline"
-        onClick={() => copyWithToast(urls.https, 'Calendar feed URL copied', "Couldn't copy the feed URL")}
+        onClick={() => copyFeed(urls.https)}
       >
         Copy feed URL
       </button>
@@ -162,7 +205,7 @@ export function EventsIndex() {
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3">
-            <SubscribeControl />
+            <SubscribeControl viewerSlug={person?.slug} />
             {isStaff && (
               <Button asChild>
                 <Link to="/events/new">New event</Link>

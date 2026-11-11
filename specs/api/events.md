@@ -7,7 +7,7 @@ Events and RSVPs. Rules in [behaviors/events.md](../behaviors/events.md); record
 | Method | Path | Auth | Summary |
 | ------ | ---- | ---- | ------- |
 | `GET` | `/api/events` | public | List events, upcoming by default. |
-| `GET` | `/api/events/feed.ics` | public | iCalendar subscription feed. |
+| `GET` | `/api/events/feed.ics` | public | iCalendar subscription feed: every event, or one member's with `?attendee=`. |
 | `GET` | `/api/events/:slug` | public | Event detail with the caller's RSVP state. |
 | `GET` | `/api/events/:slug/ics` | public | One event as an `.ics` file. |
 | `GET` | `/api/events/:slug/rsvps` | public | Going attendees. |
@@ -50,7 +50,20 @@ Drafts are included only when the caller is staff; cancelled events are always i
 
 One `VCALENDAR` (`METHOD:PUBLISH`, `X-WR-CALNAME: Code for Philly`, `X-WR-TIMEZONE: America/New_York`) containing a `VEVENT` per `scheduled` or `cancelled` event with `endsAt ≥ now − 90 days`, built per [behaviors/events.md#calendar-files](../behaviors/events.md#calendar-files). Never includes drafts.
 
+### Query
+
+| Param | Type | Notes |
+| ----- | ---- | ----- |
+| `attendee` | person slug | Optional. Narrows the feed to events this person has an RSVP on ([behaviors/events.md#calendar-files](../behaviors/events.md#calendar-files), the member feed). Public, no session: RSVPs are public. |
+
+With `attendee`, the calendar is named `X-WR-CALNAME: Code for Philly: <fullName>'s events` and the `Content-Disposition` filename is `code-for-philly-<slug>.ics`; everything else (window, statuses, `VEVENT` contents, drafts never included) is identical. A person with no RSVPs gets a valid, empty `VCALENDAR`, not an error, so a subscription made before the first RSVP keeps working.
+
 `Cache-Control: public, max-age=300`. Not rate-limited differently from other reads; calendar clients poll hourly or slower.
+
+### Errors
+
+- `404 not_found` — `attendee` names no person, or a deactivated one. JSON envelope, per the `.ics` exception above.
+- `422 validation_failed` — `attendee` is present but empty.
 
 ## GET /api/events/:slug
 

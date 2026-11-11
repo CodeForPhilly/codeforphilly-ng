@@ -5,7 +5,7 @@
  * (roughly one a month), so "upcoming" and "past" are a filter + sort over
  * `state.events.values()` rather than a maintained sorted index.
  */
-import type { Event, EventRsvp } from '@cfp/shared/schemas';
+import type { Event, EventRsvp, Person } from '@cfp/shared/schemas';
 
 import type { InMemoryState } from '../store/memory/state.js';
 import { personBySlug, rsvpKey } from '../store/memory/state.js';
@@ -131,10 +131,30 @@ export class EventService {
 
   /** Events eligible for the subscription feed: scheduled or cancelled, ending within the trailing 90 days or later. */
   feedEvents(now: Date = new Date()): Event[] {
+    return this.#feedWindow([...this.#state.events.values()], now);
+  }
+
+  /**
+   * The member feed: the same window, narrowed to events `attendee` has an
+   * RSVP on. Null when the slug names no person or a deactivated one
+   * (specs/behaviors/events.md#calendar-files).
+   */
+  memberFeed(attendeeSlug: string, now: Date = new Date()): { person: Person; events: Event[] } | null {
+    const person = personBySlug(this.#state, attendeeSlug);
+    if (!person || person.deletedAt) return null;
+    const ids = this.#state.rsvpsByPerson.get(person.slug) ?? new Set<string>();
+    const events: Event[] = [];
+    for (const id of ids) {
+      const rsvp = this.#state.eventRsvps.get(id);
+      const event = rsvp ? this.findBySlug(rsvp.eventSlug) : undefined;
+      if (event) events.push(event);
+    }
+    return { person, events: this.#feedWindow(events, now) };
+  }
+
+  #feedWindow(candidates: Event[], now: Date): Event[] {
     const cutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-    const events = [...this.#state.events.values()].filter(
-      (e) => e.status !== 'draft' && new Date(e.endsAt) >= cutoff,
-    );
+    const events = candidates.filter((e) => e.status !== 'draft' && new Date(e.endsAt) >= cutoff);
     events.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
     return events;
   }
