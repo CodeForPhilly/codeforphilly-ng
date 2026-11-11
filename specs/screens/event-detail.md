@@ -51,7 +51,7 @@ Across the top of the content area, before the title:
 
    Clicking "I'm going" calls `PUT …/rsvp` with no body and swaps to the going state optimistically; on `409 rsvp_closed` it reloads the event. A toast confirms "You're going — check your email for a calendar invite." (or "…we couldn't send the calendar email, use Add to calendar below" when `confirmationDelivered = false`).
 
-2. **Add to calendar** — a row of two links: "Add to Google Calendar" (prefilled template link, new tab) and "Download .ics" (`icsUrl`). Hidden for drafts.
+2. **Add to calendar** — one outline button, "Add to calendar", that opens a menu of three choices per [behaviors/events.md#add-to-calendar](../behaviors/events.md#add-to-calendar): "Google Calendar" and "Outlook.com" (prefilled links, new tab) and "Apple Calendar / .ics" (downloads `icsUrl`). Shown only while the event is `scheduled` and has not ended; hidden for drafts, cancelled and past events.
 
 3. **About** — `descriptionHtml`. Omitted entirely when the description is empty.
 
@@ -82,8 +82,9 @@ Across the top of the content area, before the title:
 | RSVP | `PUT /api/events/:slug/rsvp`; confirmation email | "I'm going" |
 | Withdraw | `DELETE /api/events/:slug/rsvp` | "Cancel RSVP" + confirm |
 | Answer / change the follow-up | `PUT /api/events/:slug/rsvp` with `plan` (+ `projectSlug`) | Follow-up choices |
-| Add to Google Calendar | Opens calendar.google.com template | Link |
-| Download .ics | Downloads the file | Link |
+| Add to calendar → Google Calendar | Opens calendar.google.com template | Menu item |
+| Add to calendar → Outlook.com | Opens the outlook.live.com compose deeplink | Menu item |
+| Add to calendar → Apple Calendar / .ics | Downloads the file | Menu item |
 | Publish | `POST /api/events/:slug/publish` | Draft banner button (staff) |
 | Cancel | `POST /api/events/:slug/cancel` with optional note; attendees emailed | Staff control + dialog |
 | Delete | `DELETE /api/events/:slug`; navigates to `/events` | Staff control + confirm; disabled with tooltip "Cancel instead — people have RSVP'd" when `canDelete = false` |
@@ -93,7 +94,7 @@ Across the top of the content area, before the title:
 
 **To here:** events index, home page upcoming-events section, emails (confirmation, reminders, update, cancellation link here), the `URL` property of the `.ics`, project pages' attendee groups, legacy `/events/<handle>` URLs.
 
-**From here:** `/events` (breadcrumb), `/events/series/<slug>` ("Part of"), `/events/<slug>/edit`, `/events/new?from=<slug>`, `/projects/<slug>` (attendee groups, picker), `/members/<slug>` (avatars), `/login?return=…`, external: maps links, `onlineUrl`, `meetupUrl`, Google Calendar.
+**From here:** `/events` (breadcrumb), `/events/series/<slug>` ("Part of"), `/events/<slug>/edit`, `/events/new?from=<slug>`, `/projects/<slug>` (attendee groups, picker), `/members/<slug>` (avatars), `/login?return=…`, external: maps links, `onlineUrl`, `meetupUrl`, Google Calendar, Outlook.com.
 
 ## Authorization
 

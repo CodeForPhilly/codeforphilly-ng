@@ -20,7 +20,7 @@ Rules in [behaviors/events.md](../behaviors/events.md).
 - H1 "Events"
 - Lead paragraph: "Code for Philly meets in person every month. RSVP so we know you're coming, and subscribe to get every event on your own calendar."
 - Right-aligned controls:
-  - "Subscribe to calendar" — a `webcal://<host>/api/events/feed.ics` link with a copy-to-clipboard fallback for browsers that don't register the scheme
+  - "Subscribe to calendar" — signed out, a `webcal://<host>/api/events/feed.ics` link with a "Copy feed URL" copy-to-clipboard fallback for browsers that don't register the scheme. Signed in, the same label is a button that opens a menu with two feeds, each as a `webcal://` link followed by its own copy fallback: **All events** (the site feed) and **Events I'm going to** (the member feed, `feed.ics?attendee=<viewer slug>`, per [behaviors/events.md#calendar-files](../behaviors/events.md#calendar-files))
   - "New event" button → `/events/new` — staff only
 
 ### View switch
@@ -37,7 +37,8 @@ Events grouped under month headings (`November 2026`), in the order the API retu
 - Where line: `venueName` if set; else "Online" if `onlineUrl`; else "Location TBA". A venue with both renders `venueName · Online option`
 - Attendance: "14 going"; when the viewer has an RSVP, "You're going ✓" replaces the count's lead ("You're going ✓ · 14 going")
 - Badges: "Cancelled" when `status = cancelled` (card otherwise rendered muted); "Draft" when `status = draft` (staff only see these)
-- The whole card links to the detail page
+- **Add to calendar**, on the right edge of cards for `scheduled` events that have not ended: an icon button (accessible name "Add <title> to calendar") opening the same three-choice menu as the detail page ([behaviors/events.md#add-to-calendar](../behaviors/events.md#add-to-calendar)). Absent on cancelled, draft and past cards
+- The rest of the card links to the detail page
 
 ### Pagination
 
@@ -55,7 +56,8 @@ Events grouped under month headings (`November 2026`), in the order the API retu
 | ------ | ------- | --------- |
 | Open an event | Navigation | Card click |
 | Switch Upcoming / Past | Navigation | Tab links |
-| Subscribe to calendar | Opens the calendar app via `webcal://`, or copies the `https://` URL | Header control |
+| Subscribe to calendar | Opens the calendar app via `webcal://`, or copies the `https://` URL; signed-in members pick all events or only the ones they RSVP'd to | Header control |
+| Add to calendar | Opens Google Calendar or Outlook.com prefilled, or downloads the `.ics` | Card menu |
 | New event | Navigation to `/events/new` | Staff button |
 
 ## Navigation

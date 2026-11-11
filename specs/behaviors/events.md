@@ -127,13 +127,26 @@ Every scheduled or cancelled event is representable as an iCalendar `VEVENT`:
 
 `icsSequence` starts at 0 and increments whenever any of `title`, `startsAt`, `endsAt`, `venueName`, `venueAddress`, `onlineUrl` changes, and on cancel. A client that already holds the earlier `UID` replaces its copy when it sees a higher `SEQUENCE`; this is what makes the "event updated" email actually move the entry on someone's calendar.
 
-Three delivery forms, all `METHOD:PUBLISH`:
+Four delivery forms, all `METHOD:PUBLISH`:
 
 1. **Attachment** on the confirmation, update, and cancellation emails (`<slug>.ics`, `text/calendar`).
 2. **Download** — `GET /api/events/:slug/ics` behind the "Download .ics" control.
 3. **Subscription feed** — `GET /api/events/feed.ics`, one `VCALENDAR` of every scheduled and cancelled event from 90 days ago onward, with `X-WR-CALNAME: Code for Philly`. The index page offers it as a `webcal://` link so a member can subscribe once and never look at the site for dates again. Drafts never appear.
+4. **Member feed** — `GET /api/events/feed.ics?attendee=<person slug>`, the same feed narrowed to the events that member has RSVP'd to, with `X-WR-CALNAME: Code for Philly: <fullName>'s events`. It is for the member who wants only the nights they said yes to on their calendar: RSVP on the site and the event appears, cancel the RSVP and it drops off at the calendar's next poll. The same window and `VEVENT` rules apply, so a cancelled event the member had RSVP'd to stays in the feed as `STATUS:CANCELLED` and their calendar marks it rather than silently losing it.
 
-The "Add to Google Calendar" control is a prefilled `calendar.google.com/calendar/render?action=TEMPLATE` link carrying title, UTC `dates`, plain-text details with the canonical URL, and the same `LOCATION` string. It is a convenience link, not a feed.
+   The member feed is a **public URL with no token**. [RSVPs are public](#rsvps-are-public): the attendee list on every event page already says who is going, so the feed reveals nothing the site does not, and a tokenless URL is one a calendar app can poll without a session. A deactivated person has no feed (`404`). The feed is keyed by slug like every other URL; a member who renames their handle subscribes again from `/events`.
+
+### Add to calendar
+
+Every scheduled event that has not ended offers one **Add to calendar** control with three choices. All three are conveniences for a single event, not feeds:
+
+| Choice | What it is |
+| ------ | ---------- |
+| Google Calendar | a prefilled `calendar.google.com/calendar/render?action=TEMPLATE` link carrying title, UTC `dates`, plain-text details ending in the canonical URL, and the same `LOCATION` string |
+| Outlook.com | a prefilled `outlook.live.com/calendar/0/deeplink/compose` link (`path=/calendar/action/compose`, `rru=addevent`) carrying `subject`, UTC `startdt` / `enddt`, the same plain-text `body`, and `location` |
+| Apple Calendar / .ics | the event's `.ics` download (`icsUrl`), which Apple Calendar, desktop Outlook and every other client open |
+
+The plain-text details are the description (markdown stripped) followed by the canonical URL where the page holds the description (event detail), and the canonical URL alone where it does not (event cards). The control is hidden for drafts, for cancelled events, and once the event has ended; the `.ics` download route itself keeps answering for cancelled and past events, because the emails link to it.
 
 ## Reminders
 
