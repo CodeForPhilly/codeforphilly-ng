@@ -189,4 +189,23 @@ describe('outlookCalendarUrl', () => {
     );
     expect(url.searchParams.get('location')).toBe('Indy Hall, 709 N 2nd St');
   });
+
+  it('HTML-escapes the body, since Outlook renders it as HTML', () => {
+    const href = outlookCalendarUrl(
+      {
+        slug: 'x',
+        title: 'Hack Night',
+        startsAt: '2026-11-03T23:00:00Z',
+        endsAt: '2026-11-04T01:30:00Z',
+        description: 'Pizza & <laptops>\nfor 1 < 2',
+        venueName: null,
+        venueAddress: null,
+        onlineUrl: null,
+      },
+      'https://codeforphilly.org',
+    );
+    expect(new URL(href).searchParams.get('body')).toBe(
+      'Pizza &amp; &lt;laptops&gt;<br>for 1 &lt; 2<br><br>https://codeforphilly.org/events/x',
+    );
+  });
 });

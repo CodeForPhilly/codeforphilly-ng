@@ -143,7 +143,7 @@ Every scheduled event that has not ended offers one **Add to calendar** control 
 | Choice | What it is |
 | ------ | ---------- |
 | Google Calendar | a prefilled `calendar.google.com/calendar/render?action=TEMPLATE` link carrying title, UTC `dates`, plain-text details ending in the canonical URL, and the same `LOCATION` string |
-| Outlook.com | a prefilled `outlook.live.com/calendar/0/deeplink/compose` link (`path=/calendar/action/compose`, `rru=addevent`) carrying `subject`, UTC `startdt` / `enddt`, the same plain-text `body`, and `location` |
+| Outlook.com | a prefilled `outlook.live.com/calendar/0/deeplink/compose` link (`path=/calendar/action/compose`, `rru=addevent`) carrying `subject`, UTC `startdt` / `enddt`, the same details as `body` (Outlook renders it as HTML, so the text is HTML-escaped and line breaks become `<br>`), and `location`; parameters are percent-encoded with `%20` for spaces, never `+` |
 | Apple Calendar / .ics | the event's `.ics` download (`icsUrl`), which Apple Calendar, desktop Outlook and every other client open |
 
 The plain-text details are the description (markdown stripped) followed by the canonical URL where the page holds the description (event detail), and the canonical URL alone where it does not (event cards). The control is hidden for drafts, for cancelled events, and once the event has ended; the `.ics` download route itself keeps answering for cancelled and past events, because the emails link to it.
