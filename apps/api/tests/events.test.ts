@@ -569,6 +569,69 @@ describe('calendar feed and legacy URLs', () => {
     expect(res.body).not.toContain(`/events/${ancient.slug}`);
   });
 
+  it("narrows the feed to one member's RSVPs with ?attendee=", async () => {
+    const going = await createEvent(hackNight(7, { title: 'Going' }));
+    const notGoing = await createEvent(hackNight(14, { title: 'Not Going' }));
+    const cancelled = await createEvent(hackNight(21, { title: 'Called Off' }));
+    const jane = await janeCookie();
+    for (const slug of [going.slug, cancelled.slug]) {
+      const rsvp = await app!.inject({ method: 'PUT', url: `/api/events/${slug}/rsvp`, headers: { cookie: jane } });
+      expect(rsvp.statusCode, rsvp.body).toBe(201);
+    }
+    const cancel = await app!.inject({
+      method: 'POST',
+      url: `/api/events/${cancelled.slug}/cancel`,
+      headers: { cookie: await staffCookie(), 'content-type': 'application/json' },
+      payload: {},
+    });
+    expect(cancel.statusCode, cancel.body).toBe(200);
+
+    const url = `/api/events/feed.ics?attendee=${fixtures.personSlug}`;
+    // No cookie: the member feed is public, like the attendee list.
+    let res = await app!.inject({ method: 'GET', url });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.headers['content-type']).toContain('text/calendar');
+    expect(res.headers['cache-control']).toBe('public, max-age=300');
+    expect(res.headers['content-disposition']).toBe(`inline; filename="code-for-philly-${fixtures.personSlug}.ics"`);
+    expect(res.body).toMatch(/X-WR-CALNAME:Code for Philly: .+'s events/);
+    expect(res.body).toContain(`/events/${going.slug}`);
+    expect(res.body).toContain(`/events/${cancelled.slug}`);
+    expect(res.body).toContain('STATUS:CANCELLED');
+    expect(res.body).not.toContain(`/events/${notGoing.slug}`);
+
+    // Withdrawing drops the event at the next poll.
+    await app!.inject({ method: 'DELETE', url: `/api/events/${going.slug}/rsvp`, headers: { cookie: jane } });
+    res = await app!.inject({ method: 'GET', url });
+    expect(res.body).not.toContain(`/events/${going.slug}`);
+
+    // A member with no RSVPs gets a valid empty calendar, not an error.
+    const empty = await app!.inject({ method: 'GET', url: `/api/events/feed.ics?attendee=${STAFF_SLUG}` });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.body).toContain('BEGIN:VCALENDAR');
+    expect(empty.body).not.toContain('BEGIN:VEVENT');
+  });
+
+  it('answers 404 for an unknown or deactivated attendee and 422 for an empty one', async () => {
+    const unknown = await app!.inject({ method: 'GET', url: '/api/events/feed.ics?attendee=nobody-here' });
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json()).toMatchObject({ success: false, error: { code: 'not_found' } });
+
+    const blank = await app!.inject({ method: 'GET', url: '/api/events/feed.ics?attendee=' });
+    expect(blank.statusCode).toBe(422);
+
+    const { slug } = await createEvent(hackNight(7));
+    const jane = await janeCookie();
+    await app!.inject({ method: 'PUT', url: `/api/events/${slug}/rsvp`, headers: { cookie: jane } });
+    const deactivate = await app!.inject({
+      method: 'POST',
+      url: `/api/people/${fixtures.personSlug}/deactivate`,
+      headers: { cookie: jane },
+    });
+    expect(deactivate.statusCode, deactivate.body).toBeLessThan(300);
+    const gone = await app!.inject({ method: 'GET', url: `/api/events/feed.ics?attendee=${fixtures.personSlug}` });
+    expect(gone.statusCode).toBe(404);
+  });
+
   it('301s /calendar and the laddr list views and segment URLs', async () => {
     const cases: Array<[string, string]> = [
       ['/calendar', '/events'],
