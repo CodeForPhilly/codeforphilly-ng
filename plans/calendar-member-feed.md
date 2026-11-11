@@ -1,5 +1,6 @@
 ---
-status: in-progress
+status: done
+pr: 260
 depends: [events-core]
 specs:
   - specs/behaviors/events.md
@@ -68,23 +69,23 @@ emails.
 
 ## Validation
 
-- [ ] `GET /api/events/feed.ics?attendee=<slug>` with no session lists
+- [x] `GET /api/events/feed.ics?attendee=<slug>` with no session lists
   exactly the scheduled and cancelled events that person RSVP'd to inside
   the 90-day window, named `Code for Philly: <fullName>'s events`.
-- [ ] Withdrawing an RSVP removes the event from the member feed; a
+- [x] Withdrawing an RSVP removes the event from the member feed; a
   member with no RSVPs gets an empty, valid calendar.
-- [ ] An unknown or deactivated `attendee` answers `404 not_found` in the
+- [x] An unknown or deactivated `attendee` answers `404 not_found` in the
   JSON envelope; an empty one `422`.
-- [ ] The site feed without `attendee` is unchanged.
-- [ ] Event detail shows one "Add to calendar" button whose menu has
+- [x] The site feed without `attendee` is unchanged.
+- [x] Event detail shows one "Add to calendar" button whose menu has
   Google Calendar, Outlook.com and Apple Calendar / .ics; it is absent on
   drafts, cancelled and past events.
-- [ ] Full event cards for scheduled, upcoming events carry the same
+- [x] Full event cards for scheduled, upcoming events carry the same
   menu; cancelled, draft and past cards and the home strip do not.
-- [ ] Signed out, `/events` offers the site feed with "Copy feed URL";
+- [x] Signed out, `/events` offers the site feed with "Copy feed URL";
   signed in, a menu offers "All events" and "Events I'm going to", each
   with a copy fallback.
-- [ ] `npm run type-check && npm run lint && npm test` clean.
+- [x] `npm run type-check && npm run lint && npm test` clean.
 - [ ] Checked in a browser: both menus open, the Google and Outlook.com
   links land on a prefilled event, the `.ics` opens in a calendar app, and
   a calendar app subscribes to the member feed over `webcal://`.
@@ -101,4 +102,34 @@ emails.
 
 ## Notes
 
+- **Browser check, November 11, 2026.** Run in headless Chrome against the
+  `fixture` data with seeded events. The signed-in check used a session
+  minted with `mintSessionFor` against localhost. Both menus open, keyboard
+  included, and nothing overflows at 390px.
+- **The last validation box stays open.** The Google link was followed as
+  far as the sign-in screen with every parameter intact. Not done: an
+  Outlook.com account seeing the prefilled form, the `.ics` opening in a
+  real calendar app, and a calendar app subscribing over `webcal://`. Each
+  needs a person with an account; see Follow-ups.
+- **Two fixes came out of the check.** The menus now size to their labels
+  instead of to the trigger (on cards the menu had been 8rem wide and its
+  items wrapped). The Outlook body is HTML-escaped, because Outlook renders
+  it as HTML.
+- **Outlook.com parameters** were checked against
+  InteractionDesignFoundation/add-event-to-calendar-docs (`outlook-web.md`,
+  verified by its authors on August 19, 2026) and spatie/calendar-links.
+  Microsoft does not document the format.
+- **Slugs match case-sensitively** in `attendee`, as everywhere in the API.
+
 ## Follow-ups
+
+- Open the Outlook.com link signed in to a real account, on desktop and on
+  a phone, and confirm title, time, body and location are filled. Phones
+  are a known weak spot on Microsoft's side.
+- Open a downloaded `.ics` in a calendar app, and subscribe to a member
+  feed over `webcal://` from Apple Calendar or Google Calendar; confirm an
+  RSVP made or withdrawn shows at the next poll.
+- The shared dropdown matches every menu's width to its trigger. The user
+  menu and the About menu inherit this; consider a site-wide default.
+- Dropdown group labels such as "All events" are not exposed to screen
+  readers as group names.
