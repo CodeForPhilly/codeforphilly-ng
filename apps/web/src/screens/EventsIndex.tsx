@@ -52,7 +52,8 @@ function SubscribeControl({ viewerSlug }: { viewerSlug: string | undefined }) {
             <ChevronDownIcon />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        {/* Size to the labels, not the trigger, so no choice wraps; keep clear of the screen edge on phones. */}
+        <DropdownMenuContent align="end" collisionPadding={16} className="w-auto">
           <DropdownMenuLabel>All events</DropdownMenuLabel>
           <DropdownMenuItem asChild>
             <a href={urls.webcal}>Subscribe to all events</a>

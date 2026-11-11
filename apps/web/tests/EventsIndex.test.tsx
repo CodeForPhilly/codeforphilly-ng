@@ -94,6 +94,8 @@ describe('EventsIndex', () => {
       'href',
       '/api/events/2099-11-03-hack-night/ics',
     );
+    // The icon trigger is narrow; the menu sizes to its labels instead.
+    expect(screen.getByRole('menu')).toHaveClass('w-auto');
     await user.keyboard('{Escape}');
 
     // Anonymous: no New event
@@ -113,6 +115,8 @@ describe('EventsIndex', () => {
     );
     expect(screen.getByRole('menuitem', { name: 'Copy all-events feed URL' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Copy my feed URL' })).toBeInTheDocument();
+    // Sized to its labels, not the trigger, so "Subscribe to events I'm going to" doesn't wrap.
+    expect(screen.getByRole('menu')).toHaveClass('w-auto');
   });
 
   it('leaves past cards without an Add to calendar control', async () => {

@@ -46,7 +46,8 @@ export function AddToCalendarMenu({ event, variant = 'button' }: AddToCalendarMe
           </Button>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align={variant === 'icon' ? 'end' : 'start'}>
+      {/* Size to the labels, not the trigger, so no choice wraps (the shared content defaults to the trigger's width). */}
+      <DropdownMenuContent align={variant === 'icon' ? 'end' : 'start'} className="w-auto">
         <DropdownMenuItem asChild>
           <a href={googleCalendarUrl(event, origin)} target="_blank" rel="noopener noreferrer">
             Google Calendar
