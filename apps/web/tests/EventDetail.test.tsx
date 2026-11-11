@@ -83,13 +83,20 @@ describe('EventDetail', () => {
     expect(screen.getByText('Your name will appear on the attendee list.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /I’m going/ })).not.toBeInTheDocument();
 
-    expect(screen.getByRole('link', { name: 'Add to Google Calendar' }).getAttribute('href')).toMatch(
+    // One Add to calendar button; its menu holds the three choices.
+    expect(screen.queryByRole('menuitem', { name: 'Google Calendar' })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Add to calendar' }));
+    expect((await screen.findByRole('menuitem', { name: 'Google Calendar' })).getAttribute('href')).toMatch(
       /^https:\/\/calendar\.google\.com\/calendar\/render\?action=TEMPLATE/,
     );
-    expect(screen.getByRole('link', { name: 'Download .ics' })).toHaveAttribute(
+    expect(screen.getByRole('menuitem', { name: 'Outlook.com' }).getAttribute('href')).toMatch(
+      /^https:\/\/outlook\.live\.com\/calendar\/0\/deeplink\/compose\?path=/,
+    );
+    expect(screen.getByRole('menuitem', { name: 'Apple Calendar / .ics' })).toHaveAttribute(
       'href',
       '/api/events/2099-11-03-hack-night/ics',
     );
+    await userEvent.setup().keyboard('{Escape}');
     expect(screen.getByRole('link', { name: 'Also listed on Meetup ↗' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^709 N 2nd St/ }).getAttribute('href')).toContain(
       'https://maps.google.com/?q=',
@@ -265,7 +272,7 @@ describe('EventDetail', () => {
     render();
     expect(await screen.findByText('Draft — only staff can see this event.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish' })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Add to Google Calendar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add to calendar' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
   });
 
