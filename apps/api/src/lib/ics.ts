@@ -145,12 +145,19 @@ export function buildEventIcs(event: Event, siteHost: string): string {
   return calendar(vevent(event, siteHost));
 }
 
-/** The subscription feed: many events, named calendar. */
-export function buildFeedIcs(events: readonly Event[], siteHost: string): string {
+export const SITE_FEED_NAME = 'Code for Philly';
+
+/** Calendar name of one member's feed (the events they RSVP'd to). */
+export function memberFeedName(fullName: string): string {
+  return `${SITE_FEED_NAME}: ${fullName}'s events`;
+}
+
+/** A subscription feed: many events, named calendar. */
+export function buildFeedIcs(events: readonly Event[], siteHost: string, name: string = SITE_FEED_NAME): string {
   const body: string[] = [];
   for (const e of events) body.push(...vevent(e, siteHost));
   return calendar(body, [
-    'X-WR-CALNAME:Code for Philly',
+    `X-WR-CALNAME:${escapeText(name)}`,
     'X-WR-TIMEZONE:America/New_York',
   ]);
 }

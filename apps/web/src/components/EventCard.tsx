@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
+import { AddToCalendarMenu, canAddToCalendar } from '@/components/AddToCalendarMenu';
 import type { EventSummary } from '@/lib/api';
 import { eventDateBlock, formatEventTimeOnly } from '@/lib/event-time';
 import { cn } from '@/lib/utils';
@@ -48,6 +49,9 @@ export function EventCard({ event, variant = 'full', action, headingLevel = 'h3'
   const draft = event.status === 'draft';
   const going = event.viewerRsvp !== null;
   const date = eventDateBlock(event.startsAt);
+  // The index and series cards carry the menu; the home strip's compact rows
+  // keep their one RSVP action (specs/screens/events-index.md#list).
+  const showCalendar = variant === 'full' && canAddToCalendar(event);
 
   return (
     <div
@@ -86,16 +90,27 @@ export function EventCard({ event, variant = 'full', action, headingLevel = 'h3'
           <span className="text-muted-foreground">{event.rsvpCount} going</span>
         </p>
       </div>
-      {action && <div className="relative z-10 shrink-0">{action}</div>}
+      {/* Above the stretched link, so each control is its own focus target. */}
+      {(action || showCalendar) && (
+        <div className="relative z-10 flex shrink-0 items-center gap-2">
+          {action}
+          {showCalendar && <AddToCalendarMenu event={event} variant="icon" />}
+        </div>
+      )}
     </div>
   );
 }
 
-/** `webcal://` and `https://` forms of the subscription feed for this host. */
-export function calendarFeedUrls(): { webcal: string; https: string } {
+/**
+ * `webcal://` and `https://` forms of a subscription feed for this host: the
+ * site feed, or one member's (the events they RSVP'd to) when `attendeeSlug`
+ * is given.
+ */
+export function calendarFeedUrls(attendeeSlug?: string): { webcal: string; https: string } {
   const { host, protocol } = window.location;
+  const path = `/api/events/feed.ics${attendeeSlug ? `?attendee=${encodeURIComponent(attendeeSlug)}` : ''}`;
   return {
-    webcal: `webcal://${host}/api/events/feed.ics`,
-    https: `${protocol === 'http:' ? 'http' : 'https'}://${host}/api/events/feed.ics`,
+    webcal: `webcal://${host}${path}`,
+    https: `${protocol === 'http:' ? 'http' : 'https'}://${host}${path}`,
   };
 }

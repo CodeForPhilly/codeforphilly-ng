@@ -22,7 +22,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { formatEventInstant } from '../lib/event-time.js';
-import { buildEventIcs, buildFeedIcs, googleCalendarUrl } from '../lib/ics.js';
+import { buildEventIcs, buildFeedIcs, googleCalendarUrl, memberFeedName } from '../lib/ics.js';
 import { ok, paginated } from '../lib/response.js';
 import { collectAttendees, eventEmailFacts } from '../services/event-notify.js';
 import type { EventChange, EventInput, RsvpInput } from '../services/event.write.js';
@@ -140,11 +140,34 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/events/feed.ics — registered before /:slug ---------------------
   fastify.get(
     '/api/events/feed.ics',
-    { schema: { tags: ['events'], summary: 'iCalendar subscription feed' } },
-    async (_request, reply) => {
-      const ics = buildFeedIcs(fastify.services.events.feedEvents(), siteHost());
+    {
+      schema: {
+        tags: ['events'],
+        summary: "iCalendar subscription feed: every event, or one member's with ?attendee=",
+        querystring: {
+          type: 'object',
+          properties: { attendee: { type: 'string' } },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { attendee } = request.query as { attendee?: string };
+      let ics: string;
+      let filename = 'code-for-philly.ics';
+      if (attendee === undefined) {
+        ics = buildFeedIcs(fastify.services.events.feedEvents(), siteHost());
+      } else {
+        if (attendee.trim() === '') {
+          throw new ApiValidationError('Invalid attendee', { attendee: 'must be a person slug' });
+        }
+        const feed = fastify.services.events.memberFeed(attendee);
+        if (!feed) throw new ApiNotFoundError(`Person '${attendee}' not found`);
+        ics = buildFeedIcs(feed.events, siteHost(), memberFeedName(feed.person.fullName));
+        filename = `code-for-philly-${feed.person.slug}.ics`;
+      }
       return reply
-        .headers({ ...icsHeaders('inline; filename="code-for-philly.ics"'), 'Cache-Control': 'public, max-age=300' })
+        .headers({ ...icsHeaders(`inline; filename="${filename}"`), 'Cache-Control': 'public, max-age=300' })
         .send(ics);
     },
   );

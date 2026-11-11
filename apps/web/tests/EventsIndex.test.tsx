@@ -1,10 +1,11 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Routes, Route } from 'react-router';
 import { renderScreen, mockPaginated } from './test-utils.js';
 import { EventsIndex } from '../src/screens/EventsIndex.js';
 import { AuthProvider } from '../src/hooks/useAuth.js';
-import { STAFF_ME, json, makeSummary } from './event-fixtures.js';
+import { STAFF_ME, USER_ME, json, makeSummary } from './event-fixtures.js';
 
 function mockFetch(opts: { me?: unknown; upcoming?: unknown[]; past?: unknown[] }) {
   const calls: string[] = [];
@@ -76,8 +77,55 @@ describe('EventsIndex', () => {
     expect(screen.getByRole('link', { name: 'Subscribe to calendar' }).getAttribute('href')).toMatch(
       /^webcal:\/\/.+\/api\/events\/feed\.ics$/,
     );
+    expect(screen.getByRole('button', { name: 'Copy feed URL' })).toBeInTheDocument();
+
+    // Add to calendar: on scheduled upcoming cards only, never the cancelled one.
+    expect(screen.getByRole('button', { name: 'Add Online Thing to calendar' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Cancelled One to calendar' })).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Add Code for Philly Hack Night to calendar' }));
+    const google = await screen.findByRole('menuitem', { name: 'Google Calendar' });
+    // Cards hold no description, so the details are the canonical URL alone.
+    expect(new URL(google.getAttribute('href')!).searchParams.get('details')).toMatch(
+      /\/events\/2099-11-03-hack-night$/,
+    );
+    expect(screen.getByRole('menuitem', { name: 'Outlook.com' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Apple Calendar / .ics' })).toHaveAttribute(
+      'href',
+      '/api/events/2099-11-03-hack-night/ics',
+    );
+    // The icon trigger is narrow; the menu sizes to its labels instead.
+    expect(screen.getByRole('menu')).toHaveClass('w-auto');
+    await user.keyboard('{Escape}');
+
     // Anonymous: no New event
     expect(screen.queryByRole('link', { name: 'New event' })).not.toBeInTheDocument();
+  });
+
+  it('offers a signed-in member both feeds, each with a copy fallback', async () => {
+    mockFetch({ me: USER_ME, upcoming: [makeSummary()] });
+    render('/events');
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Subscribe to calendar' }));
+    expect((await screen.findByRole('menuitem', { name: 'Subscribe to all events' })).getAttribute('href')).toMatch(
+      /^webcal:\/\/.+\/api\/events\/feed\.ics$/,
+    );
+    expect(screen.getByRole('menuitem', { name: 'Subscribe to events I’m going to' }).getAttribute('href')).toMatch(
+      /^webcal:\/\/.+\/api\/events\/feed\.ics\?attendee=member$/,
+    );
+    expect(screen.getByRole('menuitem', { name: 'Copy all-events feed URL' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Copy my feed URL' })).toBeInTheDocument();
+    // Sized to its labels, not the trigger, so "Subscribe to events I'm going to" doesn't wrap.
+    expect(screen.getByRole('menu')).toHaveClass('w-auto');
+  });
+
+  it('leaves past cards without an Add to calendar control', async () => {
+    mockFetch({
+      past: [makeSummary({ startsAt: '2020-11-03T23:00:00Z', endsAt: '2020-11-04T01:30:00Z' })],
+    });
+    render('/events/past');
+    expect(await screen.findByRole('link', { name: 'Code for Philly Hack Night' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /to calendar$/ })).not.toBeInTheDocument();
   });
 
   it('shows the empty state with the New event button for staff', async () => {
