@@ -165,4 +165,40 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
       return ok({ grant: fastify.services.agents.grantView(result.value.grant) });
     },
   );
+
+  fastify.post(
+    '/api/admin/agents/:slug/withdraw-votes',
+    {
+      schema: {
+        tags: ['agents'],
+        summary: "Withdraw every vote an agent has staged, in one commit (staff)",
+        params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+        body: {
+          type: ['object', 'null'],
+          properties: { since: { type: 'string', format: 'date-time' } },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request) => {
+      staffCaller(request);
+      const { slug } = request.params as { slug: string };
+      const agent = fastify.services.agents.agentOr404(slug);
+      const since = (request.body as { since?: string } | null)?.since ?? null;
+      const result = await fastify.store.transact(
+        buildTransactionOptions({
+          request,
+          action: 'agent.withdraw-votes',
+          subjectType: 'person',
+          subjectId: agent.id,
+          subjectSlug: slug,
+          responseCode: 200,
+          ...(since ? { summary: `since ${since}` } : {}),
+        }),
+        async (tx) => fastify.services.moderationWrite.withdrawAll(tx, slug, since),
+      );
+      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+      return ok({ withdrawn: result.value.withdrawn, reactivated: result.value.reactivated });
+    },
+  );
 }

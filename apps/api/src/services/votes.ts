@@ -8,8 +8,9 @@
  * counts for nothing on this one: not in the roster's vote fields, not in the
  * reversal rule, not in the scheduled purge.
  */
-import type { Person, PersonEvaluation } from '@cfp/shared/schemas';
+import { evaluatorKind, evaluatorSlug, type Person, type PersonEvaluation } from '@cfp/shared/schemas';
 
+import { agentHasActiveGrant } from '../auth/agent-grant.js';
 import type { InMemoryState } from '../store/memory/state.js';
 
 /** Whether `vote` was cast on this account (at or after its `createdAt`). */
@@ -38,4 +39,53 @@ export function votesOnEarlierAccounts(
   person: Pick<Person, 'slug' | 'createdAt'>,
 ): PersonEvaluation[] {
   return evaluationsForSlug(state, person.slug).filter((v) => !isOnAccount(v, person.createdAt));
+}
+
+/** Votes on this account by staff (`human-*`). */
+export function humanVotesOnAccount(state: InMemoryState, person: Pick<Person, 'slug' | 'createdAt'>): PersonEvaluation[] {
+  return votesOnAccount(state, person).filter((v) => evaluatorKind(v.evaluator) === 'human');
+}
+
+/** Votes on this account by agents (`agent-*`). */
+export function agentVotesOnAccount(state: InMemoryState, person: Pick<Person, 'slug' | 'createdAt'>): PersonEvaluation[] {
+  return votesOnAccount(state, person).filter((v) => evaluatorKind(v.evaluator) === 'agent');
+}
+
+/** Whether any human has voted on this account. */
+export function hasHumanVote(state: InMemoryState, person: Pick<Person, 'slug' | 'createdAt'>): boolean {
+  return humanVotesOnAccount(state, person).length > 0;
+}
+
+/**
+ * The deciding votes (specs/behaviors/person-lifecycle.md → Deciding votes):
+ * the human votes on this account when there are any; otherwise the votes of
+ * agents that hold an active grant at `now`.
+ */
+export function decidingVotes(
+  state: InMemoryState,
+  person: Pick<Person, 'slug' | 'createdAt'>,
+  now: Date = new Date(),
+): PersonEvaluation[] {
+  const humans = humanVotesOnAccount(state, person);
+  if (humans.length > 0) return humans;
+  return agentVotesOnAccount(state, person).filter((v) => {
+    const agentSlug = evaluatorSlug(v.evaluator);
+    return agentSlug !== null && agentHasActiveGrant(state, agentSlug, now);
+  });
+}
+
+/** The newest of `votes`, or null. */
+export function newestVote(votes: readonly PersonEvaluation[]): PersonEvaluation | null {
+  let newest: PersonEvaluation | null = null;
+  for (const v of votes) if (!newest || Date.parse(v.evaluatedAt) > Date.parse(newest.evaluatedAt)) newest = v;
+  return newest;
+}
+
+/**
+ * The newest agent vote on this account when no human has voted on it, else
+ * null — what the roster shows as `stagedVote`.
+ */
+export function stagedAgentVote(state: InMemoryState, person: Pick<Person, 'slug' | 'createdAt'>): PersonEvaluation | null {
+  if (hasHumanVote(state, person)) return null;
+  return newestVote(agentVotesOnAccount(state, person));
 }

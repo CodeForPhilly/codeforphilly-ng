@@ -218,6 +218,31 @@ describe('prune-spam', () => {
     expect(await slugsOn(data.path, 'published', 'people')).toEqual(['reborn']);
   });
 
+  it('an agent legit protects; an agent spam never prunes; an earlier account\'s agent vote is ignored', async () => {
+    const agentVote = (personSlug: string, verdict: Evaluation['verdict'], evaluatedAt = NOW): Evaluation => ({
+      personSlug, evaluator: 'agent-example-bot', verdict, flags: ['agent'], reasoning: 'staged', evaluatedAt,
+    });
+    const { data, evaluationsPath } = await setup({
+      people: [
+        person(1, 'agent-cleared'),
+        person(2, 'agent-staged'),
+        { ...person(3, 'reborn-two'), createdAt: LATER, updatedAt: LATER },
+      ],
+      machineEvals: [
+        machine('agent-cleared', 'spam', 0.95),
+        machine('reborn-two', 'spam', 0.95),
+      ],
+      humanVotes: [
+        agentVote('agent-cleared', 'legit'),
+        agentVote('agent-staged', 'spam'),
+        // Cast on an earlier account under the slug: it does not protect the new one.
+        agentVote('reborn-two', 'legit', NOW),
+      ],
+    });
+    await pruneSpam(args(data, evaluationsPath));
+    expect(await slugsOn(data.path, 'published', 'people')).toEqual(['agent-cleared', 'agent-staged']);
+  });
+
   it('creates the local branch from origin/<branch> on a fresh clone', async () => {
     const { data, evaluationsPath } = await setup({
       people: [person(1, 'spammer'), person(2, 'kept')],

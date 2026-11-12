@@ -1,27 +1,23 @@
 /**
  * Moderation API — specs/api/moderation.md.
  *
- *   GET  /api/admin/members             — staff roster, newest signup first
- *   GET  /api/admin/members/:slug       — one member's footprint + human votes
- *   POST /api/admin/members/:slug/vote  — record the caller's spam/legit verdict
+ *   GET    /api/admin/members             — staff | agent:moderation:read
+ *   GET    /api/admin/members/:slug       — staff | agent:moderation:read
+ *   POST   /api/admin/members/:slug/vote  — staff | agent:moderation:vote
+ *   DELETE /api/admin/members/:slug/vote  — agent:moderation:vote
  *
- * Every route is staff/admin only and answers 404 to anyone else: like the
- * other staff surfaces, the endpoints' existence is not a signal.
+ * Anyone else gets 404: like the other staff surfaces, the endpoints'
+ * existence is not a signal. An agent reads the roster without emails and
+ * its votes are staged (moderation.md → Agent callers, Agent votes).
  */
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
+import { agentCaller, moderationCaller } from '../auth/caller.js';
 import type { MemberOrigin, VoteFilter } from '../services/moderation.js';
 import { findOrphanPrivateData, purgeOrphanPrivateData } from '../services/private-orphans.js';
-
-function requireStaffOr404(request: FastifyRequest): void {
-  const level = request.session.accountLevel;
-  if (level !== 'staff' && level !== 'administrator') {
-    throw new ApiNotFoundError('Not found');
-  }
-}
 
 export async function moderationRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
@@ -34,7 +30,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
           type: 'object',
           properties: {
             q: { type: 'string' },
-            vote: { type: 'string', enum: ['none', 'spam', 'legit'] },
+            vote: { type: 'string', enum: ['none', 'staged', 'spam', 'legit'] },
             origin: { type: 'string', enum: ['imported', 'signed-up'] },
             joinedAfter: { type: 'string' },
             joinedBefore: { type: 'string' },
@@ -48,7 +44,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
       },
     },
     async (request) => {
-      requireStaffOr404(request);
+      const caller = moderationCaller(request, 'moderation:read');
       const q = request.query as Record<string, unknown>;
       const result = await fastify.services.moderation.listMembers({
         q: q['q'] as string | undefined,
@@ -60,6 +56,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
         sort: q['sort'] as string | undefined,
         page: q['page'] as number | undefined,
         perPage: q['perPage'] as number | undefined,
+        viewer: caller.kind,
       });
       if ('error' in result) {
         throw new ApiValidationError('Unknown sort key', { sort: 'unknown sort key' });
@@ -78,22 +75,28 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
     {
       schema: {
         tags: ['moderation'],
-        summary: "One member's footprint on the site and every human vote",
+        summary: "One member's footprint on the site and every vote on record",
         params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
       },
     },
     async (request) => {
-      requireStaffOr404(request);
+      const caller = moderationCaller(request, 'moderation:read');
       const { slug } = request.params as { slug: string };
-      const caller = getCallerSession(request);
-      const person = await fastify.services.people.get(slug, caller);
-      const footprint = fastify.services.moderation.footprint(slug);
-      if (!person || !footprint) throw new ApiNotFoundError(`Person '${slug}' not found`);
+      const moderation = fastify.services.moderation;
+      const person =
+        caller.kind === 'agent'
+          ? await fastify.services.people.get(slug, undefined, { moderationReader: true })
+          : await fastify.services.people.get(slug, getCallerSession(request));
+      const footprint = moderation.footprint(slug);
+      const row = await moderation.memberRow(slug, caller.kind);
+      if (!person || !footprint || !row) throw new ApiNotFoundError(`Person '${slug}' not found`);
       return ok({
+        ...row,
         person,
         footprint,
-        votes: fastify.services.moderation.humanVotes(slug),
-        earlierVotes: fastify.services.moderation.earlierVotes(slug),
+        votes: moderation.votes(slug),
+        earlierVotes: moderation.earlierVotes(slug),
+        earlierPurges: moderation.earlierPurges(slug),
       });
     },
   );
@@ -110,6 +113,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
           properties: {
             verdict: { type: 'string', enum: ['spam', 'legit'] },
             reasoning: { type: 'string', maxLength: 1000 },
+            flags: { type: 'array', items: { type: 'string' } },
           },
           required: ['verdict'],
           additionalProperties: false,
@@ -117,27 +121,67 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
       },
     },
     async (request) => {
-      requireStaffOr404(request);
+      const caller = moderationCaller(request, 'moderation:vote');
       const { slug } = request.params as { slug: string };
-      const body = request.body as { verdict: 'spam' | 'legit'; reasoning?: string };
+      const body = request.body as { verdict: 'spam' | 'legit'; reasoning?: string; flags?: string[] };
+      if (caller.kind === 'staff' && body.flags !== undefined) {
+        throw new ApiValidationError('Flags are for agent votes', { flags: 'not accepted on a staff vote' });
+      }
       const result = await fastify.store.transact(
         buildTransactionOptions({
           request,
+          session: caller.session,
           action: 'moderation.vote',
           subjectType: 'person',
           subjectSlug: slug,
           responseCode: 200,
           summary: `${body.verdict}${body.reasoning ? `: ${body.reasoning}` : ''}`,
         }),
-        async (tx) => fastify.services.moderationWrite.castVote(tx, slug, request.session, body),
+        async (tx) => fastify.services.moderationWrite.castVote(tx, slug, caller.session, body),
       );
       result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
-      const caller = getCallerSession(request);
-      const person = await fastify.services.people.get(result.value.person.slug, caller);
+      const person =
+        caller.kind === 'agent'
+          ? await fastify.services.people.get(result.value.person.slug, undefined, { moderationReader: true })
+          : await fastify.services.people.get(result.value.person.slug, getCallerSession(request));
       return ok({
         person,
         vote: result.value.vote,
         latestVote: fastify.services.moderation.latestHumanVote(slug),
+        stagedVote: fastify.services.moderation.stagedVote(slug),
+        purgeAfter: (await fastify.services.moderation.memberRow(slug, caller.kind))?.purgeAfter ?? null,
+      });
+    },
+  );
+
+  // DELETE /api/admin/members/:slug/vote — an agent takes back its own vote.
+  fastify.delete(
+    '/api/admin/members/:slug/vote',
+    {
+      schema: {
+        tags: ['moderation'],
+        summary: "Withdraw the calling agent's own vote (agents only)",
+        params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      },
+    },
+    async (request) => {
+      const caller = agentCaller(request, 'moderation:vote');
+      const { slug } = request.params as { slug: string };
+      const result = await fastify.store.transact(
+        buildTransactionOptions({
+          request,
+          session: caller.session,
+          action: 'moderation.vote-withdraw',
+          subjectType: 'person',
+          subjectSlug: slug,
+          responseCode: 200,
+        }),
+        async (tx) => fastify.services.moderationWrite.withdrawVote(tx, slug, caller.session),
+      );
+      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+      return ok({
+        person: await fastify.services.people.get(slug, undefined, { moderationReader: true }),
+        stagedVote: fastify.services.moderation.stagedVote(slug),
       });
     },
   );

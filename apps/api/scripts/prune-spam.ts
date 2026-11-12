@@ -43,7 +43,7 @@ import { ConfigError, openRepo, RefError, type Repository } from 'gitsheets';
 
 import { openPublicStore } from '../src/store/public.js';
 import { SHEET_REFERENCES } from '@cfp/shared';
-import { HUMAN_EVALUATOR_PREFIX } from '@cfp/shared/schemas';
+import { AGENT_EVALUATOR_PREFIX, HUMAN_EVALUATOR_PREFIX } from '@cfp/shared/schemas';
 import type { ProjectUpdate, TagAssignment } from '@cfp/shared/schemas';
 
 /**
@@ -187,6 +187,13 @@ export function foldEvaluation(
     entry = { hasConfidentSpam: false, hasAnyLegit: false, humanVerdict: null, humanEvaluatedAt: null };
     verdictMap.set(personSlug, entry);
   }
+  if (evaluator.startsWith(AGENT_EVALUATOR_PREFIX)) {
+    // An agent vote never prunes: its `legit` protects like any evaluator's;
+    // its `spam` reaches deletion only through the runtime's scheduled purge
+    // after three days (specs/behaviors/spam-exclusion.md).
+    if (verdict === 'legit') entry.hasAnyLegit = true;
+    return;
+  }
   if (evaluator.startsWith(HUMAN_EVALUATOR_PREFIX)) {
     // Latest human vote wins; ties resolve to whichever is read last.
     if (verdict !== null && (entry.humanEvaluatedAt === null || (evaluatedAt ?? '') >= entry.humanEvaluatedAt)) {
@@ -201,9 +208,9 @@ export function foldEvaluation(
   }
 }
 
-/** A vote cast on the site (as opposed to an offline machine pass). */
+/** A vote cast on the site — staff or agent — as opposed to an offline machine pass. */
 function isSiteVote(evaluator: string): boolean {
-  return evaluator.startsWith(HUMAN_EVALUATOR_PREFIX);
+  return evaluator.startsWith(HUMAN_EVALUATOR_PREFIX) || evaluator.startsWith(AGENT_EVALUATOR_PREFIX);
 }
 
 /**
