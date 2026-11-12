@@ -15,6 +15,7 @@ import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError, ForbiddenError } from '../lib/errors.js';
 import { computePersonPermissions, getCallerSession } from '../services/permissions.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
+import { containsUrl } from '../services/agent-purge.js';
 import type { UpdatePersonInput } from '../services/person.write.js';
 import { AVATAR_ALLOWED_MIME, processAvatar } from '../lib/avatar.js';
 import type { Person } from '@cfp/shared/schemas';
@@ -231,14 +232,29 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
 
   // POST /api/people/:slug/purge (administrator only)
   // Spec: specs/behaviors/person-lifecycle.md, specs/api/people.md
+  // Body (optional): { spam, reason } — a spam purge writes a spam-purges
+  // record in the same commit, blocking the GitHub account from signing up.
   fastify.post('/api/people/:slug/purge', {
     schema: {
       tags: ['people'],
       summary: 'Purge a person and all their content (admin only)',
       params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      body: {
+        type: ['object', 'null'],
+        properties: {
+          spam: { type: 'boolean' },
+          reason: { type: 'string', maxLength: 1000 },
+        },
+        additionalProperties: false,
+      },
     },
   }, async (request, reply) => {
     const { slug } = request.params as { slug: string };
+    const body = (request.body ?? {}) as { spam?: boolean; reason?: string };
+    const reason = body.reason?.trim() || null;
+    if (reason && containsUrl(reason)) {
+      throw new ApiValidationError('A purge reason must not contain a URL', { reason: 'must not contain a URL' });
+    }
     const personId = fastify.inMemoryState.personIdBySlug.get(slug);
     const result = await fastify.store.transact(
       buildTransactionOptions({
@@ -247,8 +263,14 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
         subjectType: 'person',
         subjectSlug: slug,
         responseCode: 204,
+        ...(body.spam ? { summary: reason ? `spam: ${reason}` : 'spam' } : {}),
       }),
-      async (tx) => fastify.services.peopleWrite.purge(tx, slug, request.session),
+      async (tx) =>
+        fastify.services.peopleWrite.purge(tx, slug, request.session, {
+          ...(body.spam
+            ? { spam: { reason, beforeCommit: async () => (await fastify.publicRepo.resolveRef('HEAD')) ?? 'unknown' } }
+            : {}),
+        }),
     );
     result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
     if (personId) await fastify.sessionMetadata.removeAllFor(personId, fastify.store.private);

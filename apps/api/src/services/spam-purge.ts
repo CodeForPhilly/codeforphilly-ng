@@ -4,7 +4,7 @@
  * stood unopposed for three days, a daily sweep purges every queued person in
  * one commit.
  */
-import { evaluatorKind, type Person } from '@cfp/shared/schemas';
+import { SCHEDULED_PURGER, evaluatorKind, type Person } from '@cfp/shared/schemas';
 import type { FastifyBaseLogger } from 'fastify';
 
 import type { FtsEngine } from '../store/fts.js';
@@ -14,6 +14,7 @@ import type { Store } from '../store/store.js';
 import type { SessionMetadataStore } from '../auth/session-metadata.js';
 import { purgePeople } from './person-purge.js';
 import { decidingVotes } from './votes.js';
+import { spamPurgeRecord } from './spam-purges.js';
 import { isAgentAccount } from '../auth/agent-grant.js';
 
 /** How long a spam vote stands before the sweep acts on it. */
@@ -59,6 +60,12 @@ export function stagedBy(state: InMemoryState, person: Person, now: Date): strin
   return [...new Set(votes.map((v) => v.evaluator))].sort();
 }
 
+/** The `spam-purges` reason for a swept person: the deciding voters, by evaluator. */
+export function scheduledReason(state: InMemoryState, person: Person, now: Date): string {
+  const voters = [...new Set(decidingVotes(state, person, now).map((v) => v.evaluator))].sort();
+  return `Spam votes by ${voters.join(', ')} stood unopposed for three days.`;
+}
+
 /** The sweep commit's slug lines: `<slug>` or `<slug> (staged by agent-<x>)`. */
 export function sweepLines(state: InMemoryState, people: readonly Person[], now: Date): { lines: string[]; agentStaged: number } {
   let agentStaged = 0;
@@ -72,6 +79,8 @@ export function sweepLines(state: InMemoryState, people: readonly Person[], now:
 }
 
 export interface SpamPurgeDeps {
+  /** The data repo commit a purge is applied on top of (the spam-purges record's `beforeCommit`). */
+  readonly headCommit: () => Promise<string>;
   readonly state: InMemoryState;
   readonly fts: FtsEngine;
   readonly store: Store;
@@ -108,7 +117,24 @@ export class SpamPurgeService {
           // since the queue was read wins, and the batch waits for the next run.
           const current = queuedForSpamPurge(this.#d.state, now).map((p) => p.slug);
           if (current.join() !== slugs.join()) throw new QueueChanged();
+          // Who decided, read before the purge removes nothing of theirs: the
+          // votes stay, but read them while the people are still in memory.
+          const reasons = queued.map((p) => scheduledReason(this.#d.state, p, now));
           await purgePeople(tx, this.#d.state, stateApply, queued);
+          // Three days unopposed is a spam verdict: each purged GitHub account
+          // is blocked from signing straight back up (person-lifecycle.md).
+          const beforeCommit = await this.#d.headCommit();
+          for (const [i, person] of queued.entries()) {
+            const record = spamPurgeRecord({
+              person,
+              by: SCHEDULED_PURGER,
+              reason: reasons[i]!,
+              beforeCommit,
+              purgedAt: now.toISOString(),
+            });
+            await tx.public['spam-purges'].upsert(record);
+            stateApply.upsertSpamPurge(record);
+          }
         },
       );
     } catch (err) {

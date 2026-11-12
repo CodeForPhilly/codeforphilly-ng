@@ -15,8 +15,10 @@ import { uuidv7 } from 'uuidv7';
 import {
   PersonSchema,
   PrivateProfileSchema,
+  humanEvaluatorFor,
   type Person,
   type PrivateProfile,
+  type SpamPurge,
 } from '@cfp/shared/schemas';
 import type { DualStoreTx } from '../store/store.js';
 import type { InMemoryState } from '../store/memory/state.js';
@@ -37,6 +39,7 @@ import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from '
 import type { PrivateStore } from '../store/private/index.js';
 import { cascadeRename } from './reference-cascade.js';
 import { purgePeople } from './person-purge.js';
+import { spamPurgeRecord } from './spam-purges.js';
 import { purgeableProjects } from './project-purge.js';
 import { rekeyAttachment, upsertMoved } from './slug-rename.js';
 
@@ -275,7 +278,11 @@ export class PersonWriteService {
     tx: DualStoreTx,
     slug: string,
     session: SessionContext,
-  ): Promise<{ stateApply: StateApply }> {
+    opts: {
+      /** "This was spam": write a spam-purges record that blocks re-sign-up (specs/api/people.md). */
+      readonly spam?: { readonly reason: string | null; readonly beforeCommit: () => Promise<string> };
+    } = {},
+  ): Promise<{ stateApply: StateApply; spamPurge: SpamPurge | null }> {
     requireAuth('administrator', { session });
 
     const id = this.#state.personIdBySlug.get(slug);
@@ -286,7 +293,19 @@ export class PersonWriteService {
     const stateApply = new StateApply();
     await purgePeople(tx, this.#state, stateApply, [existing]);
 
-    return { stateApply };
+    let spamPurge: SpamPurge | null = null;
+    if (opts.spam) {
+      spamPurge = spamPurgeRecord({
+        person: existing,
+        by: humanEvaluatorFor(session.person!.slug),
+        reason: opts.spam.reason,
+        beforeCommit: await opts.spam.beforeCommit(),
+      });
+      await tx.public['spam-purges'].upsert(spamPurge);
+      stateApply.upsertSpamPurge(spamPurge);
+    }
+
+    return { stateApply, spamPurge };
   }
 
   /**

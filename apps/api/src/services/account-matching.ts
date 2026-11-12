@@ -11,7 +11,7 @@
  * candidate: email-match seeds the candidate set, username-match adds to it,
  * and the user is the one who confirms at /account-claim.
  */
-import type { Person } from '@cfp/shared/schemas';
+import { spamPurgeBlocks, type Person } from '@cfp/shared/schemas';
 import type { InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/index.js';
 import type { ResolvedGitHubIdentity } from '../auth/github-client.js';
@@ -62,4 +62,16 @@ export async function resolveIdentity(
 
   if (candidates.size === 0) return { kind: 'create-fresh' };
   return { kind: 'candidates', candidates: [...candidates] };
+}
+
+/**
+ * Whether a `spam-purges` record blocks this GitHub id from signing up or
+ * linking (specs/api/auth.md → "Purged as spam"): an in-memory index lookup.
+ */
+export function isGitHubIdBlocked(state: InMemoryState, ghUserId: number): boolean {
+  for (const id of state.spamPurgesByGithubUserId.get(ghUserId) ?? []) {
+    const record = state.spamPurges.get(id);
+    if (record && spamPurgeBlocks(record)) return true;
+  }
+  return false;
 }

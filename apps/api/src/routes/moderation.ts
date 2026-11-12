@@ -6,6 +6,8 @@
  *   POST   /api/admin/members/:slug/vote  — staff | agent:moderation:vote
  *   DELETE /api/admin/members/:slug/vote  — agent:moderation:vote
  *   POST   /api/admin/members/:slug/purge — agent:moderation:purge
+ *   GET    /api/admin/spam-purges         — staff | agent:moderation:read
+ *   POST   /api/admin/spam-purges/:id/unblock — staff
  *
  * Anyone else gets 404: like the other staff surfaces, the endpoints'
  * existence is not a signal. An agent reads the roster without emails and
@@ -18,7 +20,7 @@ import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
 import { buildTransactionOptions, withInlineTrailers } from '../store/commit-meta.js';
 import { evidenceTrailer, validatePurgeBody, type AgentPurgeInput } from '../services/agent-purge.js';
-import { agentCaller, moderationCaller } from '../auth/caller.js';
+import { agentCaller, moderationCaller, staffCaller } from '../auth/caller.js';
 import type { MemberOrigin, VoteFilter } from '../services/moderation.js';
 import { findOrphanPrivateData, purgeOrphanPrivateData } from '../services/private-orphans.js';
 
@@ -267,6 +269,82 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
       result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
       await fastify.sessionMetadata.removeAllFor(member.id, fastify.store.private);
       return ok({ purge: result.value.purge, deleted: result.value.deleted, dryRun: false });
+    },
+  );
+
+  // GET /api/admin/spam-purges — the purge log, newest first.
+  fastify.get(
+    '/api/admin/spam-purges',
+    {
+      schema: {
+        tags: ['moderation'],
+        summary: 'The spam-purge log, newest first',
+        querystring: {
+          type: 'object',
+          properties: {
+            by: { type: 'string' },
+            slug: { type: 'string' },
+            since: { type: 'string' },
+            blocking: { type: 'boolean' },
+            page: { type: 'integer', minimum: 1 },
+            perPage: { type: 'integer', minimum: 1, maximum: 200 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request) => {
+      moderationCaller(request, 'moderation:read');
+      const q = request.query as { by?: string; slug?: string; since?: string; blocking?: boolean; page?: number; perPage?: number };
+      if (q.since !== undefined && Number.isNaN(Date.parse(q.since))) {
+        throw new ApiValidationError('Invalid date', { since: 'ISO date' });
+      }
+      const result = fastify.services.spamPurges.list(q);
+      return paginated(result.items, {
+        page: result.page,
+        perPage: result.perPage,
+        totalItems: result.totalItems,
+        totalPages: Math.max(1, Math.ceil(result.totalItems / result.perPage)),
+      });
+    },
+  );
+
+  // POST /api/admin/spam-purges/:id/unblock — staff lift a sign-up block.
+  fastify.post(
+    '/api/admin/spam-purges/:id/unblock',
+    {
+      schema: {
+        tags: ['moderation'],
+        summary: 'Let a spam-purged GitHub account sign up again (staff)',
+        params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        body: {
+          type: ['object', 'null'],
+          properties: { reason: { type: 'string', maxLength: 1000 } },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request) => {
+      const session = staffCaller(request);
+      const { id } = request.params as { id: string };
+      const reason = (request.body as { reason?: string } | null)?.reason?.trim() || null;
+      const service = fastify.services.spamPurges;
+      const existing = service.recordOr404(id);
+      if (existing.unblockedAt) return ok({ purge: service.view(existing) });
+      const result = await fastify.store.transact(
+        buildTransactionOptions({
+          request,
+          action: 'spam-purge.unblock',
+          subjectType: 'spam-purge',
+          subjectId: id,
+          subjectSlug: existing.personSlug,
+          responseCode: 200,
+          ...(reason ? { summary: reason } : {}),
+        }),
+        async (tx) => service.unblock(tx, id, session.person!.slug, reason),
+      );
+      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+      return ok({ purge: service.view(result.value.record) });
     },
   );
 

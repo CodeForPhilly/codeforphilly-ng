@@ -34,6 +34,7 @@ import { AccountClaimService } from '../services/account-claim.js';
 import { ModerationService, ModerationWriteService } from '../services/moderation.js';
 import { AgentService } from '../services/agents.js';
 import { AgentPurgeService } from '../services/agent-purge.js';
+import { SpamPurgeLogService, dataRepoWebUrl } from '../services/spam-purges.js';
 import { probeGitHubUser } from '../auth/github-client.js';
 import { LoggingNotifier, type Notifier } from '../notify/index.js';
 import { EmailNotifier } from '../notify/email-notifier.js';
@@ -68,6 +69,7 @@ declare module 'fastify' {
       moderationWrite: ModerationWriteService;
       agents: AgentService;
       agentPurge: AgentPurgeService;
+      spamPurges: SpamPurgeLogService;
     };
     /** Shared in-memory state — write routes call StateApply.apply against this. */
     inMemoryState: InMemoryState;
@@ -159,6 +161,10 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
     moderationWrite: new ModerationWriteService(state),
     agents: new AgentService(state, fastify.store.private),
     agentPurge: new AgentPurgeService(state, fastify.store.private),
+    spamPurges: new SpamPurgeLogService(state, {
+      webUrl: dataRepoWebUrl(fastify.config.CFP_DATA_REMOTE),
+      branch: fastify.config.CFP_DATA_BRANCH ?? 'published',
+    }),
   });
 }
 
