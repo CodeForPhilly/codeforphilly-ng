@@ -58,6 +58,9 @@ describe('SHEET_REFERENCES', () => {
       'event-rsvps.eventSlug → events.slug',
       'event-rsvps.personSlug → people.slug',
       'person-evaluations.personSlug → people.slug',
+      // An agent grant follows its agent's renames; a spam-purges record's
+      // personSlug is deliberately not a reference (the person is gone).
+      'agent-grants.personSlug → people.slug',
     ]);
   });
 

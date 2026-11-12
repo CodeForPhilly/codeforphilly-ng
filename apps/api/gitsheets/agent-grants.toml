@@ -1,0 +1,10 @@
+[gitsheet]
+path = "${{ personSlug }}/${{ id }}"
+root = "agent-grants"
+
+# Scoped API grants for agent accounts — automated moderators an
+# administrator lets act on the site (codeforphilly-ng specs/api/agents.md).
+# Public on purpose: which programs may act, with which scopes, granted by
+# whom, until when. The token and its hash are never here; the hash lives in
+# the site's private store. The only writer is the site.
+implements = ["codeforphilly.org/agent-grants/v1"]

@@ -57,8 +57,25 @@ export type { AccountClaimRequest } from './account-claim-request.js';
 export {
   PersonEvaluationSchema,
   HUMAN_EVALUATOR_PREFIX,
+  AGENT_EVALUATOR_PREFIX,
   isHumanEvaluator,
   humanEvaluatorFor,
+  isAgentEvaluator,
+  agentEvaluatorFor,
+  evaluatorKind,
+  evaluatorSlug,
   personEvaluationKey,
 } from './person-evaluation.js';
-export type { PersonEvaluation } from './person-evaluation.js';
+export type { PersonEvaluation, EvaluatorKind } from './person-evaluation.js';
+
+export { AgentGrantSchema, AgentGrantSecretSchema, AGENT_SCOPES } from './agent-grant.js';
+export type { AgentGrant, AgentGrantSecret, AgentScope } from './agent-grant.js';
+
+export {
+  SpamPurgeSchema,
+  SpamPurgeEvidenceSchema,
+  SPAM_EVIDENCE_RECORDS,
+  SCHEDULED_PURGER,
+  spamPurgeBlocks,
+} from './spam-purge.js';
+export type { SpamPurge, SpamPurgeEvidence, SpamEvidenceRecord } from './spam-purge.js';

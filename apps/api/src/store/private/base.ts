@@ -1,11 +1,13 @@
 import {
   AccountClaimRequestSchema,
+  AgentGrantSecretSchema,
   LegacyPasswordCredentialSchema,
   PasswordTokenSchema,
   PrivateProfileSchema,
 } from '@cfp/shared/schemas';
 import type {
   AccountClaimRequest,
+  AgentGrantSecret,
   LegacyPasswordCredential,
   PasswordToken,
   PrivateProfile,
@@ -23,6 +25,10 @@ export abstract class BasePrivateStore implements PrivateStore {
   protected legacyPasswords: Map<string, LegacyPasswordCredential> = new Map();
   protected passwordTokens: Map<string, PasswordToken> = new Map();
   protected claimRequests: Map<string, AccountClaimRequest> = new Map();
+  /** Agent grant token hashes, keyed by grantId. */
+  protected grantSecrets: Map<string, AgentGrantSecret> = new Map();
+  /** tokenHash → grantId, rebuilt with the indices. */
+  protected grantIdByHash: Map<string, string> = new Map();
 
   readonly indices: PrivateIndices = {
     byEmail: new Map(),
@@ -41,6 +47,7 @@ export abstract class BasePrivateStore implements PrivateStore {
       this.loadLegacyPasswords(),
       this.loadPasswordTokens(),
       this.loadClaimRequests(),
+      this.loadGrantSecrets(),
     ]);
     this.rebuildIndices();
   }
@@ -69,9 +76,16 @@ export abstract class BasePrivateStore implements PrivateStore {
     this.passwordTokens = parseJsonl(raw, PasswordTokenSchema, 'tokenHash');
   }
 
+  private async loadGrantSecrets(): Promise<void> {
+    const raw = await this.readRaw('agent-grant-secrets.jsonl');
+    this.grantSecrets = parseJsonl(raw, AgentGrantSecretSchema, 'grantId');
+  }
+
   private rebuildIndices(): void {
     this.indices.byEmail.clear();
     this.indices.byUnsubscribeToken.clear();
+    this.grantIdByHash.clear();
+    for (const secret of this.grantSecrets.values()) this.grantIdByHash.set(secret.tokenHash, secret.grantId);
 
     for (const profile of this.profiles.values()) {
       this.indices.byEmail.set(profile.email.toLowerCase(), profile.personId);
@@ -161,6 +175,22 @@ export abstract class BasePrivateStore implements PrivateStore {
     return [...this.claimRequests.values()];
   }
 
+  getGrantSecretByHash(tokenHash: string): AgentGrantSecret | null {
+    const grantId = this.grantIdByHash.get(tokenHash);
+    return grantId ? (this.grantSecrets.get(grantId) ?? null) : null;
+  }
+
+  getGrantSecret(grantId: string): AgentGrantSecret | null {
+    return this.grantSecrets.get(grantId) ?? null;
+  }
+
+  async putGrantSecret(secret: AgentGrantSecret): Promise<void> {
+    const parsed = AgentGrantSecretSchema.parse(secret);
+    this.grantSecrets.set(parsed.grantId, parsed);
+    this.grantIdByHash.set(parsed.tokenHash, parsed.grantId);
+    await this.flushGrantSecrets();
+  }
+
   async readBlob(key: string): Promise<string | null> {
     return this.readRaw(key);
   }
@@ -175,6 +205,7 @@ export abstract class BasePrivateStore implements PrivateStore {
     const legacySnapshot = new Map(this.legacyPasswords);
     const claimRequestsSnapshot = new Map(this.claimRequests);
     const passwordTokensSnapshot = new Map(this.passwordTokens);
+    const grantSecretsSnapshot = new Map(this.grantSecrets);
 
     // Staged mutations applied only in-memory during the handler
     const stagedProfilePuts: Map<string, PrivateProfile> = new Map();
@@ -183,6 +214,7 @@ export abstract class BasePrivateStore implements PrivateStore {
     const stagedLegacyDeletes: Set<string> = new Set();
     const stagedClaimRequestPuts: Map<string, AccountClaimRequest> = new Map();
     const stagedPersonPurges: Set<string> = new Set();
+    const stagedGrantSecretPuts: Map<string, AgentGrantSecret> = new Map();
 
     const tx: PrivateStoreTx = {
       putProfile: (profile) => {
@@ -207,10 +239,17 @@ export abstract class BasePrivateStore implements PrivateStore {
         const parsed = AccountClaimRequestSchema.parse(req);
         stagedClaimRequestPuts.set(parsed.id, parsed);
       },
+      putGrantSecret: (secret) => {
+        const parsed = AgentGrantSecretSchema.parse(secret);
+        stagedGrantSecretPuts.set(parsed.grantId, parsed);
+      },
       deletePersonData: (personId) => {
         stagedPersonPurges.add(personId);
         stagedProfilePuts.delete(personId);
         stagedLegacyPuts.delete(personId);
+        for (const [id, secret] of stagedGrantSecretPuts) {
+          if (secret.personId === personId) stagedGrantSecretPuts.delete(id);
+        }
       },
     };
 
@@ -223,6 +262,7 @@ export abstract class BasePrivateStore implements PrivateStore {
       this.legacyPasswords = legacySnapshot;
       this.claimRequests = claimRequestsSnapshot;
       this.passwordTokens = passwordTokensSnapshot;
+      this.grantSecrets = grantSecretsSnapshot;
       this.rebuildIndices();
       throw err;
     }
@@ -243,6 +283,10 @@ export abstract class BasePrivateStore implements PrivateStore {
     for (const [id, req] of stagedClaimRequestPuts) {
       this.claimRequests.set(id, req);
     }
+    for (const [id, secret] of stagedGrantSecretPuts) {
+      this.grantSecrets.set(id, secret);
+    }
+    let grantSecretsPurged = false;
     for (const personId of stagedPersonPurges) {
       this.profiles.delete(personId);
       this.legacyPasswords.delete(personId);
@@ -251,6 +295,12 @@ export abstract class BasePrivateStore implements PrivateStore {
       }
       for (const [hash, token] of this.passwordTokens) {
         if (token.personId === personId) this.passwordTokens.delete(hash);
+      }
+      for (const [id, secret] of this.grantSecrets) {
+        if (secret.personId === personId) {
+          this.grantSecrets.delete(id);
+          grantSecretsPurged = true;
+        }
       }
     }
     this.rebuildIndices();
@@ -270,6 +320,9 @@ export abstract class BasePrivateStore implements PrivateStore {
     if (purging) {
       flushOps.push(this.flushPasswordTokens());
     }
+    if (grantSecretsPurged || stagedGrantSecretPuts.size > 0) {
+      flushOps.push(this.flushGrantSecrets());
+    }
 
     try {
       await Promise.all(flushOps);
@@ -280,6 +333,7 @@ export abstract class BasePrivateStore implements PrivateStore {
       this.legacyPasswords = legacySnapshot;
       this.claimRequests = claimRequestsSnapshot;
       this.passwordTokens = passwordTokensSnapshot;
+      this.grantSecrets = grantSecretsSnapshot;
       this.rebuildIndices();
       throw new PrivateStoreError(
         'private_store_unavailable',
@@ -306,6 +360,11 @@ export abstract class BasePrivateStore implements PrivateStore {
     await this.writeRaw('account-claim-requests.jsonl', lines ? lines + '\n' : '');
   }
 
+  protected async flushGrantSecrets(): Promise<void> {
+    const lines = [...this.grantSecrets.values()].map((t) => JSON.stringify(t)).join('\n');
+    await this.writeRaw('agent-grant-secrets.jsonl', lines ? lines + '\n' : '');
+  }
+
   protected async flushPasswordTokens(): Promise<void> {
     const lines = [...this.passwordTokens.values()].map((t) => JSON.stringify(t)).join('\n');
     await this.writeRaw('password-tokens.jsonl', lines ? lines + '\n' : '');
@@ -315,7 +374,7 @@ export abstract class BasePrivateStore implements PrivateStore {
 function parseJsonl<T>(
   raw: string | null,
   schema: { parse: (input: unknown) => T },
-  keyField: 'personId' | 'id' | 'tokenHash' = 'personId',
+  keyField: 'personId' | 'id' | 'tokenHash' | 'grantId' = 'personId',
 ): Map<string, T> {
   const map = new Map<string, T>();
   if (!raw) return map;

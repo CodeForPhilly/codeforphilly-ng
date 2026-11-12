@@ -1,5 +1,10 @@
 import type { TransactionOptions, TransactionResult } from 'gitsheets';
-import type { AccountClaimRequest, LegacyPasswordCredential, PrivateProfile } from '@cfp/shared/schemas';
+import type {
+  AccountClaimRequest,
+  AgentGrantSecret,
+  LegacyPasswordCredential,
+  PrivateProfile,
+} from '@cfp/shared/schemas';
 import type { PrivateStore, PrivateStoreTx } from './private/index.js';
 import type { PublicStore, PublicStoreTx } from './public.js';
 
@@ -80,6 +85,7 @@ export class Store {
     const stagedLegacyPasswordDeletes: string[] = [];
     const stagedClaimRequestPuts: AccountClaimRequest[] = [];
     const stagedPersonPurges: string[] = [];
+    const stagedGrantSecretPuts: AgentGrantSecret[] = [];
 
     const privateTx: PrivateStoreTx = {
       putProfile: (profile) => { stagedPrivatePuts.push(profile); },
@@ -87,6 +93,7 @@ export class Store {
       putLegacyPassword: (cred) => { stagedLegacyPasswordPuts.push(cred); },
       deleteLegacyPassword: (personId) => { stagedLegacyPasswordDeletes.push(personId); },
       putClaimRequest: (req) => { stagedClaimRequestPuts.push(req); },
+      putGrantSecret: (secret) => { stagedGrantSecretPuts.push(secret); },
       deletePersonData: (personId) => { stagedPersonPurges.push(personId); },
     };
 
@@ -96,6 +103,7 @@ export class Store {
       stagedLegacyPasswordPuts.length > 0 ||
       stagedLegacyPasswordDeletes.length > 0 ||
       stagedClaimRequestPuts.length > 0 ||
+      stagedGrantSecretPuts.length > 0 ||
       stagedPersonPurges.length > 0;
 
     const flushPrivate = async (): Promise<void> => {
@@ -106,6 +114,7 @@ export class Store {
         for (const cred of stagedLegacyPasswordPuts) tx.putLegacyPassword(cred);
         for (const id of stagedLegacyPasswordDeletes) tx.deleteLegacyPassword(id);
         for (const req of stagedClaimRequestPuts) tx.putClaimRequest(req);
+        for (const secret of stagedGrantSecretPuts) tx.putGrantSecret(secret);
         for (const id of stagedPersonPurges) tx.deletePersonData(id);
       });
     };

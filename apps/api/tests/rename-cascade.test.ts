@@ -78,6 +78,16 @@ async function seedReferencingRecords(): Promise<void> {
       flags: [], evaluatedAt: NOW,
     });
 
+    for (const [id, personSlug] of [
+      ['01951a3c-0000-7000-8000-0000000000e6', fixtures.personSlug],
+      ['01951a3c-0000-7000-8000-0000000000e7', 'other-person'],
+    ] as const) {
+      await tx.sheet('agent-grants').upsert({
+        id, personSlug, label: 'test grant', scopes: ['moderation:read'], createdAt: NOW,
+        createdBySlug: 'other-person', expiresAt: '2026-08-13T18:42:00Z',
+      });
+    }
+
     // A buzz image: an attachment of the buzz record, keyed under its path.
     const buzzSheet = tx.sheet('project-buzz');
     const [buzz] = (await buzzSheet.queryAll()) as Array<Record<string, unknown>>;
@@ -134,6 +144,7 @@ function inMemory(state: InMemoryState, sheet: ContractSheet): Rec[] {
     'help-wanted-interest': state.helpWantedInterest,
     'event-rsvps': state.eventRsvps,
     'person-evaluations': state.personEvaluations,
+    'agent-grants': state.agentGrants,
   };
   const map = maps[sheet];
   if (!map) throw new Error(`test has no in-memory view of ${sheet}`);
