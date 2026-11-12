@@ -158,7 +158,12 @@ session, a browser sign-in, or staff powers.
   table is the source of truth on every request, unlike a stateless JWT.
 - **Limits.** Agent requests count against the per-account rate limits like
   anyone's; endpoints add their own (agent spam votes:
-  [api/moderation.md → Agent votes](../api/moderation.md#agent-votes)).
+  [api/moderation.md → Agent votes](../api/moderation.md#agent-votes); agent
+  purges: [api/moderation.md → Agent purges](../api/moderation.md#agent-purges)).
+- **Deleting is its own scope.** `moderation:purge` is never implied by another
+  scope and is the only scope that deletes anything. It does not make an agent
+  an administrator: it reaches one endpoint, for members under seven days old
+  who posted spam, with evidence the API checks, at most five a day.
 - **Secret handling.** The token is shown once at mint and never stored,
   logged (the `authorization` header is redacted from request logs), or written
   to either data store; only its hash is kept, in the private store.
@@ -168,6 +173,8 @@ cookies minted by a browser sign-in, its refresh token is not rotated, and it
 carries the full `staff` level (every staff endpoint, every member's email,
 deactivating anyone). Votes cast that way would also be recorded as
 `human-<slug>` — false in a public record. A grant is narrower on every count.
+Likewise an agent never gets `administrator` to reach the existing purge: that
+would let it purge anyone, of any age, with no stated reason.
 
 ## CSRF
 

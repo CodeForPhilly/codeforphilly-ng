@@ -86,7 +86,16 @@ deliberately **conservative — only confident spam is pruned**:
 > the runtime [scheduled spam purge](./person-lifecycle.md#scheduled-spam-purge),
 > after its three days. (An agent vote has no `confidence`, so the machine rule
 > below would ignore it anyway; the prune says so explicitly rather than relying
-> on that.)
+> on that.) An agent's purge of a member who *posted* spam is a runtime act,
+> not a vote: it deletes the member at once, under its own rules
+> ([api/moderation.md → Agent purges](../api/moderation.md#agent-purges)), and
+> leaves an `agent-*` `spam` record (flags `agent`, `purged`) on a slug that no
+> longer has a person, which the prune has nothing to do with.
+>
+> **Only this account's votes count.** A `human-*` or `agent-*` record whose
+> `evaluatedAt` is earlier than the person's `createdAt` was cast on an earlier
+> account under the same slug (purged since); the prune ignores it, as the
+> runtime does ([api/moderation.md → Votes belong to one account](../api/moderation.md#votes-belong-to-one-account)).
 >
 > Otherwise a person is **pruned as spam** iff they have at least one `spam`
 > verdict with `confidence ≥ SPAM_CONFIDENCE_THRESHOLD` (default **0.8**), no

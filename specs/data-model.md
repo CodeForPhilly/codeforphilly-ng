@@ -43,6 +43,7 @@ Tag ──── TagAssignment ──── (Project | Person | HelpWantedRole |
 Person ── has ── Revocation               (0:many; revoked JWT IDs)
 Person ── has ── AgentGrant               (0:many; only agent accounts)
 Person ── evaluated by ── PersonEvaluation (0:many; staff and agent spam votes)
+SpamPurge ── outlives the Person it records (by slug + githubUserId)
 SlugHistory ── points at any renamed entity by (entityType, oldSlug)
 
 PRIVATE (S3-compatible bucket) ─────────────────────────────────────────
@@ -213,14 +214,14 @@ is (its hash is private — [private-storage.md](behaviors/private-storage.md)).
 | id | uuid | |
 | personSlug | string | the agent account. Follows renames like other slug references. |
 | label | string | 1–80 chars; what and where (e.g. "ops bot, host vm-1") |
-| scopes | string[] | from `moderation:read`, `moderation:vote` |
+| scopes | string[] | from `moderation:read`, `moderation:vote`, `moderation:purge`; `moderation:purge` requires `moderation:read` |
 | createdAt | iso8601 | |
 | createdBySlug | string | the administrator who minted it |
 | expiresAt | iso8601 | at most 180 days after `createdAt` |
 | revokedAt | iso8601 nullable | |
 
 A person with any `agent-grants` record is an agent account: never staff,
-never voted on, never taken by the scheduled spam purge.
+never voted on or purged by an agent, never taken by the scheduled spam purge.
 
 ## PersonEvaluation
 
@@ -229,6 +230,57 @@ contract `codeforphilly.org/person-evaluations/v2`. On `published` it holds
 staff votes (`evaluator = "human-<slug>"`) and agent votes
 (`"agent-<slug>"`). Field table, evaluator kinds and aggregation:
 [behaviors/spam-exclusion.md](behaviors/spam-exclusion.md#where-verdicts-come-from).
+
+The records outlive a purge (they are the record of why), and the path is
+keyed by slug, so a later account with the same slug sits beside them. A
+record belongs to the account whose `createdAt` is at or before its
+`evaluatedAt`; older records are the earlier account's and count for nothing
+on the new one ([api/moderation.md → Votes belong to one account](api/moderation.md#votes-belong-to-one-account)).
+
+## SpamPurge
+
+One record per person purged **as spam** — by an administrator who marked the
+purge as spam, by an [agent purge](api/moderation.md#agent-purges), or by the
+[scheduled spam purge](behaviors/person-lifecycle.md#scheduled-spam-purge). It
+is the log staff read once the member's row is gone, and the sign-up block
+that keeps the same GitHub account from coming straight back. A purge that is
+not for spam (a member asked to be erased) writes none.
+
+**Sheet:** `spam-purges`
+**Path template:** `spam-purges/${personSlug}/${id}.toml`
+**Contract:** `codeforphilly.org/spam-purges/v1`
+
+| Field | Type | Notes |
+| ------- | ------ | ------- |
+| id | uuid | |
+| personSlug | string | the purged slug. **Not** a reference: the person is gone, and the slug may be taken again. Never rewritten by a rename cascade. |
+| personId | uuid | the purged record's id |
+| githubUserId | int nullable | the purged person's GitHub id, when linked; what the sign-up block matches |
+| purgedAt | iso8601 | |
+| by | string | `human-<slug>`, `agent-<slug>`, or `scheduled` |
+| grantId | uuid nullable | the agent's grant, for `agent-*` |
+| reason | string nullable | 1–1000 chars, no URL; required for `agent-*`; for `scheduled`, names the deciding voters |
+| flags | string[] | reason tags, as on a vote |
+| evidence | table[] | agent purges: `{ record, field?, path }` per cited record (`path` is its data-repo path, e.g. `project-updates/example/3.toml`); empty otherwise |
+| beforeCommit | string | the data-repo commit the purge was applied on top of: where the evidence can be read as it stood |
+| blocksSignIn | bool | `true` for every spam purge today; kept as a field so a future non-blocking kind needs no contract change |
+| unblockedAt | iso8601 nullable | set by `POST /api/admin/spam-purges/:id/unblock` |
+| unblockedBySlug | string nullable | the staff member who unblocked |
+| unblockReason | string nullable | |
+
+**Public, on purpose.** `githubUserId` is already a public field on every
+`people` record, and the purged record (with it) stays in the repo's history,
+so the block list exposes nothing new; the slug's spam verdict is already
+public in `person-evaluations` and the purge commit. Keeping the block in the
+public store makes it auditable (who blocked whom, why, who lifted it) like
+every other moderation act. It holds no name, email or bio: the scrubbed
+snapshot needs no new rule. The private store was considered and rejected: it
+has no history in production, and a block nobody can see is a block nobody can
+question.
+
+**Secondary in-memory indices:** `spamPurgesByGithubUserId: Map<int, Set<id>>`
+(the OAuth callback's check), `spamPurgesBySlug: Map<slug, Set<id>>` (the
+`slug-purged-before` signal and the detail's `earlierPurges`).
 
 ## Project
 

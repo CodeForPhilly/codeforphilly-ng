@@ -26,6 +26,13 @@ on the row, and lets any staff member overrule (**Not spam**) or confirm
 (**Spam**) them with one click. The intro says that as well, and names the
 date a staged vote purges.
 
+An agent granted the purge scope may also **purge** a new member who posted
+spam, at once ([api/moderation.md → Agent purges](../api/moderation.md#agent-purges)).
+A purged member has no row left, so this page shows those purges in the
+Agents panel's purge log, with the agent's reason, links to the evidence as it
+stood and to the commit, and a banner while any is recent. The intro says this
+too.
+
 ## Data Requirements
 
 - `GET /api/admin/members` on entry and on every filter/sort/page change
@@ -33,6 +40,9 @@ date a staged vote purges.
 - `POST /api/admin/members/:slug/vote` on either vote button
 - `GET /api/admin/agents`, `POST /api/admin/agents/:slug/withdraw-votes` and the
   grant endpoints in the Agents panel ([api/agents.md](../api/agents.md))
+- `GET /api/admin/spam-purges` on entry (`by=agent&since=<7 days ago>`, for the
+  banner) and when the purge log opens; `POST /api/admin/spam-purges/:id/unblock`
+  from the log
 
 See [api/moderation.md](../api/moderation.md).
 
@@ -73,6 +83,8 @@ See [api/moderation.md](../api/moderation.md).
   - `Email bounced · {type}` (red) when `emailBounce` is set.
   - `email ≠ name` (amber), `{n} links in bio` (amber), `no bio`, `no avatar`
     (neutral) from the signals.
+  - `Slug purged before` (red) from `slug-purged-before`: an earlier account
+    under this slug was purged as spam; the detail shows when, by whom and why.
 - **Attention tint**: the row's left border goes amber at `attention ≥ 3` and
   red at `attention ≥ 5` (or whenever `github-gone` / `email-bounced` is
   present), so the eye lands on the spam shape without reading every field.
@@ -94,22 +106,56 @@ links: project memberships (role, joined), authored updates, buzz, blog posts,
 help-wanted interest, tags. Then the vote history, newest first, each with
 voter, verdict, reasoning, and time; an agent's vote is marked "AI agent" and
 shows its flags, and once a human has voted the agent's votes read "overruled"
-or "confirmed". Then the same two buttons, plus a link to the person's Danger
-Zone for admins (purge lives there, not here).
+or "confirmed". When the slug was used before, an **Earlier account** block
+follows: the earlier account's purges (`earlierPurges`) and votes
+(`earlierVotes`), greyed, saying they do not count for this member. Then the
+same two buttons, plus a link to the person's Danger Zone for admins (an
+administrator's purge lives there, not here).
+
+### Recent agent purges banner
+
+When any agent purged anyone in the last 7 days, a banner above the roster
+says `{n} members purged by {agent} (AI) in the last 7 days` and opens the
+purge log. It is not dismissable: it goes when the purges age out, so an agent
+purge is seen by whoever opens this page that week.
 
 ### Agents panel
 
 A collapsed **Agents** section at the foot of the page, one line per agent
 account (`GET /api/admin/agents`): its name (linking to its profile), how many
-votes it has staged now, and its grants (label, scopes, created by, expires,
-last used, active or revoked).
+votes it has staged now, how many members it purged in the last 24 hours and
+30 days, and its grants (label, scopes, created by, expires, last used, active
+or revoked). A grant carrying `moderation:purge` shows that scope in red.
 
 - **Show staged** sets the Vote filter to "staged by an agent".
+- **Purge log** opens the log below, filtered to that agent.
 - **Withdraw staged votes** (staff) — a confirm saying how many votes it removes
-  and how many members it un-hides, then `POST …/withdraw-votes`.
+  and how many members it un-hides, then `POST …/withdraw-votes`. The confirm
+  says it does not undo purges.
 - **Mint grant** / **Revoke** / **New agent** (administrators only). A minted
   token is shown once, in a dialog with a copy button and the words "This is
   the only time it is shown"; closing the dialog drops it from the page.
+  Minting a grant with `moderation:purge` asks for a second confirm naming
+  what it allows (immediate purges of members under 7 days old who posted
+  spam, up to 5 a day).
+
+#### Purge log
+
+`GET /api/admin/spam-purges`, newest first, filterable by who purged (an agent,
+staff, the daily sweep, or all). One line per purge:
+
+- the purged slug as plain text (there is no profile to link to), when, and by
+  whom (`{agent} (AI)`, a staff member, or "daily sweep");
+- the reason, in full, and the flags as chips;
+- for an agent purge, each evidence item as a link to the record as it stood
+  before the purge (`people/<slug>.toml#bio`, `project-updates/<project>/<n>.toml`
+  on the data repo at `beforeCommit`), so a reviewer reads the spam the agent
+  saw without it being shown on this page;
+- **Commit**, linking to the purge commit;
+- the sign-up block: `Blocks sign-up` with an **Unblock** button (staff; a
+  confirm with an optional reason), or `Unblocked by {staff} · {when}`;
+- a "How to restore" link to the runbook step
+  ([person-lifecycle.md → Restoring a purged member](../behaviors/person-lifecycle.md#restoring-a-purged-member)).
 
 ### Voting
 
@@ -136,13 +182,16 @@ last used, active or revoked).
 | Not spam | `POST …/vote { verdict: "legit", reasoning? }` | Row → vote badge; un-dim if vote-hidden |
 | Withdraw staged votes (Agents panel) | `POST /api/admin/agents/:slug/withdraw-votes` | Refetch roster; toast with the counts |
 | Mint / Revoke grant, New agent (Agents panel, admin) | [api/agents.md](../api/agents.md) | Refresh the panel; show a new token once |
+| Open purge log (banner or Agents panel) | `GET /api/admin/spam-purges?…` | Show the log |
+| Unblock (purge log) | `POST /api/admin/spam-purges/:id/unblock { reason? }` | Line shows "Unblocked by you" |
 
 ## Authorization
 
-Staff and administrators. Purge is not offered here (admin-only, on the person
-page). Votes are attributed to the individual caller and can be changed by that
-caller at any time. Grants are minted and revoked by administrators only.
-Agents never see this page: they hold no session, only an API grant.
+Staff and administrators. An administrator's purge is not offered here (it is
+on the person page). Votes are attributed to the individual caller and can be changed
+by that caller at any time. Grants are minted and revoked by administrators
+only; any staff member may read the purge log and unblock. Agents never see
+this page: they hold no session, only an API grant.
 
 ## Out of scope (v1)
 

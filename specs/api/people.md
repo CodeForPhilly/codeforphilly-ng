@@ -209,6 +209,26 @@ Administrator-only. Atomically hard-deletes the person record and cascades: proj
 
 Unlike the offline spam-prune (which nulls `authorId` on updates), purge DELETES the authored content — it is the on-demand garbage-collection path for spam accounts.
 
+### Request body (optional)
+
+```json
+{ "spam": true, "reason": "optional, ≤ 1000 chars" }
+```
+
+`spam` defaults to `false`. When `true`, the same commit writes a
+[`spam-purges`](../data-model.md#spampurge) record (`by = "human-<callerSlug>"`,
+`blocksSignIn = true`), so the purged GitHub account cannot sign up again until
+staff unblock it ([api/auth.md](auth.md#get-apiauthgithubcallback)). A purge
+that is not for spam (a member asked to be erased) writes no such record:
+keeping that person's GitHub id on a public block list would be the opposite of
+what they asked. The Danger Zone's confirm dialog has a "This was spam: block
+this GitHub account from signing up again" checkbox, checked by default when
+the person has a spam vote on their current account.
+
+An [agent](agents.md) purges through
+[`POST /api/admin/members/:slug/purge`](moderation.md#post-apiadminmembersslugpurge),
+never here.
+
 ### Response — 204
 
 ### Errors

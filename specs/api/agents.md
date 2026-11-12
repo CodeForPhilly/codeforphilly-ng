@@ -1,20 +1,31 @@
 # Agents API
 
 An **agent** is an automated moderator: a program, not a person, that staff
-let cast `spam` / `not spam` votes on the [admin members
-roster](../screens/admin-members.md). It has its own site account and reaches
-the API with a **grant**: a bearer token an administrator mints for it, scoped
-to moderation and nothing else. Its votes are labeled as an agent's in the data
-and on the roster, they **stage** (see
-[person-lifecycle.md → Scheduled spam purge](../behaviors/person-lifecycle.md#scheduled-spam-purge)),
-and any staff vote overrules them.
+let act on the [admin members roster](../screens/admin-members.md). It has its
+own site account and reaches the API with a **grant**: a bearer token an
+administrator mints for it, scoped to moderation and nothing else. It can do
+two things, each under its own scope:
+
+- **Vote** `spam` / `not spam` on a member who only *looks* like spam. Its
+  votes are labeled as an agent's in the data and on the roster, they **stage**
+  (see [person-lifecycle.md → Scheduled spam purge](../behaviors/person-lifecycle.md#scheduled-spam-purge)),
+  and any staff vote overrules them.
+- **Purge** a new member who has *posted* spam, at once, naming the record
+  that is the spam and why
+  ([moderation.md → Agent purges](moderation.md#agent-purges)). The site checks
+  the evidence and a set of preconditions; it does not judge the content.
+
+Those are the operator's two cases: "When someone actually posts spam, purge
+immediately. For signups that are obviously spam but haven't posted anything
+spammy, log a spam vote to put them in the 3-day purge queue pending doing
+anything that makes them not look like spam."
 
 The first agent is Code for Philly's ops bot. The site does not care what runs
 behind a grant; it cares that the grant is narrow, attributable and revocable.
 
 | Method | Path | Auth | Purpose |
 | ------ | ---- | ---- | ------- |
-| `GET` | `/api/admin/agents` | administrator | Every agent account and its grants. |
+| `GET` | `/api/admin/agents` | staff | Every agent account, its grants, and its recent purges. |
 | `POST` | `/api/admin/agents` | administrator | Create an agent account (and optionally its first grant). |
 | `POST` | `/api/admin/agents/:slug/grants` | administrator | Mint a grant; the token is returned once. |
 | `POST` | `/api/admin/agents/:slug/grants/:id/revoke` | administrator | Revoke a grant at once. |
@@ -41,7 +52,7 @@ by GitHub sign-in:
   any grant on record. Agents are never staff, so an agent's vote and a human's
   vote can never come from the same account.
 - Moderation treats it as off limits: nobody votes on it
-  (`422`, `slug: agent`), and the [scheduled spam
+  (`422`, `slug: agent`), no agent purges it, and the [scheduled spam
   purge](../behaviors/person-lifecycle.md#scheduled-spam-purge) never takes it.
   To stop an agent, revoke its grants.
 
@@ -54,9 +65,18 @@ and a hard expiry.
 | ----- | ------ |
 | `moderation:read` | `GET /api/admin/members` and `GET /api/admin/members/:slug`, with the redactions in [moderation.md → Agent callers](moderation.md#agent-callers). |
 | `moderation:vote` | `POST /api/admin/members/:slug/vote` and `DELETE /api/admin/members/:slug/vote`, within the [agent vote rules](moderation.md#agent-votes). |
+| `moderation:purge` | `POST /api/admin/members/:slug/purge`, within the [agent purge rules](moderation.md#agent-purges). |
 
 There are no other scopes. A grant does not make its holder `user`, `self` or
 `staff` anywhere else ([authorization.md → Agent grants](../behaviors/authorization.md#agent-grants)).
+
+`moderation:purge` is its own scope, not implied by `moderation:vote`, so an
+administrator can let an agent stage votes without letting it delete anything.
+A grant with `moderation:purge` must also carry `moderation:read` (`422`
+otherwise): an agent that cannot read the roster cannot check what it is about
+to delete. Scopes are fixed for a grant's life; adding purge to an agent is a
+new grant and a revoke of the old one, so the change is its own public
+`agent.grant` commit.
 
 - **Token:** `cfpa_` followed by 32 random bytes, base64url. Shown once, in the
   mint response. The site keeps only its SHA-256 hash, in the private store
@@ -70,6 +90,8 @@ There are no other scopes. A grant does not make its holder `user`, `self` or
 - **Revocation** is immediate: the in-memory grant table is updated in the same
   request. Revoking also stops the agent's staged votes from counting toward a
   purge ([person-lifecycle.md](../behaviors/person-lifecycle.md#scheduled-spam-purge)).
+  It does not undo purges already made; those are restored one by one
+  ([person-lifecycle.md → Restoring a purged member](../behaviors/person-lifecycle.md#restoring-a-purged-member)).
 - **Last used:** the API records `lastUsedAt` on the private record, at most
   once an hour per grant.
 
@@ -86,13 +108,21 @@ There are no other scopes. A grant does not make its holder `user`, `self` or
           "createdAt": "…", "createdBy": { "slug": "jane", "fullName": "Jane Doe" },
           "expiresAt": "…", "revokedAt": null, "lastUsedAt": "…", "active": true }
       ],
-      "stagedVotes": { "spam": 3, "legit": 1 }
+      "stagedVotes": { "spam": 3, "legit": 1 },
+      "purges": { "last24h": 1, "last30d": 4 }
     }
   ]
 }
 ```
 
 `stagedVotes` counts the agent's votes on people no human has voted on.
+`purges` counts the agent's `spam-purges` records; the records themselves, with
+reason and evidence, are `GET /api/admin/spam-purges?by=agent-<slug>`
+([moderation.md](moderation.md#get-apiadminspam-purges)).
+
+Staff, not only administrators, may list agents: the panel that shows what an
+agent staged and purged is a staff review surface, and nothing here is secret
+(grants are public records; tokens are never returned after mint).
 
 ## POST /api/admin/agents
 
@@ -100,7 +130,7 @@ There are no other scopes. A grant does not make its holder `user`, `self` or
 {
   "slug": "example-bot",
   "fullName": "Example Bot",
-  "bio": "An AI ops bot run by … Its votes on /admin/members are staged; staff overrule them.",
+  "bio": "An AI ops bot run by … Its spam votes on /admin/members are staged and staff overrule them; it purges only accounts that posted spam, and says why.",
   "grant": { "label": "ops bot, host vm-1", "scopes": ["moderation:read", "moderation:vote"], "expiresInDays": 90 }
 }
 ```
@@ -135,10 +165,16 @@ anyone who can overrule a vote one at a time can overrule them all.
 `since`) on a person with **no human vote**, and reactivates each such person
 whose deactivation that agent's vote caused (the [reversal
 rule](../behaviors/person-lifecycle.md#deactivate-soft-self-service)). Votes on
-people a human has since voted on are left as the record. One commit.
+people a human has since voted on are left as the record, and so are votes on
+people who no longer exist (purged: their votes are the record of why). One
+commit.
 
 Response `200`: `{ "withdrawn": 7, "reactivated": 5 }`. Withdrawing does not
-revoke the grant; do both when the token itself is in doubt.
+revoke the grant; do both when the token itself is in doubt. Withdrawing does
+not touch the agent's purges: there is no bulk undo for a delete. Each is
+restored on its own
+([person-lifecycle.md → Restoring a purged member](../behaviors/person-lifecycle.md#restoring-a-purged-member)),
+and the purge log names every one ([moderation.md](moderation.md#get-apiadminspam-purges)).
 
 ## Commits
 
@@ -147,11 +183,13 @@ calling administrator or staff member, with `Action: agent.create`,
 `agent.grant`, `agent.revoke` or `agent.withdraw-votes`, `Subject-Type: person`,
 `Subject-Slug: <agent slug>`, and `Grant-Id: <id>` where one grant is
 concerned. Agent grants are a change of access, so they are in the public audit
-log the same way an account-level change is.
+log the same way an account-level change is. (An agent's own votes and purges
+are committed as the agent: [moderation.md](moderation.md#agent-votes).)
 
 ## Errors
 
-- `422 validation_failed` — unknown scope, `expiresInDays` out of range,
-  missing `bio`, bad or taken slug
-- `404 not_found` — not an administrator (staff for `withdraw-votes`), or no
-  such agent or grant
+- `422 validation_failed` — unknown scope, `moderation:purge` without
+  `moderation:read`, `expiresInDays` out of range, missing `bio`, bad or taken
+  slug
+- `404 not_found` — not an administrator (staff for `GET` and
+  `withdraw-votes`), or no such agent or grant
