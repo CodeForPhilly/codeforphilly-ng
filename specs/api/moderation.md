@@ -454,10 +454,11 @@ see what was purged, by whom and why.
 | `blocking` | bool | Only records whose sign-in block is in force. |
 | `page`, `perPage` | int | Default `perPage = 50`, max 200. |
 
-Each item is the record plus `by` resolved (`{ kind, slug, fullName }`), each
-evidence item's `url` (the record as it stood, on the data repo's GitHub at
-`beforeCommit`), and `commitUrl` (the history of the record's own path, whose
-first entry is the purge commit).
+Each item is the record plus `byRef` (its `by` resolved: `{ kind, slug,
+fullName }`; `by` itself stays the stored string), each evidence item's `url`
+(the record as it stood, on the data repo's GitHub at `beforeCommit`), and
+`commitUrl` (the history of the record's own path, whose first entry is the
+purge commit).
 
 ## POST /api/admin/spam-purges/:id/unblock
 

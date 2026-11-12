@@ -273,8 +273,10 @@ not for spam (a member asked to be erased) writes none.
 so the block list exposes nothing new; the slug's spam verdict is already
 public in `person-evaluations` and the purge commit. Keeping the block in the
 public store makes it auditable (who blocked whom, why, who lifted it) like
-every other moderation act. It holds no name, email or bio: the scrubbed
-snapshot needs no new rule. The private store was considered and rejected: it
+every other moderation act. It holds no name, email or bio. The scrubbed
+snapshot pseudonymizes the slugs it does hold (`personSlug` when a current
+member has it again, `unblockedBySlug`) like references, as it does
+`AgentGrant.createdBySlug`, so no real member's slug leaks. The private store was considered and rejected: it
 has no history in production, and a block nobody can see is a block nobody can
 question.
 

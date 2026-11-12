@@ -40,8 +40,8 @@ moderation endpoints an agent calls with its token are in
 An agent account is a `people` record created by an administrator here, never
 by GitHub sign-in:
 
-- `accountLevel = user`, no `githubUserId`, no legacy password, and a private
-  profile with no email. **It cannot sign in to the site or to Slack**: there
+- `accountLevel = user`, no `githubUserId`, no legacy password, and no
+  private profile (a private profile holds an email, and an agent has none). **It cannot sign in to the site or to Slack**: there
   is no identity for OAuth, a password or SAML to bind to. The only way in is a
   grant.
 - It is public like any member (`/members/<slug>`), and its `bio` says what it
@@ -136,8 +136,8 @@ agent staged and purged is a staff review surface, and nothing here is secret
 ```
 
 `bio` is required (an agent says what it is). `grant` is optional. Creates the
-person, an empty private profile, and the grant in one transaction; the slug
-follows [slug-handles.md](../behaviors/slug-handles.md).
+person and the grant (its token hash in the private store) in one transaction;
+the slug follows [slug-handles.md](../behaviors/slug-handles.md).
 
 Response `201`: `{ person, grant, token }` — `token` only when a grant was
 minted, and only in this response.
