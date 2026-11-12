@@ -315,8 +315,10 @@ newsletter choice, Slack sign-in time and GitHub facts are gone and are
 rebuilt only from GitHub on their next sign-in
 ([person-lifecycle.md → Restoring a purged member](../../specs/behaviors/person-lifecycle.md#restoring-a-purged-member)).
 
-1. **Find the commit.** An agent or staff spam purge: the purge log on
-   `/admin/members` links it (**Commit**). A non-spam staff purge:
+1. **Find the commit.** An agent or staff spam purge: the purge log's
+   **Commit** link on `/admin/members` opens the history of the purge record;
+   the purge commit is the oldest entry (an unblock adds one above it). From a
+   clone: `git log --format=%H --grep='^Purge-Id: <purge id>$'`. A non-spam staff purge:
    `git log --grep='^Action: person.purge$' --grep='Subject-Slug: <slug>' --all-match`.
    The sweep: `git log --grep='scheduled spam purge'` and find the slug in the
    message.
@@ -324,12 +326,17 @@ rebuilt only from GitHub on their next sign-in
    `api('POST', '/api/admin/spam-purges/<id>/unblock', { reason: '…' })`. The
    record stays, marked unblocked.
 3. **Restore the records** in a working clone of `codeforphilly-data` on
-   `published`:
+   `published`, pulled after step 2 so it holds the unblock commit:
 
    ```bash
+   git pull --ff-only
    # An agent or staff purge: one person per commit. Revert it, but keep the log.
+   # The unblock edited the purge record, so the revert stops with a
+   # modify/delete conflict on it and exits non-zero; the checkout below
+   # resolves it by keeping the record as it stands.
    git revert --no-commit <sha>
    git checkout HEAD -- spam-purges/
+   git status --short   # expect only the person's records, and the purge's vote record reverted
    git commit -m "people: restore <slug>" --trailer "Action: person.restore" --trailer "Subject-Slug: <slug>"
 
    # A sweep commit purges a batch: take only this person's paths from the parent.
@@ -340,14 +347,22 @@ rebuilt only from GitHub on their next sign-in
    Commit as yourself with a pseudonymous email
    (`<you>@users.noreply.codeforphilly.org`). Push; the hot-reload webhook
    rebuilds the in-memory state.
-4. **Vote Not spam** on the restored member's row. The restored record may
-   still be deactivated by a spam vote the revert brought back; Not spam
-   un-hides them and keeps the sweep off them.
+4. **Vote Not spam** on the restored member's row, before the next daily
+   sweep. Votes are not deleted by a purge, so a member restored from the
+   sweep (or from a staff purge that followed a spam vote) comes back
+   deactivated with their spam votes still standing, and past the three
+   days: the next sweep would purge them again. An agent purge writes the agent's vote in the purge commit, so the
+   revert puts back whatever stood before: nothing, or the agent's earlier
+   staged spam vote, which hides them again. Not spam un-hides them, keeps
+   the sweep off them and puts a human verdict on record. The row keeps the
+   `Slug purged before` badge and lists the purge under Earlier account: the
+   purge record names the slug, and stays.
 5. **If the slug was taken since**, the restore conflicts on
    `people/<slug>.toml`: that is a merge for an administrator to decide, not a
    revert.
 6. **Tell the person** to sign in with GitHub: the restored `githubUserId`
-   matches and sign-in rebuilds their private profile.
+   matches and sign-in rebuilds their private profile (email from GitHub;
+   sign-in count starts again, newsletter choice and Slack link are gone).
 
 ## Helpful commands
 

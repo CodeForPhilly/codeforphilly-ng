@@ -87,8 +87,10 @@ The runbook step (`docs/operations/runbook.md` → "Restore a purged member"):
 3. **Restore the records** in a working clone of the data repo and push to
    `published`; the hot-reload webhook rebuilds the in-memory state. An agent
    or staff purge is one person per commit, so revert it but keep the log:
-   `git revert --no-commit <sha> && git checkout HEAD -- spam-purges/`, then
-   commit with `Action: person.restore` and the slug. A sweep commit purges a
+   `git revert --no-commit <sha>; git checkout HEAD -- spam-purges/` (the
+   revert stops with a conflict on the unblocked `spam-purges` record, which
+   the checkout resolves; `&&` would skip it), then commit with
+   `Action: person.restore` and the slug. A sweep commit purges a
    batch: check out only that person's paths from the parent
    (`git checkout <sha>^ -- people/<slug>.toml people/<slug>/ …`) rather than
    reverting the whole commit.
