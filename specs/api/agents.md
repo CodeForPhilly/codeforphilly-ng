@@ -26,9 +26,9 @@ behind a grant; it cares that the grant is narrow, attributable and revocable.
 | Method | Path | Auth | Purpose |
 | ------ | ---- | ---- | ------- |
 | `GET` | `/api/admin/agents` | staff | Every agent account, its grants, and its recent purges. |
-| `POST` | `/api/admin/agents` | administrator | Create an agent account (and optionally its first grant). |
+| `POST` | `/api/admin/agents` | administrator | Create an agent account and its first grant. |
 | `POST` | `/api/admin/agents/:slug/grants` | administrator | Mint a grant; the token is returned once. |
-| `POST` | `/api/admin/agents/:slug/grants/:id/revoke` | administrator | Revoke a grant at once. |
+| `POST` | `/api/admin/agents/:slug/grants/:id/revoke` | administrator | Revoke a grant at once, and optionally withdraw the agent's staged votes. |
 | `POST` | `/api/admin/agents/:slug/withdraw-votes` | staff | Withdraw every vote the agent has staged, in one commit. |
 
 Anyone else gets `404 not_found`, like the rest of `/api/admin`. The
@@ -46,7 +46,11 @@ by GitHub sign-in:
   grant.
 - It is public like any member (`/members/<slug>`), and its `bio` says what it
   is and who runs it. It is an agent because the `agent-grants` sheet holds a
-  grant for it; nothing else marks it.
+  grant for it, active or not; nothing else marks it. A revoke or an expiry
+  only ends a grant, never deletes its record (only purging the agent account
+  itself does), and an agent is created with its first grant, so an agent
+  whose every grant has been revoked or has expired is still an agent account,
+  under every rule below.
 - It can never be raised to staff: `POST /api/people/:slug/account-level`
   refuses (`409 conflict`, `error.code = "agent_account"`) for a person with
   any grant on record. Agents are never staff, so an agent's vote and a human's
@@ -55,6 +59,15 @@ by GitHub sign-in:
   (`422`, `slug: agent`), no agent purges it, and the [scheduled spam
   purge](../behaviors/person-lifecycle.md#scheduled-spam-purge) never takes it.
   To stop an agent, revoke its grants.
+- Its slug is fixed: `PATCH /api/people/:slug` refuses to rename it (`409
+  conflict`, `error.code = "agent_account"`). Its votes are recorded as
+  `agent-<slug>` and its purges as `by = "agent-<slug>"`; a rename would not
+  follow those, and would reset the daily allowances counted from them.
+- No GitHub sign-in can take it over: account matching never offers it as a
+  candidate, a post-sign-up search does not find it, and staff approval of a
+  claim request naming it is refused (`409 conflict`, `error.code =
+  "agent_account"`)
+  ([account-migration.md](../behaviors/account-migration.md#matching-algorithm-at-oauth-callback)).
 
 ## Grants
 
@@ -88,9 +101,16 @@ new grant and a revoke of the old one, so the change is its own public
 - **Expiry:** `expiresInDays` 1–180, default 90. An expired grant is refused
   like a revoked one. Renewal is a new grant and a revoke of the old one.
 - **Revocation** is immediate: the in-memory grant table is updated in the same
-  request. Revoking also stops the agent's staged votes from counting toward a
-  purge ([person-lifecycle.md](../behaviors/person-lifecycle.md#scheduled-spam-purge)).
-  It does not undo purges already made; those are restored one by one
+  request. An agent's staged votes count toward a purge only while it holds
+  an active grant
+  ([person-lifecycle.md](../behaviors/person-lifecycle.md#scheduled-spam-purge)):
+  once its last active grant is revoked (or expires) they stop counting, and
+  they stay on the record. **If a new grant is minted for the agent later, they
+  count again**, from the moment of the mint, unless they were withdrawn. So a
+  revoke for a compromised token passes `withdrawVotes: true`, which withdraws
+  them in the same commit; a routine rotation (mint the new grant, then revoke
+  the old one) does not, and the votes count throughout.
+  Revoking does not undo purges already made; those are restored one by one
   ([person-lifecycle.md → Restoring a purged member](../behaviors/person-lifecycle.md#restoring-a-purged-member)).
 - **Last used:** the API records `lastUsedAt` on the private record, at most
   once an hour per grant.
@@ -135,12 +155,15 @@ agent staged and purged is a staff review surface, and nothing here is secret
 }
 ```
 
-`bio` is required (an agent says what it is). `grant` is optional. Creates the
-person and the grant (its token hash in the private store) in one transaction;
-the slug follows [slug-handles.md](../behaviors/slug-handles.md).
+`bio` is required (an agent says what it is), and so is `grant`: an account
+is an agent because it holds a grant, so an account created without one would
+be an ordinary member with no sign-in. Creates the person and the grant (its
+token hash in the private store) in one transaction; the slug follows
+[slug-handles.md](../behaviors/slug-handles.md), including the rule that a
+slug with moderation history is not reused
+([slug-handles.md](../behaviors/slug-handles.md#moderation-history-retires-a-slug)).
 
-Response `201`: `{ person, grant, token }` — `token` only when a grant was
-minted, and only in this response.
+Response `201`: `{ person, grant, token }` — `token` only in this response.
 
 ## POST /api/admin/agents/:slug/grants
 
@@ -150,7 +173,20 @@ the agent instead).
 
 ## POST /api/admin/agents/:slug/grants/:id/revoke
 
-Sets `revokedAt = now()`. `200 { grant }`. Revoking a revoked grant is a no-op.
+```json
+{ "withdrawVotes": true }
+```
+
+The body is optional. Sets `revokedAt = now()`. `200 { grant }`. Revoking a
+revoked grant without `withdrawVotes` is a no-op (no commit).
+
+`withdrawVotes: true` is for a token that may be compromised: in the same
+transaction and commit as the revoke, it withdraws every vote the agent has
+staged, exactly as [withdraw-votes](#post-apiadminagentsslugwithdraw-votes)
+does with no `since` (the agent's votes on people no human has voted on;
+the members its votes hid are reactivated). The response adds `{ withdrawn,
+reactivated }`. On a grant already revoked it still withdraws (the compromise
+may be found after the revoke). The commit carries `Withdraw-Votes: true`.
 
 ## POST /api/admin/agents/:slug/withdraw-votes
 
@@ -170,7 +206,8 @@ people who no longer exist (purged: their votes are the record of why). One
 commit.
 
 Response `200`: `{ "withdrawn": 7, "reactivated": 5 }`. Withdrawing does not
-revoke the grant; do both when the token itself is in doubt. Withdrawing does
+revoke the grant; when the token itself is in doubt, revoke with
+`withdrawVotes: true`, which does both in one commit. Withdrawing does
 not touch the agent's purges: there is no bulk undo for a delete. Each is
 restored on its own
 ([person-lifecycle.md → Restoring a purged member](../behaviors/person-lifecycle.md#restoring-a-purged-member)),
@@ -189,7 +226,7 @@ are committed as the agent: [moderation.md](moderation.md#agent-votes).)
 ## Errors
 
 - `422 validation_failed` — unknown scope, `moderation:purge` without
-  `moderation:read`, `expiresInDays` out of range, missing `bio`, bad or taken
-  slug
+  `moderation:read`, `expiresInDays` out of range, missing `bio` or `grant`,
+  bad or taken slug, or a slug with moderation history (`slug_retired`)
 - `404 not_found` — not an administrator (staff for `GET` and
   `withdraw-votes`), or no such agent or grant

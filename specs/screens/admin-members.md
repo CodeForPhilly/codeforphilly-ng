@@ -135,6 +135,13 @@ or revoked). A grant carrying `moderation:purge` shows that scope in red.
 - **Mint grant** / **Revoke** / **New agent** (administrators only). A minted
   token is shown once, in a dialog with a copy button and the words "This is
   the only time it is shown"; closing the dialog drops it from the page.
+  **New agent** asks for the first grant's label along with the slug, name
+  and bio (an agent is created with its first grant, read and staged votes
+  only). **Revoke** opens a confirm with one checkbox, unchecked: "This token
+  may be compromised: also withdraw this agent's staged votes". Checked, the
+  revoke sends `withdrawVotes: true` and the confirm says how many staged votes
+  it removes; unchecked, it says the staged votes stop counting until a new
+  grant is minted (the rotation case).
   Minting a grant with `moderation:purge` asks for a second confirm naming
   what it allows (immediate purges of members under 7 days old who posted
   spam, up to 5 a day).

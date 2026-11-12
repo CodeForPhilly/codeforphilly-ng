@@ -538,4 +538,38 @@ bin/member-vote purges [--since <date>]           # its purge log
 
 ## Notes
 
+An independent review (2026-11-12) of the first build found ten gaps; the
+specs were corrected first, then each was fixed with a test:
+
+- votes dated at or before a `spam-purges` record for the slug that names
+  another person do not count (a long-standing member could otherwise take a
+  freed slug and inherit a spammer's votes), and a rename onto a slug with
+  moderation history is refused (`slug_retired`);
+- an agent purge or vote is checked, committed and applied to the in-memory
+  state under one lock (`Store.transact`'s `onCommit`), so concurrent purges
+  cannot pass the daily allowance or purge one slug twice; the dry run reads
+  the member under that lock;
+- agent accounts are never claim candidates and staff cannot approve a claim
+  on one;
+- `grant` is required when an agent is created (an agent is "has any grant
+  record", active or not);
+- agent accounts cannot be renamed;
+- revoke takes `withdrawVotes: true` for a compromised token; the spec now
+  says staged votes count again when a new grant is minted unless withdrawn;
+- the URL check catches bare domains and defanged forms, and applies to agent
+  vote `reasoning` too; control characters are refused in both;
+- evidence identifiers are pattern-checked before lookup;
+- writes of `agent-grant-secrets.jsonl` are serialized.
+
 ## Follow-ups
+
+- `castVote` still replaces an evaluator's record on an earlier account under
+  the same slug (`person-evaluations/<slug>/<evaluator>` has one slot per
+  evaluator per slug). Keeping both needs a path change (a new contract
+  version), so it is left; the `spam-purges` record still names the purge's
+  reason, and git history keeps the old vote.
+- `scripts/prune-spam.ts` applies only the `createdAt` rule for earlier
+  accounts, not the newer `spam-purges` cutoff.
+- Routes outside moderation and agents still apply their state after
+  `store.transact` returns; moving them to `onCommit` would close the same
+  gap for every write.

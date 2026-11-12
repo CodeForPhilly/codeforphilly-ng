@@ -149,8 +149,8 @@ Editable by staff additionally:
 
 ### Errors
 
-- `409 conflict` — slug or email taken
-- `422 validation_failed`
+- `409 conflict` — slug or email taken; or a rename of an [agent account](agents.md#the-agent-account) (`error.code = "agent_account"`)
+- `422 validation_failed` — including a rename onto a slug with moderation history (`fields.slug = "slug_retired"`, [slug-handles.md](../behaviors/slug-handles.md#moderation-history-retires-a-slug))
 
 ### Email change side-effects
 

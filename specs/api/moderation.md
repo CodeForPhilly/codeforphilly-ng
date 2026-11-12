@@ -37,12 +37,22 @@ only); this file holds only the agent's purge.
 place as the record of why. A later sign-up can get the same slug (a GitHub
 sign-up takes its slug from the GitHub login, and the purge freed it). A vote
 whose `evaluatedAt` is **earlier than the person's `createdAt`** was cast on
-that earlier account, and every rule in this file and in
-[person-lifecycle.md](../behaviors/person-lifecycle.md) ignores it: it is not
-the `latestVote` or `stagedVote`, it does not decide, it does not set
+that earlier account, and so was a vote dated **at or before the newest
+[`spam-purges`](../data-model.md#spampurge) record for this slug whose
+`personId` is another person's** (the purge ended that account; anything
+dated up to it was about the account it ended). Every rule in this file and in
+[person-lifecycle.md](../behaviors/person-lifecycle.md) ignores such a vote: it
+is not the `latestVote` or `stagedVote`, it does not decide, it does not set
 `purgeAfter`, it does not trip `human_verdict_exists`, and the reversal rule
 does not see it. The detail response lists such votes apart, as
 `earlierVotes`, and the row carries the `slug-purged-before` signal.
+
+The purge rule covers what `createdAt` cannot: a person who existed before the
+purge and later took the slug. A rename can no longer do that (a person is
+never renamed onto a slug with a `spam-purges` record or any
+`person-evaluations` under it:
+[slug-handles.md](../behaviors/slug-handles.md#moderation-history-retires-a-slug)),
+but the rule holds for any way a slug changes hands.
 
 (Before this rule the earlier account's votes attached to the new one: a
 re-registration showed the old staff vote as its own, an agent could not act
@@ -196,7 +206,11 @@ carries the voter's pseudonymous git identity.
 
 An agent also sends `flags` (0–10 short reason tags, each
 `^[a-z0-9][a-z0-9:-]{0,39}$`), and `reasoning` is **required** for it (1–1000
-chars): a person reviewing the staged vote reads it. Human votes carry
+chars): a person reviewing the staged vote reads it. An agent's `reasoning`
+goes into a public commit, so it is held to the purge `reason`'s rules: **no
+URL** and **no control characters** ([the request](#request-1)); `422`,
+`reasoning`. Describe a link or a domain (`a disposable email domain`, `a link
+to a pharmacy shop`) instead of writing it. Human votes carry
 `flags = ["manual-override"]` and `confidence = 1`; agent votes carry
 `["agent", …flags]` and no `confidence`.
 
@@ -221,8 +235,9 @@ chars): a person reviewing the staged vote reads it. Human votes carry
 
 ### Errors
 
-- `422 validation_failed` — bad verdict, reasoning too long or (agent) missing,
-  bad flags, `slug` is the caller, or `slug` is an agent account
+- `422 validation_failed` — bad verdict, reasoning too long or (agent) missing
+  or carrying a URL or a control character, bad flags, `slug` is the caller,
+  or `slug` is an agent account
 - `409 conflict` — (agent) `error.code = "human_verdict_exists"`, `"member_too_old"`
   or `"protected_account"`; see [Agent votes](#agent-votes)
 - `429 rate_limited` — (agent) over its daily spam-vote allowance
@@ -264,7 +279,9 @@ roster as staff do, less what an agent does not need:
 An agent's vote is a **staged** ruling: it acts at once (a `spam` vote hides
 the member), it is labeled as an agent's everywhere, and it purges after three
 days only if no human has voted in the meantime. The rules, checked inside the
-write mutex:
+write mutex (the check, the commit and the update of the in-memory state that
+the next write's checks read all happen under one lock, so a vote queued
+behind another vote or a purge sees its result):
 
 1. **Humans are final.** An agent may not vote on a member any human has voted
    on (on this account: [Votes belong to one account](#votes-belong-to-one-account)):
@@ -315,9 +332,23 @@ administrator's purge
 }
 ```
 
-- `reason` — required, 1–1000 chars, and **no URL** (`422`, `reason`: a purge
+- `reason` — required, 1–1000 chars, **no URL** (`422`, `reason`: a purge
   must not republish the spam link in a permanent public commit; cite the
-  record instead).
+  record instead) and **no control characters**, line breaks included (`422`,
+  `reason`: the reason is the commit body, and a line break could forge a
+  trailer). A URL is any of:
+  - a scheme, `https://…` or any `name://`, including the defanged `hxxp://`
+    and `hxxps://`;
+  - `www.` at the start of a word;
+  - a bare domain: labels joined by dots with word characters on both sides of
+    each dot, ending in a top-level domain of two or more letters that is
+    either lowercase (`cheap-pills.shop`) or a common TLD in any case
+    (`Cheap-Pills.SHOP`);
+  - a defanged dot between word characters: `[.]`, `(.)`, `{.}`, `[dot]`,
+    `(dot)`.
+
+  Ordinary prose passes: `e.g.`, `i.e.`, `U.S.`, a sentence that runs into the
+  next without a space (`spam.Then`), a version number.
 - `flags` — 0–10 tags, as on a vote.
 - `evidence` — 1–5 items, each naming one record **the member authored** and,
   where the record has several text fields, which one:
@@ -329,6 +360,11 @@ administrator's purge
   | `project-update` | `project`, `number` | `authorId` is the member | — |
   | `project-buzz` | `project`, `slug` | `postedById` is the member | — |
   | `help-wanted-role` | `project`, `roleId` | `postedById` is the member | — |
+
+  Each identifier must be well formed before anything is looked up: `project`
+  a project slug, `slug` a buzz slug ([slug-handles.md](../behaviors/slug-handles.md)),
+  `roleId` a UUID, `number` a positive integer; otherwise `422
+  evidence_invalid` naming the item.
 
   The site checks that each record exists, is the member's, and that the cited
   field (or the record's body) is not empty; otherwise `422 evidence_invalid`
@@ -353,10 +389,11 @@ administrator's purge
 
 ### Errors
 
-- `422 validation_failed` — missing or URL-bearing `reason`, bad flags, no
-  evidence or more than 5, `slug` is the caller or an agent account
-- `422 evidence_invalid` — an evidence record missing, not the member's, or
-  empty
+- `422 validation_failed` — missing `reason`, or one carrying a URL or a
+  control character, bad flags, no evidence or more than 5, `slug` is the
+  caller or an agent account
+- `422 evidence_invalid` — an evidence item with a malformed identifier, or a
+  record missing, not the member's, or empty
 - `409 conflict` — `error.code` one of `human_verdict_exists`,
   `legit_vote_exists`, `member_too_old`, `protected_account`,
   `established_member`, `shared_project`, `evidence_survives`; see
@@ -368,8 +405,12 @@ administrator's purge
 
 An agent purge is **immediate**: no staging, no three days. That is the
 operator's policy for an account that has posted spam ("purge immediately"),
-and the reason it is fenced harder than a vote. The rules, checked inside the
-write mutex, in this order:
+and the reason it is fenced harder than a vote. The rules are checked inside
+the write mutex, in the order below, and the check, the commit and the update
+of the in-memory state happen under one lock: the next purge or vote, however
+close behind, is checked against this one's result, so concurrent purges never
+pass the daily allowance or purge one member twice. A dry run reads the member
+and runs its checks under the same lock.
 
 1. **Only ordinary, signed-up members.** `accountLevel = user`, not an agent
    account, no laddr `legacyId`: `409 protected_account` / `422`.
