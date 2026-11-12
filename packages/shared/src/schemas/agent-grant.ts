@@ -20,7 +20,10 @@ export type AgentScope = (typeof AGENT_SCOPES)[number];
  */
 export const AgentGrantSchema = z.object({
   id: z.string().uuid(),
-  /** The agent account. Follows renames like other slug references. */
+  /**
+   * The agent account. A declared slug reference, so the rename cascade covers
+   * it, though an agent account is never renamed (specs/api/agents.md).
+   */
   personSlug: z.string().min(1).meta(references('people.slug')),
   /** What and where, e.g. "ops bot, host vm-1". */
   label: z.string().min(1).max(80),

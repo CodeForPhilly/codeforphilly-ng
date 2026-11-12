@@ -4,8 +4,10 @@
  *
  * Evaluations are keyed by slug and outlive a purge (they are the record of
  * why). A later sign-up can get the same slug, so a vote dated before the
- * person's `createdAt` was cast on an earlier account under that slug and
- * counts for nothing on this one: not in the roster's vote fields, not in the
+ * person's `createdAt` was cast on an earlier account under that slug, and so
+ * was a vote dated at or before the newest `spam-purges` record for the slug
+ * that names another person (the purge ended that account). Such a vote counts
+ * for nothing on this one: not in the roster's vote fields, not in the
  * reversal rule, not in the scheduled purge.
  */
 import { evaluatorKind, evaluatorSlug, type Person, type PersonEvaluation } from '@cfp/shared/schemas';
@@ -13,9 +15,31 @@ import { evaluatorKind, evaluatorSlug, type Person, type PersonEvaluation } from
 import { agentHasActiveGrant } from '../auth/agent-grant.js';
 import type { InMemoryState } from '../store/memory/state.js';
 
-/** Whether `vote` was cast on this account (at or after its `createdAt`). */
-export function isOnAccount(vote: Pick<PersonEvaluation, 'evaluatedAt'>, createdAt: string): boolean {
-  return Date.parse(vote.evaluatedAt) >= Date.parse(createdAt);
+type AccountRef = Pick<Person, 'id' | 'slug' | 'createdAt'>;
+
+/**
+ * The time (ms) before which, inclusive, votes under this person's slug were
+ * cast on an earlier account: the later of just before `createdAt` and the
+ * newest `spam-purges` record for the slug that names another person.
+ */
+export function accountVoteCutoff(state: InMemoryState, person: AccountRef): number {
+  let cutoff = Date.parse(person.createdAt) - 1;
+  for (const id of state.spamPurgesBySlug.get(person.slug) ?? []) {
+    const record = state.spamPurges.get(id);
+    if (!record || record.personId === person.id) continue;
+    cutoff = Math.max(cutoff, Date.parse(record.purgedAt));
+  }
+  return cutoff;
+}
+
+/** Whether `vote` was cast on this account (after its cutoff). */
+export function isOnAccount(state: InMemoryState, vote: Pick<PersonEvaluation, 'evaluatedAt'>, person: AccountRef): boolean {
+  return Date.parse(vote.evaluatedAt) > accountVoteCutoff(state, person);
+}
+
+/** Whether any `spam-purges` or `person-evaluations` record is keyed by `slug` (slug-handles.md). */
+export function slugHasModerationHistory(state: InMemoryState, slug: string): boolean {
+  return (state.spamPurgesBySlug.get(slug)?.size ?? 0) > 0 || (state.evaluationsByPerson.get(slug)?.size ?? 0) > 0;
 }
 
 /** Every evaluation on record under `slug`, current account or not. */
@@ -29,30 +53,29 @@ export function evaluationsForSlug(state: InMemoryState, slug: string): PersonEv
 }
 
 /** The evaluations cast on this person's own account. */
-export function votesOnAccount(state: InMemoryState, person: Pick<Person, 'slug' | 'createdAt'>): PersonEvaluation[] {
-  return evaluationsForSlug(state, person.slug).filter((v) => isOnAccount(v, person.createdAt));
+export function votesOnAccount(state: InMemoryState, person: AccountRef): PersonEvaluation[] {
+  const cutoff = accountVoteCutoff(state, person);
+  return evaluationsForSlug(state, person.slug).filter((v) => Date.parse(v.evaluatedAt) > cutoff);
 }
 
-/** Evaluations under this slug cast on an earlier account (before `createdAt`). */
-export function votesOnEarlierAccounts(
-  state: InMemoryState,
-  person: Pick<Person, 'slug' | 'createdAt'>,
-): PersonEvaluation[] {
-  return evaluationsForSlug(state, person.slug).filter((v) => !isOnAccount(v, person.createdAt));
+/** Evaluations under this slug cast on an earlier account (at or before the cutoff). */
+export function votesOnEarlierAccounts(state: InMemoryState, person: AccountRef): PersonEvaluation[] {
+  const cutoff = accountVoteCutoff(state, person);
+  return evaluationsForSlug(state, person.slug).filter((v) => Date.parse(v.evaluatedAt) <= cutoff);
 }
 
 /** Votes on this account by staff (`human-*`). */
-export function humanVotesOnAccount(state: InMemoryState, person: Pick<Person, 'slug' | 'createdAt'>): PersonEvaluation[] {
+export function humanVotesOnAccount(state: InMemoryState, person: AccountRef): PersonEvaluation[] {
   return votesOnAccount(state, person).filter((v) => evaluatorKind(v.evaluator) === 'human');
 }
 
 /** Votes on this account by agents (`agent-*`). */
-export function agentVotesOnAccount(state: InMemoryState, person: Pick<Person, 'slug' | 'createdAt'>): PersonEvaluation[] {
+export function agentVotesOnAccount(state: InMemoryState, person: AccountRef): PersonEvaluation[] {
   return votesOnAccount(state, person).filter((v) => evaluatorKind(v.evaluator) === 'agent');
 }
 
 /** Whether any human has voted on this account. */
-export function hasHumanVote(state: InMemoryState, person: Pick<Person, 'slug' | 'createdAt'>): boolean {
+export function hasHumanVote(state: InMemoryState, person: AccountRef): boolean {
   return humanVotesOnAccount(state, person).length > 0;
 }
 
@@ -63,7 +86,7 @@ export function hasHumanVote(state: InMemoryState, person: Pick<Person, 'slug' |
  */
 export function decidingVotes(
   state: InMemoryState,
-  person: Pick<Person, 'slug' | 'createdAt'>,
+  person: AccountRef,
   now: Date = new Date(),
 ): PersonEvaluation[] {
   const humans = humanVotesOnAccount(state, person);
@@ -85,7 +108,7 @@ export function newestVote(votes: readonly PersonEvaluation[]): PersonEvaluation
  * The newest agent vote on this account when no human has voted on it, else
  * null — what the roster shows as `stagedVote`.
  */
-export function stagedAgentVote(state: InMemoryState, person: Pick<Person, 'slug' | 'createdAt'>): PersonEvaluation | null {
+export function stagedAgentVote(state: InMemoryState, person: AccountRef): PersonEvaluation | null {
   if (hasHumanVote(state, person)) return null;
   return newestVote(agentVotesOnAccount(state, person));
 }

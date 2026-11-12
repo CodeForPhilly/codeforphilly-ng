@@ -43,6 +43,9 @@ describe('agent accounts and grants', () => {
           personRecord(STAFF, 'staffer', { accountLevel: 'staff' }),
           personRecord(USER, 'regular'),
         ],
+        'person-evaluations': [
+          { personSlug: 'gone-spammer', evaluator: 'human-staffer', verdict: 'spam', confidence: 1, flags: ['manual-override'], evaluatedAt: '2026-10-01T00:00:00Z' },
+        ],
       },
     });
     admin = await env.cookie(ADMIN, 'administrator');
@@ -98,6 +101,17 @@ describe('agent accounts and grants', () => {
         slug: 'slug_taken',
         bio: expect.any(String),
       });
+    });
+
+    it('refuses a slug with moderation history (422 slug_retired)', async () => {
+      const res = await env.app.inject({
+        method: 'POST',
+        url: '/api/admin/agents',
+        cookies: { cfp_session: admin },
+        payload: { slug: 'gone-spammer', fullName: 'Reused', bio: 'An AI.', grant: { label: 'x', scopes: ['moderation:read'] } },
+      });
+      expect(res.statusCode).toBe(422);
+      expect(res.json<{ error: { fields: Record<string, string> } }>().error.fields['slug']).toBe('slug_retired');
     });
 
     it('is administrators only (staff and users 404; agents 404)', async () => {
@@ -267,6 +281,30 @@ describe('agent accounts and grants', () => {
       });
       expect(res.statusCode).toBe(409);
       expect(res.json<{ error: { code: string } }>().error.code).toBe('agent_account');
+    });
+  });
+
+  describe('renaming', () => {
+    it('an agent account cannot be renamed, by an administrator either (409 agent_account)', async () => {
+      const res = await env.app.inject({
+        method: 'PATCH',
+        url: '/api/people/example-bot',
+        payload: { slug: 'renamed-bot' },
+        cookies: { cfp_session: admin },
+      });
+      expect(res.statusCode, res.body).toBe(409);
+      expect(res.json<{ error: { code: string } }>().error.code).toBe('agent_account');
+      expect(env.app.inMemoryState.personIdBySlug.has('example-bot')).toBe(true);
+    });
+
+    it('other edits to an agent account still work', async () => {
+      const res = await env.app.inject({
+        method: 'PATCH',
+        url: '/api/people/example-bot',
+        payload: { bio: 'An AI moderator run by the test suite, renamed never.' },
+        cookies: { cfp_session: admin },
+      });
+      expect(res.statusCode, res.body).toBe(200);
     });
   });
 

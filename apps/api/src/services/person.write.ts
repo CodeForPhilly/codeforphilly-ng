@@ -42,6 +42,7 @@ import { purgePeople } from './person-purge.js';
 import { spamPurgeRecord } from './spam-purges.js';
 import { purgeableProjects } from './project-purge.js';
 import { rekeyAttachment, upsertMoved } from './slug-rename.js';
+import { slugHasModerationHistory } from './votes.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -85,6 +86,11 @@ export class PersonWriteService {
 
     let newSlug = existing.slug;
     if (input.slug !== undefined && input.slug !== existing.slug) {
+      // An agent's votes and purges are recorded under `agent-<slug>`, which a
+      // rename would not follow (specs/api/agents.md → The agent account).
+      if (isAgentAccount(this.#state, existing.slug)) {
+        throw new ConflictError('An agent account cannot be renamed', 'agent_account');
+      }
       const candidate = input.slug.toLowerCase();
       if (!isValidPersonSlug(candidate)) {
         throw new ApiValidationError('Invalid slug format', { slug: 'invalid format' });
@@ -94,6 +100,13 @@ export class PersonWriteService {
       }
       if (this.#state.personIdBySlug.has(candidate)) {
         throw new ConflictError(`Slug '${candidate}' is already taken`, 'slug_taken');
+      }
+      // specs/behaviors/slug-handles.md → Moderation history retires a slug.
+      if (slugHasModerationHistory(this.#state, candidate)) {
+        throw new ApiValidationError(
+          `Slug '${candidate}' belonged to an earlier account with moderation history; choose another`,
+          { slug: 'slug_retired' },
+        );
       }
       newSlug = candidate;
     }

@@ -18,6 +18,15 @@ import { seedRawToml } from './helpers/seed-fixtures.js';
 const JWT_KEY = 'test-jwt-signing-key-at-least-32-chars!!';
 const STAFF_ID = '01951a3c-0000-7000-8000-0000000001a1';
 const REBORN_ID = '01951a3c-0000-7000-8000-0000000001b1';
+/** A long-standing member who holds a slug a spam account was purged under. */
+const VETERAN_ID = '01951a3c-0000-7000-8000-0000000001c1';
+const PURGED_ID = '01951a3c-0000-7000-8000-0000000001c2';
+const PURGE_RECORD_ID = '01951a3c-0000-7000-8000-0000000001c3';
+const MOVER_ID = '01951a3c-0000-7000-8000-0000000001d1';
+const VETERAN_CREATED_AT = '2025-03-01T00:00:00Z';
+/** Cast on the purged account: after the veteran's createdAt, before the purge. */
+const PURGED_ACCOUNT_VOTE_AT = '2026-10-04T12:00:00Z';
+const PURGED_AT = '2026-10-05T00:00:00Z';
 
 /** The earlier account's staff vote, cast before `reborn` signed up again. */
 const EARLIER_VOTE_AT = '2026-10-01T12:00:00Z';
@@ -65,6 +74,61 @@ describe('votes belong to one account', () => {
       'seed earlier vote',
     );
 
+    // `veteran` signed up long ago; a spam account under the same slug was
+    // voted on and purged later (as it would be had the veteran renamed onto
+    // the freed slug before renames onto it were refused).
+    await seedRawToml(dataRepo.path, 'people/veteran.toml', person('veteran', VETERAN_ID, 'user', VETERAN_CREATED_AT), 'seed veteran');
+    await seedRawToml(
+      dataRepo.path,
+      'person-evaluations/veteran/human-staffer.toml',
+      [
+        `personSlug = "veteran"`,
+        `evaluator = "human-staffer"`,
+        `verdict = "spam"`,
+        `confidence = 1`,
+        `flags = ["manual-override"]`,
+        `reasoning = "purged account: promo bio"`,
+        `evaluatedAt = "${PURGED_ACCOUNT_VOTE_AT}"`,
+      ].join('\n'),
+      'seed vote on the purged account',
+    );
+    const purgeRecord = (slug: string, id: string) =>
+      [
+        `id = "${id}"`,
+        `personSlug = "${slug}"`,
+        `personId = "${PURGED_ID}"`,
+        `purgedAt = "${PURGED_AT}"`,
+        `by = "human-staffer"`,
+        `reason = "Promotional bio."`,
+        `flags = []`,
+        `evidence = []`,
+        `beforeCommit = "0000000000000000000000000000000000000000"`,
+        `blocksSignIn = true`,
+      ].join('\n');
+    await seedRawToml(dataRepo.path, `spam-purges/veteran/${PURGE_RECORD_ID}.toml`, purgeRecord('veteran', PURGE_RECORD_ID), 'seed purge record');
+    // Slugs with moderation history and no person: one with only a vote, one
+    // with only a purge record.
+    await seedRawToml(
+      dataRepo.path,
+      'person-evaluations/voted-gone/human-staffer.toml',
+      [
+        `personSlug = "voted-gone"`,
+        `evaluator = "human-staffer"`,
+        `verdict = "spam"`,
+        `confidence = 1`,
+        `flags = ["manual-override"]`,
+        `evaluatedAt = "${PURGED_ACCOUNT_VOTE_AT}"`,
+      ].join('\n'),
+      'seed vote on a purged slug',
+    );
+    await seedRawToml(
+      dataRepo.path,
+      'spam-purges/purged-gone/01951a3c-0000-7000-8000-0000000001c4.toml',
+      purgeRecord('purged-gone', '01951a3c-0000-7000-8000-0000000001c4'),
+      'seed purge record on a free slug',
+    );
+    await seedRawToml(dataRepo.path, 'people/mover.toml', person('mover', MOVER_ID, 'user', VETERAN_CREATED_AT), 'seed mover');
+
     app = await buildApp({
       serverOptions: { logger: false },
       overrideEnv: {
@@ -85,6 +149,52 @@ describe('votes belong to one account', () => {
   });
 
   const staff = () => ({ cookies: { cfp_session: staffCookie } });
+
+  describe('a vote at or before a purge of the slug that named another person', () => {
+    it('does not count on a member who existed before the purge', async () => {
+      const row = (await app.inject({ method: 'GET', url: '/api/admin/members?vote=none', ...staff() }))
+        .json<{ data: Array<{ slug: string; latestVote: unknown }> }>()
+        .data.find((r) => r.slug === 'veteran');
+      expect(row).toBeDefined();
+      expect(row!.latestVote).toBeNull();
+
+      const detail = await app.inject({ method: 'GET', url: '/api/admin/members/veteran', ...staff() });
+      const d = detail.json<{ data: { votes: unknown[]; earlierVotes: Array<{ reasoning: string }> } }>().data;
+      expect(d.votes).toEqual([]);
+      expect(d.earlierVotes).toEqual([expect.objectContaining({ reasoning: 'purged account: promo bio' })]);
+    });
+
+    it('a vote after the purge counts', async () => {
+      const res = await app.inject({ method: 'POST', url: '/api/admin/members/veteran/vote', payload: { verdict: 'legit' }, ...staff() });
+      expect(res.statusCode, res.body).toBe(200);
+      const d = (await app.inject({ method: 'GET', url: '/api/admin/members/veteran', ...staff() })).json<{
+        data: { votes: Array<{ verdict: string }> };
+      }>().data;
+      expect(d.votes.map((v) => v.verdict)).toEqual(['legit']);
+    });
+  });
+
+  describe('a rename onto a slug with moderation history', () => {
+    const rename = async (cookie: string, to: string) =>
+      app.inject({ method: 'PATCH', url: '/api/people/mover', payload: { slug: to }, cookies: { cfp_session: cookie } });
+
+    it('is refused for the member and for staff (422 slug_retired)', async () => {
+      const self = (await mintSessionFor(MOVER_ID, 'user', JWT_KEY)).accessToken;
+      for (const cookie of [self, staffCookie]) {
+        for (const to of ['voted-gone', 'purged-gone']) {
+          const res = await rename(cookie, to);
+          expect(res.statusCode, `${to}: ${res.body}`).toBe(422);
+          expect(res.json<{ error: { fields: Record<string, string> } }>().error.fields['slug']).toBe('slug_retired');
+        }
+      }
+      expect(app.inMemoryState.personIdBySlug.get('mover')).toBe(MOVER_ID);
+    });
+
+    it('a slug with no history is still free', async () => {
+      const res = await rename(staffCookie, 'mover-two');
+      expect(res.statusCode, res.body).toBe(200);
+    });
+  });
 
   it('the roster shows no latest vote and counts the member as unvoted', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/admin/members?vote=none', ...staff() });

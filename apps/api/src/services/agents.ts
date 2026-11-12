@@ -33,7 +33,7 @@ import type { InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/index.js';
 import { StateApply } from '../store/state-apply.js';
 import type { DualStoreTx } from '../store/store.js';
-import { votesOnAccount } from './votes.js';
+import { slugHasModerationHistory, votesOnAccount } from './votes.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -199,6 +199,7 @@ export class AgentService {
     if (!isValidPersonSlug(slug)) fields['slug'] = 'invalid format';
     else if (isReservedSlug(slug)) fields['slug'] = 'slug_reserved';
     else if (this.#state.personIdBySlug.has(slug)) fields['slug'] = 'slug_taken';
+    else if (slugHasModerationHistory(this.#state, slug)) fields['slug'] = 'slug_retired';
     const fullName = typeof input.fullName === 'string' ? input.fullName.trim() : '';
     if (fullName.length < 1 || fullName.length > 120) fields['fullName'] = '1–120 characters';
     const bio = typeof input.bio === 'string' ? input.bio.trim() : '';
