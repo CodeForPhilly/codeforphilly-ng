@@ -1244,13 +1244,21 @@ export const api = {
       slug: string;
       fullName: string;
       bio: string;
-      grant?: GrantInput;
-    }): Promise<SuccessEnvelope<{ person: PersonDetail; grant: AgentGrantView | null; token?: string }>> =>
+      grant: GrantInput;
+    }): Promise<SuccessEnvelope<{ person: PersonDetail; grant: AgentGrantView; token: string }>> =>
       request(`/api/admin/agents`, { method: 'POST', body: JSON.stringify(input) }),
     mintGrant: (slug: string, input: GrantInput): Promise<SuccessEnvelope<{ grant: AgentGrantView; token: string }>> =>
       request(`/api/admin/agents/${encodeURIComponent(slug)}/grants`, { method: 'POST', body: JSON.stringify(input) }),
-    revokeGrant: (slug: string, id: string): Promise<SuccessEnvelope<{ grant: AgentGrantView }>> =>
-      request(`/api/admin/agents/${encodeURIComponent(slug)}/grants/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
+    /** `withdrawVotes`: the token may be compromised — also withdraw the agent's staged votes, in the same commit. */
+    revokeGrant: (
+      slug: string,
+      id: string,
+      opts: { withdrawVotes?: boolean } = {},
+    ): Promise<SuccessEnvelope<{ grant: AgentGrantView; withdrawn?: number; reactivated?: number }>> =>
+      request(`/api/admin/agents/${encodeURIComponent(slug)}/grants/${encodeURIComponent(id)}/revoke`, {
+        method: 'POST',
+        body: JSON.stringify(opts.withdrawVotes ? { withdrawVotes: true } : {}),
+      }),
     withdrawVotes: (slug: string): Promise<SuccessEnvelope<{ withdrawn: number; reactivated: number }>> =>
       request(`/api/admin/agents/${encodeURIComponent(slug)}/withdraw-votes`, { method: 'POST', body: '{}' }),
     spamPurges: (params: SpamPurgeListParams = {}): Promise<PaginatedEnvelope<SpamPurgeView>> =>

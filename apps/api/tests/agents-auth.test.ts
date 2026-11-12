@@ -103,6 +103,18 @@ describe('agent accounts and grants', () => {
       });
     });
 
+    it('requires a first grant (422): an account with no grant is no agent', async () => {
+      const res = await env.app.inject({
+        method: 'POST',
+        url: '/api/admin/agents',
+        cookies: { cfp_session: admin },
+        payload: { slug: 'grantless-bot', fullName: 'Grantless', bio: 'An AI.' },
+      });
+      expect(res.statusCode).toBe(422);
+      expect(res.json<{ error: { fields: Record<string, string> } }>().error.fields['grant']).toEqual(expect.any(String));
+      expect(env.app.inMemoryState.personIdBySlug.has('grantless-bot')).toBe(false);
+    });
+
     it('refuses a slug with moderation history (422 slug_retired)', async () => {
       const res = await env.app.inject({
         method: 'POST',

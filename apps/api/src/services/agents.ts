@@ -47,7 +47,8 @@ export interface CreateAgentInput {
   readonly slug: string;
   readonly fullName: string;
   readonly bio: string;
-  readonly grant?: GrantInput;
+  /** Required: an account is an agent because it holds a grant (specs/api/agents.md). */
+  readonly grant: GrantInput;
 }
 
 export interface PersonRef {
@@ -186,14 +187,14 @@ export class AgentService {
 
   /**
    * Create the agent's person record (no sign-in identity, no private
-   * profile) and, optionally, its first grant, in one transaction.
+   * profile) and its first grant, in one transaction.
    */
   async create(
     tx: DualStoreTx,
     createdBySlug: string,
     input: CreateAgentInput,
     ids: { readonly personId?: string; readonly grantId?: string } = {},
-  ): Promise<{ person: Person; grant: AgentGrant | null; token: string | null; stateApply: StateApply }> {
+  ): Promise<{ person: Person; grant: AgentGrant; token: string; stateApply: StateApply }> {
     const fields: Record<string, string> = {};
     const slug = typeof input.slug === 'string' ? input.slug.trim().toLowerCase() : '';
     if (!isValidPersonSlug(slug)) fields['slug'] = 'invalid format';
@@ -205,8 +206,13 @@ export class AgentService {
     const bio = typeof input.bio === 'string' ? input.bio.trim() : '';
     if (bio.length < 1) fields['bio'] = 'required: say what the agent is and who runs it';
     else if (bio.length > 10_000) fields['bio'] = 'max 10000 characters';
-    const grantInput = input.grant ? validateGrantInput(input.grant) : null;
-    if (Object.keys(fields).length > 0) throw new ApiValidationError('Invalid agent', fields);
+    let grantInput: ReturnType<typeof validateGrantInput> | null = null;
+    if (input.grant === undefined || input.grant === null || typeof input.grant !== 'object') {
+      fields['grant'] = 'required: an agent is created with its first grant';
+    } else {
+      grantInput = validateGrantInput(input.grant);
+    }
+    if (Object.keys(fields).length > 0 || !grantInput) throw new ApiValidationError('Invalid agent', fields);
 
     const now = nowIso();
     const person = PersonSchema.parse({
@@ -221,13 +227,7 @@ export class AgentService {
     await tx.public.people.upsert(person);
     const stateApply = new StateApply().upsertPerson(person);
 
-    let grant: AgentGrant | null = null;
-    let token: string | null = null;
-    if (grantInput) {
-      const minted = await this.#writeGrant(tx, stateApply, person, createdBySlug, grantInput, now, ids.grantId);
-      grant = minted.grant;
-      token = minted.token;
-    }
+    const { grant, token } = await this.#writeGrant(tx, stateApply, person, createdBySlug, grantInput, now, ids.grantId);
     return { person, grant, token, stateApply };
   }
 
@@ -279,16 +279,20 @@ export class AgentService {
     return grant;
   }
 
-  /** Revoke at once; revoking a revoked grant is a no-op (no commit). */
+  /**
+   * Revoke at once (revoking a revoked grant changes nothing), recording it
+   * on `stateApply`.
+   */
   async revoke(
     tx: DualStoreTx,
     agentSlug: string,
     grantId: string,
+    stateApply: StateApply = new StateApply(),
   ): Promise<{ grant: AgentGrant; stateApply: StateApply }> {
     const existing = this.grantOr404(agentSlug, grantId);
-    if (existing.revokedAt) return { grant: existing, stateApply: new StateApply() };
+    if (existing.revokedAt) return { grant: existing, stateApply };
     const grant = AgentGrantSchema.parse({ ...existing, revokedAt: nowIso() });
     await tx.public['agent-grants'].upsert(grant);
-    return { grant, stateApply: new StateApply().upsertAgentGrant(grant) };
+    return { grant, stateApply: stateApply.upsertAgentGrant(grant) };
   }
 }

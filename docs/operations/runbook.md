@@ -246,8 +246,9 @@ const api = (method, path, body) => fetch(path, {
 }).then((r) => r.json()).then((j) => (console.log(j), j.data));
 ```
 
-- **Create the agent** (once). Its bio says it is an AI and who runs it.
-  The first grant is read + vote only; purge comes later
+- **Create the agent** (once), with its first grant: `grant` is required, since
+  an account is an agent because it holds one. Its bio says it is an AI and who
+  runs it. The first grant is read + vote only; purge comes later
   ([plans/bot-spam-votes.md](../../plans/bot-spam-votes.md) → Rollout).
 
   ```js
@@ -263,10 +264,12 @@ const api = (method, path, body) => fetch(path, {
   credential file on its host (for the ops bot,
   `~/.config/grittybot/cfp-agent-token`, mode 0600); never in a chat, issue,
   repo or ticket. Lose it and mint a new one.
-- **Mint / rotate / change scopes.** Scopes are fixed for a grant's life, so
-  rotating, renewing (grants last 1–180 days, default 90) or adding
-  `moderation:purge` is a new grant plus a revoke of the old one. Minting a
-  grant with `moderation:purge` requires `moderation:read`.
+- **Rotate / renew / change scopes** (nothing is wrong with the token). Scopes
+  are fixed for a grant's life, so rotating, renewing (grants last 1–180 days,
+  default 90) or adding `moderation:purge` is: mint the new grant first, then
+  revoke the old one **without** withdrawing votes. The agent always holds an
+  active grant, so its staged votes count throughout. Minting a grant with
+  `moderation:purge` requires `moderation:read`.
 
   ```js
   const { grant, token } = await api('POST', '/api/admin/agents/grittybot/grants',
@@ -275,13 +278,25 @@ const api = (method, path, body) => fetch(path, {
   api('POST', '/api/admin/agents/grittybot/grants/<old grant id>/revoke');
   ```
 
-- **Revoke** at once when a token is in doubt: the next request with it gets
-  `401 grant_invalid`, and the agent's staged votes stop counting toward a
-  purge (they stay on the roster, greyed). Revoking does not undo anything.
+- **Compromise** (the token may be in someone else's hands, or the agent has
+  gone wrong): revoke **with** `withdrawVotes: true`. In one commit, the token
+  is dead (the next request with it gets `401 grant_invalid`) and every vote
+  the agent staged on members no human has voted on is withdrawn, un-hiding
+  the members its spam votes hid. Do this before minting a replacement: a plain
+  revoke only stops the staged votes counting while the agent holds no active
+  grant, and the next grant minted for it brings them all back. The Agents
+  panel's Revoke confirm has the checkbox "This token may be compromised: also
+  withdraw this agent's staged votes". Neither undoes purges: check the purge
+  log for the agent and restore any wrong one (below).
+
+  ```js
+  api('POST', '/api/admin/agents/grittybot/grants/<grant id>/revoke', { withdrawVotes: true });
+  ```
 - **Withdraw** (staff) every vote the agent staged on members no human has
-  voted on, un-hiding the members its votes hid, in one commit. Do this and
-  revoke when the agent has gone wrong; purges are not undone by it (restore
-  them one by one, below).
+  voted on, un-hiding the members its votes hid, in one commit, without
+  revoking anything (for a run of bad votes from a token that is still sound;
+  use `since` to take back only the recent ones). Purges are not undone by it
+  (restore them one by one, below).
 
   ```js
   api('POST', '/api/admin/agents/grittybot/withdraw-votes', { since: '2026-11-01T00:00:00Z' });

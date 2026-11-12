@@ -45,7 +45,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     {
       schema: {
         tags: ['agents'],
-        summary: 'Create an agent account, optionally with its first grant (administrator)',
+        summary: 'Create an agent account with its first grant (administrator)',
         body: {
           type: 'object',
           properties: {
@@ -61,7 +61,8 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const session = administratorCaller(request);
-      const body = request.body as { slug: string; fullName: string; bio: string; grant?: GrantInput };
+      // `grant` is required; the service says so by name (422 fields.grant).
+      const body = request.body as { slug: string; fullName: string; bio: string; grant: GrantInput };
       const slug = body.slug.trim().toLowerCase();
       const ids = { personId: uuidv7(), grantId: uuidv7() };
       const result = await fastify.store.transact(
@@ -73,7 +74,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
             subjectId: ids.personId,
             subjectSlug: slug,
             responseCode: 201,
-            ...(body.grant ? { extraTrailers: { 'Grant-Id': ids.grantId } } : {}),
+            extraTrailers: { 'Grant-Id': ids.grantId },
           }),
           // The token hash must land before the grant is public.
           writeOrder: 'private-first',
@@ -85,8 +86,8 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(201).send(
         ok({
           person: await fastify.services.people.get(person.slug, undefined),
-          grant: grant ? fastify.services.agents.grantView(grant) : null,
-          ...(token ? { token } : {}),
+          grant: fastify.services.agents.grantView(grant),
+          token,
         }),
       );
     },
@@ -134,19 +135,25 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     {
       schema: {
         tags: ['agents'],
-        summary: 'Revoke a grant at once (administrator)',
+        summary: "Revoke a grant at once, optionally withdrawing the agent's staged votes (administrator)",
         params: {
           type: 'object',
           properties: { slug: { type: 'string' }, id: { type: 'string' } },
           required: ['slug', 'id'],
+        },
+        body: {
+          type: ['object', 'null'],
+          properties: { withdrawVotes: { type: 'boolean' } },
+          additionalProperties: false,
         },
       },
     },
     async (request) => {
       administratorCaller(request);
       const { slug, id } = request.params as { slug: string; id: string };
+      const withdrawVotes = (request.body as { withdrawVotes?: boolean } | null)?.withdrawVotes === true;
       const existing = fastify.services.agents.grantOr404(slug, id);
-      if (existing.revokedAt) return ok({ grant: fastify.services.agents.grantView(existing) });
+      if (existing.revokedAt && !withdrawVotes) return ok({ grant: fastify.services.agents.grantView(existing) });
       const agent = fastify.services.agents.agentOr404(slug);
       const result = await fastify.store.transact(
         buildTransactionOptions({
@@ -156,13 +163,24 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           subjectId: agent.id,
           subjectSlug: slug,
           responseCode: 200,
-          extraTrailers: { 'Grant-Id': id },
+          extraTrailers: { 'Grant-Id': id, ...(withdrawVotes ? { 'Withdraw-Votes': 'true' } : {}) },
         }),
-        async (tx) => fastify.services.agents.revoke(tx, slug, id),
+        async (tx) => {
+          // A token that may be compromised: revoke, and withdraw what it
+          // staged, in one commit (specs/api/agents.md → revoke).
+          const revoked = await fastify.services.agents.revoke(tx, slug, id);
+          if (!withdrawVotes) return { ...revoked, withdrawn: null };
+          const withdrawn = await fastify.services.moderationWrite.withdrawAll(tx, slug, null, revoked.stateApply);
+          return { ...revoked, withdrawn };
+        },
         // Immediate: the next request with this token is refused.
         (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
       );
-      return ok({ grant: fastify.services.agents.grantView(result.value.grant) });
+      const { grant, withdrawn } = result.value;
+      return ok({
+        grant: fastify.services.agents.grantView(grant),
+        ...(withdrawn ? { withdrawn: withdrawn.withdrawn, reactivated: withdrawn.reactivated } : {}),
+      });
     },
   );
 

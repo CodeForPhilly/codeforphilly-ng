@@ -919,9 +919,9 @@ export class ModerationWriteService {
     tx: DualStoreTx,
     agentSlug: string,
     since: string | null,
+    stateApply: StateApply = new StateApply(),
   ): Promise<{ withdrawn: number; reactivated: number; stateApply: StateApply }> {
     const evaluator = agentEvaluatorFor(agentSlug);
-    const stateApply = new StateApply();
     let withdrawn = 0;
     let reactivated = 0;
     for (const person of [...this.#state.people.values()]) {

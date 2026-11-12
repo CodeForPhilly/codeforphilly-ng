@@ -365,7 +365,7 @@ function NewAgentDialog({ open, onOpenChange, onMinted }: { open: boolean; onOpe
         slug: slug.trim(),
         fullName: fullName.trim(),
         bio: bio.trim(),
-        ...(label.trim() ? { grant: { label: label.trim(), scopes: ['moderation:read', 'moderation:vote'], expiresInDays: 90 } } : {}),
+        grant: { label: label.trim(), scopes: ['moderation:read', 'moderation:vote'], expiresInDays: 90 },
       }),
     onSuccess: async (res) => {
       onOpenChange(false);
@@ -374,8 +374,7 @@ function NewAgentDialog({ open, onOpenChange, onMinted }: { open: boolean; onOpe
       setBio('');
       setLabel('');
       await queryClient.invalidateQueries({ queryKey: ['admin-agents'] });
-      if (res.data.token) onMinted(res.data.token);
-      else toast.success('Agent created');
+      onMinted(res.data.token);
     },
     onError: (err) => toast.error(errorText(err, 'Could not create the agent')),
   });
@@ -386,7 +385,7 @@ function NewAgentDialog({ open, onOpenChange, onMinted }: { open: boolean; onOpe
           <DialogTitle>New agent account</DialogTitle>
           <DialogDescription>
             An agent has no sign-in: only grants reach the API as it. Its bio is public and must say it is an AI and who
-            runs it. A first grant (if labeled) carries read and staged votes only.
+            runs it. It is created with its first grant, which carries read and staged votes only.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -409,8 +408,15 @@ function NewAgentDialog({ open, onOpenChange, onMinted }: { open: boolean; onOpe
             <Textarea id="agent-bio" value={bio} onChange={(e) => setBio(e.target.value)} required rows={3} />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="agent-grant-label">First grant label (optional)</Label>
-            <Input id="agent-grant-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} placeholder="ops bot, host vm-1" />
+            <Label htmlFor="agent-grant-label">First grant label (what and where)</Label>
+            <Input
+              id="agent-grant-label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              maxLength={80}
+              required
+              placeholder="ops bot, host vm-1"
+            />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -444,6 +450,8 @@ function AgentLine({
   const queryClient = useQueryClient();
   const [minting, setMinting] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [alsoWithdraw, setAlsoWithdraw] = useState(false);
   const refreshAgents = () => queryClient.invalidateQueries({ queryKey: ['admin-agents'] });
   const withdraw = useMutation({
     mutationFn: () => api.admin.withdrawVotes(agent.person.slug),
@@ -456,9 +464,13 @@ function AgentLine({
     onError: (err) => toast.error(errorText(err, 'Withdraw failed')),
   });
   const revoke = useMutation({
-    mutationFn: (id: string) => api.admin.revokeGrant(agent.person.slug, id),
-    onSuccess: async () => {
-      toast.success('Grant revoked');
+    mutationFn: ({ id, withdrawVotes }: { id: string; withdrawVotes: boolean }) =>
+      api.admin.revokeGrant(agent.person.slug, id, { withdrawVotes }),
+    onSuccess: async (res) => {
+      setRevoking(null);
+      setAlsoWithdraw(false);
+      const w = res.data.withdrawn;
+      toast.success(w === undefined ? 'Grant revoked' : `Grant revoked; withdrew ${w} staged vote${w === 1 ? '' : 's'}`);
       await refreshAgents();
       await onRosterChanged();
     },
@@ -493,7 +505,7 @@ function AgentLine({
             </span>
             <span className={g.active ? 'text-emerald-700' : ''}>{g.active ? 'active' : g.revokedAt ? 'revoked' : 'expired'}</span>
             {isAdmin && g.active && (
-              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={revoke.isPending} onClick={() => revoke.mutate(g.id)}>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={revoke.isPending} onClick={() => setRevoking(g.id)}>
                 Revoke
               </Button>
             )}
@@ -525,6 +537,50 @@ function AgentLine({
           onToken(token);
         }}
       />
+      <Dialog
+        open={revoking !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setRevoking(null);
+            setAlsoWithdraw(false);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revoke this grant?</DialogTitle>
+            <DialogDescription>
+              The next request with its token is refused. {agent.person.fullName}’s staged votes stop counting toward a purge
+              while it holds no active grant, and count again if a new grant is minted, unless you withdraw them now.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox checked={alsoWithdraw} onCheckedChange={(v) => setAlsoWithdraw(v === true)} className="mt-0.5" />
+            <span>
+              This token may be compromised: also withdraw this agent’s staged votes
+              {staged > 0 ? ` (${staged} now, un-hiding the members its spam votes hid)` : ''}.
+            </span>
+          </label>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRevoking(null);
+                setAlsoWithdraw(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={revoke.isPending}
+              onClick={() => revoking && revoke.mutate({ id: revoking, withdrawVotes: alsoWithdraw })}
+            >
+              {alsoWithdraw ? 'Revoke and withdraw' : 'Revoke'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={withdrawing} onOpenChange={setWithdrawing}>
         <DialogContent>
           <DialogHeader>

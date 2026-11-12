@@ -11,6 +11,7 @@ import {
   createAgent,
   daysAgo,
   fid,
+  mintGrant,
   minutesAgo,
   personRecord,
   privateProfile,
@@ -33,6 +34,7 @@ const N = {
   withdrawA: 18,
   withdrawB: 19,
   sweep: 20,
+  late: 21,
 };
 const RATE_BASE = 100;
 const DAY = 86_400_000;
@@ -69,6 +71,7 @@ describe('agent votes', () => {
     personRecord(N.withdrawA, 'withdraw-a', { createdAt: daysAgo(1) }),
     personRecord(N.withdrawB, 'withdraw-b', { createdAt: daysAgo(1) }),
     personRecord(N.sweep, 'sweep-me', { createdAt: daysAgo(1) }),
+    personRecord(N.late, 'late-target', { createdAt: daysAgo(1) }),
     ...Array.from({ length: 21 }, (_, i) => personRecord(RATE_BASE + i, `rate-${i}`, { createdAt: daysAgo(1) })),
   ];
 
@@ -300,6 +303,53 @@ describe('agent votes', () => {
       expect(queuedForSpamPurge(state, later).map((p) => p.slug)).not.toContain('staged-revoked');
       // And the token is dead at once.
       expect((await vote('fresh-two', spam, bearer(temp.token))).statusCode).toBe(401);
+    });
+
+    it('a new grant makes them count again (the rotation case)', async () => {
+      await mintGrant(env, admin, 'temp-bot', ['moderation:read', 'moderation:vote']);
+      const r = await row('staged-revoked');
+      expect(r.stagedVote?.counts).toBe(true);
+      expect(r.purgeAfter).not.toBeNull();
+    });
+
+    it('revoke with withdrawVotes also withdraws them, in the same commit (the compromise case)', async () => {
+      const grant = env.app.services.agents.list().find((a) => a.person.slug === 'temp-bot')!.grants.find((g) => g.active)!;
+      const before = Number((await env.git('rev-list', '--count', 'HEAD')).trim());
+      const res = await env.app.inject({
+        method: 'POST',
+        url: `/api/admin/agents/temp-bot/grants/${grant.id}/revoke`,
+        cookies: { cfp_session: admin },
+        payload: { withdrawVotes: true },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json<{ data: { grant: { active: boolean }; withdrawn: number; reactivated: number } }>().data).toMatchObject({
+        grant: { active: false },
+        withdrawn: 1,
+        reactivated: 1,
+      });
+      expect(Number((await env.git('rev-list', '--count', 'HEAD')).trim())).toBe(before + 1);
+      const msg = await env.git('log', '-1', '--format=%B');
+      expect(msg).toContain('Action: agent.revoke');
+      expect(msg).toContain(`Grant-Id: ${grant.id}`);
+      expect(msg).toContain('Withdraw-Votes: true');
+      const r = await row('staged-revoked');
+      expect(r.stagedVote).toBeNull();
+      expect(r.deletedAt).toBeNull();
+
+      // A later grant has nothing to revive.
+      await mintGrant(env, admin, 'temp-bot', ['moderation:read', 'moderation:vote']);
+      expect((await row('staged-revoked')).purgeAfter).toBeNull();
+    });
+
+    it('withdrawVotes on a grant already revoked still withdraws', async () => {
+      const late = await createAgent(env, admin, { slug: 'late-bot', scopes: ['moderation:read', 'moderation:vote'] });
+      expect((await vote('late-target', spam, bearer(late.token))).statusCode).toBe(200);
+      const url = `/api/admin/agents/late-bot/grants/${late.grantId}/revoke`;
+      expect((await env.app.inject({ method: 'POST', url, cookies: { cfp_session: admin } })).statusCode).toBe(200);
+      const res = await env.app.inject({ method: 'POST', url, cookies: { cfp_session: admin }, payload: { withdrawVotes: true } });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json<{ data: { withdrawn: number } }>().data.withdrawn).toBe(1);
+      expect((await row('late-target')).stagedVote).toBeNull();
     });
   });
 
