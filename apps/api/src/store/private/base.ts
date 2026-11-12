@@ -360,9 +360,24 @@ export abstract class BasePrivateStore implements PrivateStore {
     await this.writeRaw('account-claim-requests.jsonl', lines ? lines + '\n' : '');
   }
 
+  /** Tail of the queue of writes to `agent-grant-secrets.jsonl`. */
+  #grantSecretsWrite: Promise<void> = Promise.resolve();
+
+  /**
+   * Write `agent-grant-secrets.jsonl`, one write at a time: `lastUsedAt`
+   * updates land outside any transaction, and the filesystem backend writes
+   * through one fixed temp path. Each write serializes the map as it is when
+   * its turn comes, so the last write carries the latest state.
+   */
   protected async flushGrantSecrets(): Promise<void> {
-    const lines = [...this.grantSecrets.values()].map((t) => JSON.stringify(t)).join('\n');
-    await this.writeRaw('agent-grant-secrets.jsonl', lines ? lines + '\n' : '');
+    const write = this.#grantSecretsWrite
+      .catch(() => undefined)
+      .then(async () => {
+        const lines = [...this.grantSecrets.values()].map((t) => JSON.stringify(t)).join('\n');
+        await this.writeRaw('agent-grant-secrets.jsonl', lines ? lines + '\n' : '');
+      });
+    this.#grantSecretsWrite = write;
+    await write;
   }
 
   protected async flushPasswordTokens(): Promise<void> {

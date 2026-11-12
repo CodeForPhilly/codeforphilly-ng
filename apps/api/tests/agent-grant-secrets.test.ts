@@ -55,6 +55,24 @@ describe('agent grant secrets (private store)', () => {
     expect(reloaded.getGrantSecret(G1)?.lastUsedAt).toBe('2026-11-12T03:10:00Z');
   });
 
+  it('concurrent lastUsedAt writes and a transaction never collide on the file, and the last state lands', async () => {
+    const store = new FilesystemPrivateStore({ CFP_PRIVATE_STORAGE_PATH: dir.path });
+    await store.load();
+    const g1 = store.getGrantSecret(G1)!;
+    const g2 = store.getGrantSecret(G2)!;
+    const stamps = Array.from({ length: 20 }, (_, i) => `2026-11-12T04:${String(i).padStart(2, '0')}:00Z`);
+    await Promise.all([
+      ...stamps.map((at, i) => store.putGrantSecret({ ...(i % 2 ? g1 : g2), lastUsedAt: at })),
+      store.transact(async (tx) => {
+        tx.putGrantSecret({ ...g2, lastUsedAt: '2026-11-12T05:00:00Z' });
+      }),
+    ]);
+    const reloaded = new FilesystemPrivateStore({ CFP_PRIVATE_STORAGE_PATH: dir.path });
+    await reloaded.load();
+    expect(reloaded.getGrantSecret(G1)?.lastUsedAt).toBe(store.getGrantSecret(G1)?.lastUsedAt);
+    expect(reloaded.getGrantSecret(G2)?.lastUsedAt).toBe(store.getGrantSecret(G2)?.lastUsedAt);
+  });
+
   it("a person purge deletes that person's grant secrets and no one else's", async () => {
     const store = new FilesystemPrivateStore({ CFP_PRIVATE_STORAGE_PATH: dir.path });
     await store.load();
