@@ -1,5 +1,5 @@
 ---
-status: planned
+status: done
 depends: [scheduled-spam-purge, admin-members-moderation, sheet-contracts]
 specs:
   - specs/api/agents.md
@@ -14,6 +14,7 @@ specs:
   - specs/data-model.md
   - specs/screens/admin-members.md
   - specs/screens/login.md
+pr: 262
 ---
 
 # Plan: Agent moderation for the ops bot (staged spam votes, posted-spam purges)
@@ -272,26 +273,26 @@ grant before (c)'s purge log is live.
 
 ## Validation
 
-- [ ] `npm run type-check && npm run lint && npm test` clean.
-- [ ] Auth tests: a valid grant reaches `GET /api/admin/members` and
+- [x] `npm run type-check && npm run lint && npm test` clean.
+- [x] Auth tests: a valid grant reaches `GET /api/admin/members` and
   `POST …/vote`; the same token is refused (401) on `user`-marked routes
   (e.g. `PATCH /api/people/:slug`), `POST /api/auth/refresh` mints nothing
   from it, and public reads see it as anonymous; revoked, expired,
   deactivated-agent and grant+cookie all 401 `grant_invalid`; a grant
   without `moderation:vote` gets 404 on vote; without `moderation:purge`, 404
   on purge; minting purge without read → 422.
-- [ ] The token never appears in the commit, the private store (only its
+- [x] The token never appears in the commit, the private store (only its
   hash), or a captured request log line.
-- [ ] Vote rules: agent vote on a human-voted member → 409
+- [x] Vote rules: agent vote on a human-voted member → 409
   `human_verdict_exists`; on staff/agent/self → 409/422; spam on a member
   older than 30 days → 409 `member_too_old`; 21st spam vote in 24h → 429
   with `Retry-After`; missing reasoning → 422; `DELETE` after a human vote →
   409.
-- [ ] Side effects: agent spam hides; agent legit / `DELETE` un-hides only
+- [x] Side effects: agent spam hides; agent legit / `DELETE` un-hides only
   when the agent's spam hid them; a staff `legit` on a staged member
   un-hides and stops the purge; a staff `spam` confirms and moves
   `purgeAfter` to its own date.
-- [ ] **Case 1 fixture**: a member created 2 minutes ago with a business name
+- [x] **Case 1 fixture**: a member created 2 minutes ago with a business name
   and a bio with a link; agent purge citing `person#bio` → 200, one commit,
   person and avatar gone, `spam-purges` record with `githubUserId`,
   `blocksSignIn`; the reason's URL check rejects a reason containing the
@@ -301,11 +302,11 @@ grant before (c)'s purge log is live.
   `latestVote`, and the old votes under `earlierVotes`. The same flow with a
   staff Danger Zone purge (`spam: true`) blocks the same way; with
   `spam: false`, no record and no block.
-- [ ] **Case 2 fixture**: a 1-minute-old member who self-joined another
+- [x] **Case 2 fixture**: a 1-minute-old member who self-joined another
   person's project (not maintainer) and set a promotional bio → agent purge
   200; their membership is gone; the project, its other members and their
   records are unchanged.
-- [ ] Agent purge refusals: member 8 days old → `member_too_old`; any human
+- [x] Agent purge refusals: member 8 days old → `member_too_old`; any human
   vote (spam or legit) → `human_verdict_exists`; an agent `legit` →
   `legit_vote_exists`; `lastSlackSsoAt` set → `established_member`; created a
   project someone else joined, or maintains a project with another member →
@@ -314,30 +315,30 @@ grant before (c)'s purge log is live.
   `evidence_survives`; imported member → `protected_account`; 6th purge in
   24h → 429. Each refusal writes nothing. `dryRun: true` passes or fails the
   same and writes nothing.
-- [ ] Agent purge commit: author the agent's pseudonymous identity; subject
+- [x] Agent purge commit: author the agent's pseudonymous identity; subject
   `<agent>: POST /api/admin/members/<slug>/purge`; body the reason; trailers
   `Action: person.purge`, `Actor-Kind: agent`, `Grant-Id`, `Purge-Id`, one
   `Evidence:` per item; `git show <sha>^:<evidence path>` shows the spam.
-- [ ] Sweep: an agent-only spam member ≥ 3 days with an active grant is
+- [x] Sweep: an agent-only spam member ≥ 3 days with an active grant is
   purged, listed `(staged by agent-<slug>)`, `Agent-Staged: 1`, with a
   `spam-purges` record `by = "scheduled"`; with the grant revoked, not queued
   and `stagedVote.counts = false`; agent accounts never queued; a
   re-registered slug with only an earlier account's spam vote is never queued.
-- [ ] Commit for an agent vote: author is the agent's pseudonymous identity,
+- [x] Commit for an agent vote: author is the agent's pseudonymous identity,
   subject `<agent>: POST /api/admin/members/<slug>/vote`, trailers include
   `Actor-Kind: agent`, `Grant-Id`, `Actor-Account-Level: user`.
-- [ ] `withdraw-votes`: one commit; counts right; votes on human-voted and on
+- [x] `withdraw-votes`: one commit; counts right; votes on human-voted and on
   purged members untouched.
-- [ ] account-level refuses to raise an agent (`409 agent_account`).
-- [ ] prune-spam: agent legit protects; agent spam does not prune; an
+- [x] account-level refuses to raise an agent (`409 agent_account`).
+- [x] prune-spam: agent legit protects; agent spam does not prune; an
   earlier account's human spam vote does not prune the new account.
 - [ ] Contract: `gitsheets contracts verify` clean on every data-repo branch
   with the `agent-grants` and `spam-purges` configs; boot fails loudly
   without them.
-- [ ] Restore runbook rehearsed on the devbox: agent-purge a fixture member,
+- [x] Restore runbook rehearsed on the devbox: agent-purge a fixture member,
   unblock, `git revert --no-commit` keeping `spam-purges/`, push, hot reload,
   vote Not spam, sign in as that GitHub user.
-- [ ] Browser (devbox): create an agent, mint (token shown once; purge grant
+- [x] Browser (devbox): create an agent, mint (token shown once; purge grant
   asks twice), vote and purge with `curl` as the agent, see the staged badge
   with reasoning in the default roster view, overrule with Not spam, see the
   banner and the purge log with evidence and commit links, unblock, withdraw,
@@ -388,6 +389,10 @@ grant before (c)'s purge log is live.
 Each with a recommended answer. (The 2026-11-11 question "purge a bot-only
 spam vote after three days with no person looking?" is answered by the
 policy: yes.)
+
+**Resolved 2026-11-12:** the operator said to build with the recommended
+answers, so every question below (1–17) was resolved with its recommended
+answer, as written. The reasoning stays as the record of why.
 
 1. **Daily caps and age windows.** 20 spam votes / 24h on members under 30
    days; 5 purges / 24h on members under 7 days. *Recommend as written*: both
@@ -561,15 +566,108 @@ specs were corrected first, then each was fixed with a test:
 - evidence identifiers are pattern-checked before lookup;
 - writes of `agent-grant-secrets.jsonl` are serialized.
 
+Built as specified, with three spec edits made along the way: an agent
+account has no private profile; the purge log carries `byRef` (who purged,
+resolved to kind, slug and name) beside the stored `by`; and the data scrub
+pseudonymizes the new slug fields (`agent-grants`, `spam-purges`).
+
+- Repeated `Evidence:` trailers are written inline in the commit message,
+  because gitsheets trailers are a single-value map; `git interpret-trailers
+  --parse` still reads one `Evidence:` line per item.
+- The 20-a-day spam-vote cap counts the agent's current vote records, so a
+  re-vote on the same member within 24 hours replaces its record rather than
+  adding to the count.
+- The `Contract` box stays unchecked. `gitsheets contracts verify` is clean on
+  `empty`, `fixture` and `legacy-import` with both configs added, in
+  codeforphilly-data PRs 21, 22 and 23, merged on 2026-11-12; `published`
+  is adopted at release time per `docs/operations/releases.md` → "Releases
+  that change a schema contract". The box closes when the release adopts
+  `published`.
+  Without the configs the store refuses to open ("Store opens with
+  validators.agent-grants, but .gitsheets/agent-grants.toml is not
+  declared"), checked against `fixture` as it stood before the configs; no
+  test covers that missing-sheet case specifically.
+- Validation boxes ticked on tests: auth and scopes
+  (`apps/api/tests/agents-auth.test.ts`, `agent-votes.test.ts`,
+  `agent-purge.test.ts`); token nowhere (`agents-auth.test.ts` "keeps only the
+  hash" and "request logs", `agent-votes.test.ts` commit test); vote rules,
+  side effects, the vote commit, `withdraw-votes` and the sweep
+  (`agent-votes.test.ts`, with the human-decided sweep record in
+  `spam-purge-block.test.ts`); case 1 (`agent-purge.test.ts`,
+  `spam-purge-block.test.ts`, `votes-one-account.test.ts`); case 2, every
+  purge refusal with its dry run, and the purge commit
+  (`agent-purge.test.ts`); `agent_account` (`agents-auth.test.ts`);
+  prune-spam (`prune-spam.test.ts`). At closeout two assertions were missing
+  and were added to `agent-votes.test.ts`: a vote on a member purged since is
+  left alone by `withdraw-votes`, and the sweep writes a `by = "scheduled"`
+  record for an agent-staged purge. The full gate passed at `8f4ce58`; the
+  closeout re-ran `agent-votes.test.ts`, type-check and lint.
+- Restore and browser rehearsal (2026-11-12, devbox, invented personas only):
+  the dev API served a throwaway bare clone of `fixture` (configs added),
+  whose `origin` was a second local bare repo standing in for GitHub; pushes
+  from the API's clone to it stood in for the push daemon (no
+  `CFP_DATA_REMOTE`). GitHub OAuth was not real: the API process loaded an
+  msw interceptor for GitHub's token, `/user` and `/user/emails` endpoints, so
+  the site's own `/api/auth/github/start` and `/callback` ran end to end. An
+  invented sign-up set a promotional bio and self-joined a project; an agent
+  created in the New agent form (which refuses to submit without the first
+  grant's label), with a purge grant minted through the second confirm,
+  purged it with `curl`; sign-in as its GitHub id went to
+  `/login?error=signup_blocked` with nothing written; Unblock from the purge
+  log; the runbook's revert in a working clone, pushed to the stand-in
+  origin, then `POST /api/_internal/reload-data` (fast-forwarded, rebuilt);
+  Not spam from the roster; sign-in as the same GitHub id signed in as the
+  restored person (same id), rebuilding the private profile's email. Also in
+  the browser: staged badge with reasoning and flags in the default view,
+  overrule with Not spam (history reads "overruled"), the banner, the purge
+  log's evidence and commit links, withdraw, and revoke with the
+  "may be compromised" box (token then `401 grant_invalid`). Dialogs checked
+  at desktop and 390px; no console errors.
+- The rehearsal corrected the restore steps
+  (`docs/operations/runbook.md`, and the command in
+  `specs/behaviors/person-lifecycle.md`): after an unblock, `git revert
+  --no-commit` stops with a modify/delete conflict on the `spam-purges`
+  record and exits non-zero, so the spec's `revert && checkout` never ran the
+  checkout; the working clone must be pulled after the unblock; the
+  **Commit** link opens the record's history, whose oldest entry is the purge;
+  a purge leaves votes in place, so a member restored from the sweep comes
+  back hidden and past due, and Not spam must land before the next sweep.
+
 ## Follow-ups
 
-- `castVote` still replaces an evaluator's record on an earlier account under
-  the same slug (`person-evaluations/<slug>/<evaluator>` has one slot per
-  evaluator per slug). Keeping both needs a path change (a new contract
-  version), so it is left; the `spam-purges` record still names the purge's
-  reason, and git history keeps the old vote.
-- `scripts/prune-spam.ts` applies only the `createdAt` rule for earlier
-  accounts, not the newer `spam-purges` cutoff.
-- Routes outside moderation and agents still apply their state after
-  `store.transact` returns; moving them to `onCommit` would close the same
-  gap for every write.
+No planned plan owns any of these, so none is `Deferred to`. Entries marked
+*(file an issue)* should become `Issue [#N]` entries once filed.
+
+- Tracked as: *(file an issue)* `castVote` still replaces an evaluator's
+  record on an earlier account under the same slug
+  (`person-evaluations/<slug>/<evaluator>` has one slot per evaluator per
+  slug). Keeping both needs a path change (a new contract version), so it is
+  left; the `spam-purges` record still names the purge's reason, and git
+  history keeps the old vote.
+- Tracked as: *(file an issue)* `scripts/prune-spam.ts` applies only the
+  `createdAt` rule for earlier accounts, not the newer `spam-purges` cutoff.
+- Tracked as: *(file an issue)* routes outside moderation and agents still
+  apply their state after `store.transact` returns; moving them to `onCommit`
+  would close the same gap for every write.
+- Tracked as: *(file an issue)* `POST /api/admin/private-data/purge-orphans`
+  does not count or delete orphaned agent grant secrets.
+- Tracked as: *(file an issue)* the staff purge's "This was spam" reason gets
+  the URL check but not the control-character check that agent reasons get.
+- Tracked as: *(file an issue)* a restored member keeps the
+  `slug-purged-before` signal and shows their own purge under Earlier account,
+  since the rule is "a `spam-purges` record names this slug"; whether a record
+  naming the same person should count is a spec decision.
+- Tracked as: the general 30-writes-a-minute per-account cap also applies to
+  agents, purge dry runs included; revisit if the bot's dry-run-then-purge
+  pattern hits it.
+- Tracked as: a public "AI agent" chip on `/members/<slug>` (the agent's bio
+  says it for now); revisit after the bot's first weeks.
+- Tracked as: a `POST /api/admin/spam-purges/:id/restore` endpoint if restores
+  pass about one a month (Open question 13); the runbook covers them until
+  then.
+- Tracked as: the Revoke confirm's unchecked text says staged votes stop
+  counting "while it holds no active grant", which reads as if they stop even
+  when the agent keeps another active grant (the rotation case, where they
+  keep counting); a wording tweak.
+- Issue [CodeForPhilly/grittybot#22](https://github.com/CodeForPhilly/grittybot/issues/22)
+  — the bot-side `bin/member-vote` command and loop policy (Bot side above).
