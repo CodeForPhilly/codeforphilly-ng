@@ -59,6 +59,8 @@ export async function startAgentTestEnv(opts: {
   records: Record<string, Rec[]>;
   profiles?: Rec[];
   env?: Record<string, string>;
+  /** More seeding in the same commit (attachments, raw files). */
+  extra?: (tx: Parameters<Parameters<Awaited<ReturnType<typeof openRepo>>['transact']>[1]>[0]) => Promise<void>;
 }): Promise<AgentTestEnv> {
   const dataRepo = await createFullDataRepo();
   const privateStore = await createPrivateStorageDir();
@@ -67,6 +69,7 @@ export async function startAgentTestEnv(opts: {
     for (const [sheet, records] of Object.entries(opts.records)) {
       for (const r of records) await tx.sheet(sheet).upsert(r, { allowMissingBody: true });
     }
+    if (opts.extra) await opts.extra(tx);
   });
   if (opts.profiles?.length) {
     const { writeFile } = await import('node:fs/promises');

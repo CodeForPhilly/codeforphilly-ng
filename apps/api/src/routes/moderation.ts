@@ -5,16 +5,19 @@
  *   GET    /api/admin/members/:slug       — staff | agent:moderation:read
  *   POST   /api/admin/members/:slug/vote  — staff | agent:moderation:vote
  *   DELETE /api/admin/members/:slug/vote  — agent:moderation:vote
+ *   POST   /api/admin/members/:slug/purge — agent:moderation:purge
  *
  * Anyone else gets 404: like the other staff surfaces, the endpoints'
  * existence is not a signal. An agent reads the roster without emails and
  * its votes are staged (moderation.md → Agent callers, Agent votes).
  */
 import type { FastifyInstance } from 'fastify';
+import { uuidv7 } from 'uuidv7';
 import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
-import { buildTransactionOptions } from '../store/commit-meta.js';
+import { buildTransactionOptions, withInlineTrailers } from '../store/commit-meta.js';
+import { evidenceTrailer, validatePurgeBody, type AgentPurgeInput } from '../services/agent-purge.js';
 import { agentCaller, moderationCaller } from '../auth/caller.js';
 import type { MemberOrigin, VoteFilter } from '../services/moderation.js';
 import { findOrphanPrivateData, purgeOrphanPrivateData } from '../services/private-orphans.js';
@@ -183,6 +186,87 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
         person: await fastify.services.people.get(slug, undefined, { moderationReader: true }),
         stagedVote: fastify.services.moderation.stagedVote(slug),
       });
+    },
+  );
+
+  // POST /api/admin/members/:slug/purge — an agent purges a new member who
+  // posted spam (moderation.md → Agent purges). One commit per purge.
+  fastify.post(
+    '/api/admin/members/:slug/purge',
+    {
+      schema: {
+        tags: ['moderation'],
+        summary: 'Purge a new member who posted spam, citing the evidence (agents only)',
+        params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+        body: {
+          type: 'object',
+          properties: {
+            reason: { type: 'string' },
+            flags: { type: 'array', items: { type: 'string' } },
+            evidence: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  record: { type: 'string' },
+                  field: { type: 'string' },
+                  project: { type: 'string' },
+                  number: { type: 'integer' },
+                  slug: { type: 'string' },
+                  roleId: { type: 'string' },
+                },
+                required: ['record'],
+                additionalProperties: false,
+              },
+            },
+            dryRun: { type: 'boolean' },
+          },
+          required: ['reason', 'evidence'],
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request) => {
+      const caller = agentCaller(request, 'moderation:purge');
+      const { slug } = request.params as { slug: string };
+      const input = request.body as AgentPurgeInput;
+      const service = fastify.services.agentPurge;
+      const member = service.memberOr404(slug);
+      const body = validatePurgeBody(member.slug, input);
+      const head = async (): Promise<string> => (await fastify.publicRepo.resolveRef('HEAD')) ?? 'unknown';
+
+      if (input.dryRun) {
+        // Every check, under the write lock, and nothing written.
+        const preview = await fastify.publicRepo.withLock(async () => {
+          const now = new Date();
+          const { deleted } = await service.check(caller.agent.person, caller.agent.grant.id, member, body, now);
+          const purge = service.record(uuidv7(), caller.agent.person, caller.agent.grant.id, member, body, await head(), now);
+          return { purge, deleted };
+        });
+        return ok({ ...preview, dryRun: true });
+      }
+
+      const purgeId = uuidv7();
+      const opts = withInlineTrailers(
+        buildTransactionOptions({
+          request,
+          session: caller.session,
+          action: 'person.purge',
+          subjectType: 'person',
+          subjectId: member.id,
+          subjectSlug: member.slug,
+          responseCode: 200,
+          summary: body.reason,
+          extraTrailers: { 'Purge-Id': purgeId },
+        }),
+        body.evidence.map((e) => ['Evidence', evidenceTrailer(e)] as const),
+      );
+      const result = await fastify.store.transact(opts, async (tx) =>
+        service.purge(tx, caller.session, member, body, purgeId, head),
+      );
+      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+      await fastify.sessionMetadata.removeAllFor(member.id, fastify.store.private);
+      return ok({ purge: result.value.purge, deleted: result.value.deleted, dryRun: false });
     },
   );
 
