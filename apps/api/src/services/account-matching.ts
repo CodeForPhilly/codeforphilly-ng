@@ -15,6 +15,7 @@ import { spamPurgeBlocks, type Person } from '@cfp/shared/schemas';
 import type { InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/index.js';
 import type { ResolvedGitHubIdentity } from '../auth/github-client.js';
+import { isAgentAccount } from '../auth/agent-grant.js';
 
 export type MatchResult =
   | { kind: 'existing'; personId: string; person: Person }
@@ -45,7 +46,8 @@ export async function resolveIdentity(
     if (!pid) continue;
     const person = state.people.get(pid);
     // Skip already-linked persons — they belong to someone else's GH account.
-    if (person && !person.githubUserId && !person.deletedAt) {
+    // An agent account is never a candidate (it has no email, but be sure).
+    if (person && !person.githubUserId && !person.deletedAt && !isAgentAccount(state, person.slug)) {
       candidates.add(pid);
     }
   }
@@ -55,7 +57,9 @@ export async function resolveIdentity(
   const usernameMatchId = state.personIdBySlug.get(usernameSlug);
   if (usernameMatchId) {
     const person = state.people.get(usernameMatchId);
-    if (person && !person.githubUserId && !person.deletedAt) {
+    // An agent account's slug is not a GitHub login to be matched
+    // (specs/behaviors/account-migration.md → Identity proofs).
+    if (person && !person.githubUserId && !person.deletedAt && !isAgentAccount(state, person.slug)) {
       candidates.add(usernameMatchId);
     }
   }
