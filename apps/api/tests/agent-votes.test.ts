@@ -33,6 +33,7 @@ const N = {
   revoked: 17,
   withdrawA: 18,
   withdrawB: 19,
+  withdrawGone: 22,
   sweep: 20,
   late: 21,
 };
@@ -70,6 +71,7 @@ describe('agent votes', () => {
     personRecord(N.revoked, 'staged-revoked', { createdAt: daysAgo(1) }),
     personRecord(N.withdrawA, 'withdraw-a', { createdAt: daysAgo(1) }),
     personRecord(N.withdrawB, 'withdraw-b', { createdAt: daysAgo(1) }),
+    personRecord(N.withdrawGone, 'withdraw-gone', { createdAt: daysAgo(1) }),
     personRecord(N.sweep, 'sweep-me', { createdAt: daysAgo(1) }),
     personRecord(N.late, 'late-target', { createdAt: daysAgo(1) }),
     ...Array.from({ length: 21 }, (_, i) => personRecord(RATE_BASE + i, `rate-${i}`, { createdAt: daysAgo(1) })),
@@ -387,6 +389,22 @@ describe('agent votes', () => {
       const votes = b.json<{ data: { votes: Array<{ kind: string }> } }>().data.votes;
       expect(votes.map((v) => v.kind).sort()).toEqual(['agent', 'human']);
     });
+
+    it('leaves a vote on a member purged since untouched', async () => {
+      const g = await createAgent(env, admin, { slug: 'gone-bot', scopes: ['moderation:read', 'moderation:vote'] });
+      expect((await vote('withdraw-gone', spam, bearer(g.token))).statusCode).toBe(200);
+      const purged = await env.app.inject({ method: 'POST', url: '/api/people/withdraw-gone/purge', cookies: { cfp_session: admin } });
+      expect(purged.statusCode, purged.body).toBe(204);
+      const path = 'person-evaluations/withdraw-gone/agent-gone-bot.toml';
+      expect(await env.git('ls-tree', '--name-only', 'HEAD', path)).toContain(path);
+
+      const before = Number((await env.git('rev-list', '--count', 'HEAD')).trim());
+      const res = await env.app.inject({ method: 'POST', url: '/api/admin/agents/gone-bot/withdraw-votes', cookies: { cfp_session: staff }, payload: {} });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json<{ data: { withdrawn: number; reactivated: number } }>().data).toEqual({ withdrawn: 0, reactivated: 0 });
+      expect(await env.git('ls-tree', '--name-only', 'HEAD', path)).toContain(path);
+      expect(Number((await env.git('rev-list', '--count', 'HEAD')).trim())).toBeLessThanOrEqual(before + 1);
+    });
   });
 
   describe('the agents list', () => {
@@ -415,6 +433,12 @@ describe('agent votes', () => {
       expect(msg).toMatch(/^to-confirm$/m);
       // sweep-me plus busy-bot's twenty: queued on agent votes alone.
       expect(msg).toMatch(/^Agent-Staged: 21$/m);
+      // The sweep logs an agent-staged purge like any other: by "scheduled".
+      const state = env.app.inMemoryState;
+      const records = [...(state.spamPurgesBySlug.get('sweep-me') ?? [])].map((id) => state.spamPurges.get(id)!);
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ by: 'scheduled', personSlug: 'sweep-me', blocksSignIn: true });
+      expect(records[0]!.reason).toContain('agent-example-bot');
     });
 
     it('never queues an agent account', async () => {
