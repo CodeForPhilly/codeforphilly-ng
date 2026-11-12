@@ -32,6 +32,7 @@ import { TagWriteService } from '../services/tag.write.js';
 import { GitHubAccountService } from '../services/github-account.js';
 import { AccountClaimService } from '../services/account-claim.js';
 import { ModerationService, ModerationWriteService } from '../services/moderation.js';
+import { AgentService } from '../services/agents.js';
 import { probeGitHubUser } from '../auth/github-client.js';
 import { LoggingNotifier, type Notifier } from '../notify/index.js';
 import { EmailNotifier } from '../notify/email-notifier.js';
@@ -64,6 +65,7 @@ declare module 'fastify' {
       accountClaim: AccountClaimService;
       moderation: ModerationService;
       moderationWrite: ModerationWriteService;
+      agents: AgentService;
     };
     /** Shared in-memory state — write routes call StateApply.apply against this. */
     inMemoryState: InMemoryState;
@@ -153,6 +155,7 @@ async function servicesPlugin(fastify: FastifyInstance): Promise<void> {
       },
     ),
     moderationWrite: new ModerationWriteService(state),
+    agents: new AgentService(state, fastify.store.private),
   });
 }
 

@@ -18,7 +18,14 @@ import type { AccountLevel, GhIdentitySnapshot, LoginMethod } from './jwt.js';
 import { verifyAccess } from './jwt.js';
 import { InMemoryRevocationStore } from './revocation.js';
 import { SessionMetadataStore } from './session-metadata.js';
-import type { Person } from '@cfp/shared/schemas';
+import type { AgentScope, Person } from '@cfp/shared/schemas';
+import { UnauthenticatedError } from '../lib/errors.js';
+import {
+  LAST_USED_WRITE_INTERVAL_MS,
+  bearerAgentToken,
+  resolveAgentToken,
+  type AgentPrincipal,
+} from './agent-grant.js';
 
 export interface SessionContext {
   /** Full Person record, or null for anonymous/claim-pending sessions. */
@@ -35,6 +42,13 @@ export interface SessionContext {
    * frontend treats undefined as "unknown" and falls back to default UI.
    */
   readonly loginMethod?: LoginMethod;
+  /**
+   * Set only on the session an agent's own writes are made as
+   * (`agentSessionContext`). Every marker but `agent:<scope>` treats such a
+   * session as anonymous (specs/behaviors/authorization.md → Agent grants).
+   * `request.session` itself is never an agent session.
+   */
+  readonly agent?: { readonly grantId: string; readonly scopes: readonly AgentScope[] };
 }
 
 const ANONYMOUS_SESSION: SessionContext = {
@@ -45,6 +59,12 @@ const ANONYMOUS_SESSION: SessionContext = {
 declare module 'fastify' {
   interface FastifyRequest {
     session: SessionContext;
+    /**
+     * The agent behind a valid `Authorization: Bearer cfpa_…` grant, or null.
+     * When set, `session` is anonymous: only routes that name an agent scope
+     * look here.
+     */
+    agent: AgentPrincipal | null;
   }
   interface FastifyInstance {
     revocations: InMemoryRevocationStore;
@@ -85,8 +105,41 @@ async function sessionMiddlewarePlugin(fastify: FastifyInstance): Promise<void> 
 
   // Decorate the request prototype with a default session
   fastify.decorateRequest('session', null as unknown as SessionContext);
+  fastify.decorateRequest('agent', null);
+
+  // lastUsedAt is written at most once an hour per grant.
+  const lastUsedWrites = new Map<string, number>();
+  const touchGrant = (grantId: string): void => {
+    const now = Date.now();
+    const secret = fastify.store.private.getGrantSecret(grantId);
+    if (!secret) return;
+    const last = Math.max(lastUsedWrites.get(grantId) ?? 0, secret.lastUsedAt ? Date.parse(secret.lastUsedAt) : 0);
+    if (now - last < LAST_USED_WRITE_INTERVAL_MS) return;
+    lastUsedWrites.set(grantId, now);
+    void fastify.store.private
+      .putGrantSecret({ ...secret, lastUsedAt: new Date(now).toISOString() })
+      .catch((err: unknown) => fastify.log.warn({ err, grantId }, 'agent grant lastUsedAt write failed'));
+  };
 
   fastify.addHook('onRequest', async (request) => {
+    request.agent = null;
+
+    // An agent grant (specs/behaviors/authorization.md → Agent grants). A
+    // broken grant is loud (401 grant_invalid), never a fall-through to
+    // anonymous; a grant beside a session cookie is refused the same way.
+    const agentToken = bearerAgentToken(request.headers.authorization);
+    if (agentToken !== null) {
+      request.session = ANONYMOUS_SESSION;
+      if (request.cookies['cfp_session'] || request.cookies['cfp_refresh']) {
+        throw new UnauthenticatedError('An agent grant cannot be combined with a session', 'grant_invalid');
+      }
+      const agent = resolveAgentToken(agentToken, fastify.inMemoryState, fastify.store.private);
+      if (!agent) throw new UnauthenticatedError('Invalid agent grant', 'grant_invalid');
+      request.agent = agent;
+      touchGrant(agent.grant.id);
+      return;
+    }
+
     const token = request.cookies['cfp_session'];
     if (!token) {
       request.session = ANONYMOUS_SESSION;

@@ -114,7 +114,8 @@ async function rateLimitPlugin(fastify: FastifyInstance): Promise<void> {
 
       const ip = clientIp(request);
       const isWrite = WRITE_METHODS.has(request.method);
-      const personId = request.session?.person?.id;
+      // An agent grant counts against its agent account like anyone's session.
+      const personId = request.session?.person?.id ?? request.agent?.person.id;
 
       if (isCredentialPath(path)) {
         check(ipBuckets, `credential:${ip}`, RATE_LIMITS.credentialPerIp);

@@ -21,7 +21,8 @@ export function requireAuth(request: FastifyRequest, markers: AuthMarker[]): Ses
 
   if (markers.includes('public')) return session;
 
-  if (session.accountLevel === 'anonymous' || (!session.personId && !session.person)) {
+  // An agent session is anonymous to every marker here (authorization.md → Agent grants).
+  if (session.agent || session.accountLevel === 'anonymous' || (!session.personId && !session.person)) {
     throw new UnauthenticatedError('Authentication required');
   }
 

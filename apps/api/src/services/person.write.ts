@@ -31,6 +31,7 @@ import {
   isValidPersonSlug,
 } from '../lib/slug.js';
 import { requireAuth } from '../auth/require.js';
+import { isAgentAccount } from '../auth/agent-grant.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from './tag.write.js';
 import type { PrivateStore } from '../store/private/index.js';
@@ -324,6 +325,12 @@ export class PersonWriteService {
     if (!existing) throw new ApiNotFoundError(`Person '${slug}' not found`);
 
     const previousLevel = existing.accountLevel;
+
+    // An agent account is never staff, so an agent's vote and a human's vote
+    // can never come from one account (specs/api/agents.md).
+    if (level !== 'user' && isAgentAccount(this.#state, existing.slug)) {
+      throw new ConflictError('An agent account cannot be raised above user', 'agent_account');
+    }
 
     // Idempotent: setting the current level is a no-op (no commit).
     if (previousLevel === level) {
