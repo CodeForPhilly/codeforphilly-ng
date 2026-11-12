@@ -143,8 +143,10 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
           summary: `${body.verdict}${body.reasoning ? `: ${body.reasoning}` : ''}`,
         }),
         async (tx) => fastify.services.moderationWrite.castVote(tx, slug, caller.session, body),
+        // Applied under the store lock: the next vote or purge is checked
+        // against this one (moderation.md → Agent votes).
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
       );
-      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
       const person =
         caller.kind === 'agent'
           ? await fastify.services.people.get(result.value.person.slug, undefined, { moderationReader: true })
@@ -172,7 +174,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
     async (request) => {
       const caller = agentCaller(request, 'moderation:vote');
       const { slug } = request.params as { slug: string };
-      const result = await fastify.store.transact(
+      await fastify.store.transact(
         buildTransactionOptions({
           request,
           session: caller.session,
@@ -182,8 +184,8 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
           responseCode: 200,
         }),
         async (tx) => fastify.services.moderationWrite.withdrawVote(tx, slug, caller.session),
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
       );
-      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
       return ok({
         person: await fastify.services.people.get(slug, undefined, { moderationReader: true }),
         stagedVote: fastify.services.moderation.stagedVote(slug),
@@ -238,13 +240,18 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
       const head = async (): Promise<string> => (await fastify.publicRepo.resolveRef('HEAD')) ?? 'unknown';
 
       if (input.dryRun) {
-        // Every check, under the write lock, and nothing written.
-        const preview = await fastify.publicRepo.withLock(async () => {
-          const now = new Date();
-          const { deleted } = await service.check(caller.agent.person, caller.agent.grant.id, member, body, now);
-          const purge = service.record(uuidv7(), caller.agent.person, caller.agent.grant.id, member, body, await head(), now);
-          return { purge, deleted };
-        });
+        // Every check, under the store lock and the write lock, against the
+        // member as it is then, and nothing written.
+        const preview = await fastify.store.exclusive(() =>
+          fastify.publicRepo.withLock(async () => {
+            const now = new Date();
+            const current = service.memberOr404(slug);
+            if (current.id !== member.id) throw new ApiNotFoundError(`Person '${slug}' not found`);
+            const { deleted } = await service.check(caller.agent.person, caller.agent.grant.id, current, body, now);
+            const purge = service.record(uuidv7(), caller.agent.person, caller.agent.grant.id, current, body, await head(), now);
+            return { purge, deleted };
+          }),
+        );
         return ok({ ...preview, dryRun: true });
       }
 
@@ -263,10 +270,13 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
         }),
         body.evidence.map((e) => ['Evidence', evidenceTrailer(e)] as const),
       );
-      const result = await fastify.store.transact(opts, async (tx) =>
-        service.purge(tx, caller.session, member, body, purgeId, head),
+      // Checked, committed and applied under one lock: the next purge or vote
+      // sees this one (moderation.md → Agent purges).
+      const result = await fastify.store.transact(
+        opts,
+        async (tx) => service.purge(tx, caller.session, member, body, purgeId, head),
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
       );
-      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
       await fastify.sessionMetadata.removeAllFor(member.id, fastify.store.private);
       return ok({ purge: result.value.purge, deleted: result.value.deleted, dryRun: false });
     },

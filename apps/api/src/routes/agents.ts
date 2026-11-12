@@ -79,8 +79,8 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           writeOrder: 'private-first',
         },
         async (tx) => fastify.services.agents.create(tx, session.person!.slug, body, ids),
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
       );
-      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
       const { person, grant, token } = result.value;
       return reply.code(201).send(
         ok({
@@ -121,8 +121,8 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           writeOrder: 'private-first',
         },
         async (tx) => fastify.services.agents.mint(tx, slug, session.person!.slug, request.body as GrantInput, grantId),
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
       );
-      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
       return reply
         .code(201)
         .send(ok({ grant: fastify.services.agents.grantView(result.value.grant), token: result.value.token }));
@@ -159,9 +159,9 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           extraTrailers: { 'Grant-Id': id },
         }),
         async (tx) => fastify.services.agents.revoke(tx, slug, id),
+        // Immediate: the next request with this token is refused.
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
       );
-      // Immediate: the next request with this token is refused.
-      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
       return ok({ grant: fastify.services.agents.grantView(result.value.grant) });
     },
   );
@@ -196,8 +196,8 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           ...(since ? { summary: `since ${since}` } : {}),
         }),
         async (tx) => fastify.services.moderationWrite.withdrawAll(tx, slug, since),
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
       );
-      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
       return ok({ withdrawn: result.value.withdrawn, reactivated: result.value.reactivated });
     },
   );

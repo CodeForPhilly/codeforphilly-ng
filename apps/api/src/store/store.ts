@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import type { TransactionOptions, TransactionResult } from 'gitsheets';
 import type {
   AccountClaimRequest,
@@ -45,6 +47,10 @@ export interface StoreTransactOptions extends TransactionOptions {
 export class Store {
   readonly #public: PublicStore;
   readonly #private: PrivateStore;
+  /** Tail of the FIFO queue behind {@link exclusive}. */
+  #tail: Promise<void> = Promise.resolve();
+  /** Set inside {@link exclusive}, to refuse re-entry instead of deadlocking. */
+  readonly #held = new AsyncLocalStorage<true>();
 
   constructor(publicStore: PublicStore, privateStore: PrivateStore) {
     this.#public = publicStore;
@@ -60,6 +66,31 @@ export class Store {
   }
 
   /**
+   * Run `fn` holding the store's own lock: the one every `transact` holds
+   * from before its handler runs until after its `onCommit` has applied the
+   * result to the in-memory state. Reads made under it see every earlier
+   * write already applied (specs/api/moderation.md → Agent purges: the
+   * check, the commit and the state apply under one lock). FIFO, not
+   * re-entrant: a nested call throws rather than deadlocking.
+   */
+  async exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.#held.getStore()) {
+      throw new Error('Store.exclusive / Store.transact inside the store lock would deadlock: it is not re-entrant');
+    }
+    const previous = this.#tail;
+    let release!: () => void;
+    this.#tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await this.#held.run(true, fn);
+    } finally {
+      release();
+    }
+  }
+
+  /**
    * Execute a handler inside a cross-store transaction.
    *
    * The handler receives both a gitsheets transaction (tx.public) and a
@@ -71,8 +102,24 @@ export class Store {
    * the public commit, the error is thrown loud and a reconciliation script
    * should be run to align state. There is no automatic git-revert of the
    * public commit.
+   *
+   * `onCommit`, when given, runs after both stores are written and before
+   * the store lock is released — the place to apply the handler's
+   * `StateApply`, so the next transaction's handler reads it applied.
    */
   async transact<T>(
+    opts: StoreTransactOptions,
+    handler: (tx: DualStoreTx) => Promise<T>,
+    onCommit?: (value: T) => void,
+  ): Promise<TransactionResult<T>> {
+    return this.exclusive(async () => {
+      const result = await this.#transact(opts, handler);
+      onCommit?.(result.value);
+      return result;
+    });
+  }
+
+  async #transact<T>(
     opts: StoreTransactOptions,
     handler: (tx: DualStoreTx) => Promise<T>,
   ): Promise<TransactionResult<T>> {
