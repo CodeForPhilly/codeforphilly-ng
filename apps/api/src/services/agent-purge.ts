@@ -29,6 +29,8 @@ import { projectBySlug, projectChildKey, type InMemoryState } from '../store/mem
 import type { PrivateStore } from '../store/private/index.js';
 import { StateApply } from '../store/state-apply.js';
 import type { DualStoreTx } from '../store/store.js';
+import { isValidBuzzSlug, isValidProjectSlug } from '../lib/slug.js';
+import { agentTextProblem } from './agent-text.js';
 import { validateFlags } from './moderation.js';
 import { purgePeople } from './person-purge.js';
 import { isTouchedByOthers, projectsCreatedBy, purgeableProjects } from './project-purge.js';
@@ -39,6 +41,9 @@ export const AGENT_PURGES_PER_DAY = 5;
 export const AGENT_PURGE_MAX_AGE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_EVIDENCE = 5;
+
+export { containsUrl } from './agent-text.js';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** One cited record, as the agent sends it. */
 export interface EvidenceInput {
@@ -73,19 +78,6 @@ export interface ValidatedPurge {
   readonly evidence: Array<SpamPurgeEvidence & { readonly input: EvidenceInput }>;
 }
 
-/**
- * Whether `text` carries a URL: a scheme, a `www.` host, or a bare domain
- * followed by a path (`shop.example/deals`). A purge reason is committed
- * forever; it must cite the record, never republish the spam link.
- */
-export function containsUrl(text: string): boolean {
-  return (
-    /[a-z][a-z0-9+.-]*:\/\//i.test(text) ||
-    /\bwww\./i.test(text) ||
-    /\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}\/\S*/i.test(text)
-  );
-}
-
 const TEXT_FIELDS: Readonly<Record<SpamEvidenceRecord, readonly string[] | null>> = {
   person: ['bio'],
   project: ['title', 'summary', 'overview'],
@@ -103,7 +95,10 @@ export function validatePurgeBody(memberSlug: string, body: AgentPurgeInput): Va
   const fields: Record<string, string> = {};
   const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
   if (reason.length < 1 || reason.length > 1000) fields['reason'] = 'required, 1–1000 characters';
-  else if (containsUrl(reason)) fields['reason'] = 'must not contain a URL: cite the record as evidence instead';
+  else {
+    const problem = agentTextProblem(typeof body.reason === 'string' ? body.reason : '');
+    if (problem) fields['reason'] = problem;
+  }
   let flags: string[] = [];
   try {
     flags = validateFlags(body.flags);
@@ -127,6 +122,14 @@ export function validatePurgeBody(memberSlug: string, body: AgentPurgeInput): Va
       bad(allowed === null ? 'this record takes no field' : `field must be one of ${allowed.join(', ')}`);
     }
     if (record === 'person' && item.field !== 'bio') bad('a person is cited by field "bio"');
+    // Identifiers are checked for shape before anything is looked up or
+    // written into a path or a trailer.
+    if (item.project !== undefined && (typeof item.project !== 'string' || !isValidProjectSlug(item.project))) {
+      bad('project must be a project slug');
+    }
+    if (item.slug !== undefined && (typeof item.slug !== 'string' || !isValidBuzzSlug(item.slug))) bad('slug must be a buzz slug');
+    if (item.roleId !== undefined && (typeof item.roleId !== 'string' || !UUID_RE.test(item.roleId))) bad('roleId must be a UUID');
+    if (item.number !== undefined && (!Number.isInteger(item.number) || item.number < 1)) bad('number must be a positive integer');
     let path: string;
     switch (record) {
       case 'person':

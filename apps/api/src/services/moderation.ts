@@ -32,6 +32,7 @@ import {
   type SpamPurge,
 } from '@cfp/shared/schemas';
 import { agentHasActiveGrant, isAgentAccount, isGrantActive } from '../auth/agent-grant.js';
+import { agentTextProblem } from './agent-text.js';
 import { projectBySlug, type InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/interface.js';
 import type { DualStoreTx } from '../store/store.js';
@@ -801,6 +802,9 @@ export class ModerationWriteService {
     if (reasoning.length < 1 || reasoning.length > 1000) {
       throw new ApiValidationError('An agent must say why (1–1000 characters)', { reasoning: 'required, 1–1000 characters' });
     }
+    // Committed for good: no URL in any form, no control characters.
+    const problem = agentTextProblem(input.reasoning ?? '');
+    if (problem) throw new ApiValidationError(`Reasoning ${problem}`, { reasoning: problem });
     const flags = validateFlags(input.flags);
 
     // 1. Humans are final.

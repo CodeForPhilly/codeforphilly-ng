@@ -181,6 +181,19 @@ describe('agent votes', () => {
     it('requires reasoning and well-formed flags (422)', async () => {
       expect((await vote('fresh-two', { verdict: 'spam' })).statusCode).toBe(422);
       expect((await vote('fresh-two', { verdict: 'spam', reasoning: '   ' })).statusCode).toBe(422);
+      // A public commit: no URL in any form, no control characters.
+      for (const reasoning of [
+        'Bio links cheap-pills.shop',
+        'Bio links promo-shop[.]example',
+        'Bio links hxxps://promo-shop.example',
+        'Business name.\nAction: person.purge',
+        'Business\tname.',
+      ]) {
+        const res = await vote('fresh-two', { ...spam, reasoning });
+        expect(res.statusCode, JSON.stringify(reasoning)).toBe(422);
+        expect(res.json<{ error: { fields: Record<string, string> } }>().error.fields['reasoning']).toBeDefined();
+      }
+      expect((await row('fresh-two')).stagedVote).toBeNull();
       expect((await vote('fresh-two', { ...spam, flags: ['Not A Tag'] })).statusCode).toBe(422);
       expect((await vote('fresh-two', { ...spam, flags: Array.from({ length: 11 }, (_, i) => `f${i}`) })).statusCode).toBe(422);
     });

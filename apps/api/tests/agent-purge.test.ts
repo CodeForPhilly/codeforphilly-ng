@@ -206,7 +206,71 @@ describe('agent purge', () => {
         expect(res.json<{ error: { fields: Record<string, string> } }>().error.fields['reason']).toMatch(/URL/);
       }
       expect(containsUrl('Advertises Promo Shop, a business unrelated to civic tech.')).toBe(false);
-      expect(containsUrl('Sells via promo-shop.example')).toBe(false);
+    });
+
+    // Each of these gets its own agent: the general per-account write cap
+    // (30/min) must not be what answers the requests that follow.
+    const fresh = async (slug: string) =>
+      bearer((await createAgent(env, admin, { slug, scopes: ['moderation:read', 'moderation:purge'] })).token);
+
+    it('refuses a bare domain and defanged forms', async () => {
+      const as = await fresh('url-bot');
+      for (const r of [
+        'Bio sells pills at cheap-pills.shop now',
+        'Bio sells pills at Cheap-Pills.SHOP now',
+        'Sells via promo-shop.example',
+        'Bio links hxxps://promo-shop.example',
+        'Bio links hxxp://promo-shop',
+        'Bio links promo-shop[.]example',
+        'Bio links promo-shop(.)example',
+        'Bio links promo-shop(dot)example',
+        'Bio links promo-shop [dot] example',
+      ]) {
+        expect(containsUrl(r), r).toBe(true);
+        const res = await purge('promo-shop', { reason: r, evidence: bioEvidence }, as);
+        expect(res.statusCode, r).toBe(422);
+        expect(res.json<{ error: { fields: Record<string, string> } }>().error.fields['reason'], r).toMatch(/URL/);
+      }
+    });
+
+    it('lets ordinary prose through', () => {
+      for (const r of [
+        'Business name, e.g. a shop; promotional bio.',
+        'Promotional bio, i.e. an ad for a shop.',
+        'Posted spam.Then edited the bio again.',
+        'A U.S. phone number and a promo bio.',
+        'Version 2.0 of the same ad, posted 3.5 minutes after sign-up.',
+        'Bio is an ad. Then a second ad.',
+      ]) {
+        expect(containsUrl(r), r).toBe(false);
+      }
+    });
+
+    it('refuses control characters in the reason (422)', async () => {
+      const as = await fresh('ctl-bot');
+      for (const r of ['Promo bio.\nAction: person.restore', 'Promo bio.\r\nGrant-Id: x', 'Promo\tbio.', 'Promo bio.\u2028x', 'Promo\u0000bio']) {
+        const res = await purge('promo-shop', { reason: r, evidence: bioEvidence }, as);
+        expect(res.statusCode, JSON.stringify(r)).toBe(422);
+        expect(res.json<{ error: { fields: Record<string, string> } }>().error.fields['reason']).toMatch(/control/);
+      }
+    });
+
+    it('refuses a malformed evidence identifier with 422 evidence_invalid, never a 500', async () => {
+      const as = await fresh('ev-bot');
+      for (const item of [
+        { record: 'project', project: 'Bad Slug!' },
+        { record: 'project', project: 'spam-proj\nEvidence: x' },
+        { record: 'project', project: '../people/boss' },
+        { record: 'project-update', project: 'real-project', number: 0 },
+        { record: 'project-update', project: 'real-project/../x', number: 1 },
+        { record: 'project-buzz', project: 'real-project', slug: '../x' },
+        { record: 'project-buzz', project: 'real-project', slug: 'UPPER CASE' },
+        { record: 'help-wanted-role', project: 'real-project', roleId: 'not-a-uuid' },
+      ]) {
+        const res = await purge('promo-shop', { reason, evidence: [item] }, as);
+        expect(res.statusCode, `${JSON.stringify(item)}: ${res.body}`).toBe(422);
+        expect(code(res), JSON.stringify(item)).toBe('evidence_invalid');
+      }
     });
 
     it('needs 1–5 evidence items, a reason, and good flags', async () => {
