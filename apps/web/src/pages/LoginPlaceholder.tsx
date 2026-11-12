@@ -20,7 +20,8 @@ type ErrorCode =
   | 'oauth_state_mismatch'
   | 'oauth_session_invalid'
   | 'github_unreachable'
-  | 'email_unverified';
+  | 'email_unverified'
+  | 'signup_blocked';
 
 const ERROR_MESSAGES: Record<ErrorCode, React.ReactNode> = {
   access_denied:
@@ -45,6 +46,16 @@ const ERROR_MESSAGES: Record<ErrorCode, React.ReactNode> = {
         <span className="sr-only"> (opens in new tab)</span>
       </a>{' '}
       and ensure email visibility is enabled for our app.
+    </>
+  ),
+  signup_blocked: (
+    <>
+      An account for this GitHub user was removed for spam, so it can&apos;t sign up again. If you think
+      that&apos;s a mistake, email{' '}
+      <a href="mailto:accounts@codeforphilly.org" className="underline hover:no-underline">
+        accounts@codeforphilly.org
+      </a>
+      .
     </>
   ),
 };

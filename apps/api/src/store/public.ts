@@ -5,6 +5,7 @@ import { openRepo, openStore } from 'gitsheets';
 import type { Repository, Store, StoreTx, ValidatorMap } from 'gitsheets';
 import { buildContract, type ContractSheet } from '@cfp/shared';
 import {
+  AgentGrantSchema,
   BlogPostSchema,
   EventRsvpSchema,
   EventSchema,
@@ -19,6 +20,7 @@ import {
   ProjectUpdateSchema,
   RevocationSchema,
   SlugHistorySchema,
+  SpamPurgeSchema,
   TagAssignmentSchema,
   TagSchema,
 } from '@cfp/shared/schemas';
@@ -44,6 +46,8 @@ export const PUBLIC_SHEET_SCHEMAS = {
   events: EventSchema,
   'event-rsvps': EventRsvpSchema,
   'event-series': EventSeriesSchema,
+  'agent-grants': AgentGrantSchema,
+  'spam-purges': SpamPurgeSchema,
 } as const satisfies ValidatorMap;
 
 /**

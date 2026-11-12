@@ -65,6 +65,7 @@ import { previewRoutes } from './routes/preview.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { chatRoutes } from './routes/chat.js';
 import { moderationRoutes } from './routes/moderation.js';
+import { agentRoutes } from './routes/agents.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { samlRoutes } from './routes/saml.js';
 import { internalRoutes } from './routes/internal.js';
@@ -91,10 +92,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // Default logger: pretty in dev, JSON in prod.
   // Callers can override via serverOptions.logger.
+  // Credentials never reach a log line: an agent grant travels in the
+  // Authorization header (specs/behaviors/authorization.md → Agent grants),
+  // sessions in cookies.
+  const redact = ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'];
   const defaultLogger: FastifyServerOptions['logger'] =
     process.env['NODE_ENV'] === 'production'
-      ? true
-      : { transport: { target: 'pino-pretty' } };
+      ? { redact }
+      : { redact, transport: { target: 'pino-pretty' } };
 
   const fastify = Fastify({
     logger: defaultLogger,
@@ -213,6 +218,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await fastify.register(attachmentRoutes);
   await fastify.register(chatRoutes);
   await fastify.register(moderationRoutes);
+  await fastify.register(agentRoutes);
   await fastify.register(webhookRoutes);
   await fastify.register(samlRoutes);
   await fastify.register(internalRoutes);

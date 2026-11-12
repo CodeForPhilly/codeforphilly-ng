@@ -48,6 +48,23 @@ Project slugs allow underscores because legacy laddr handles used underscores (`
 
 Uniqueness violation on create or rename → `409 conflict`.
 
+### Moderation history retires a slug
+
+A person slug that has moderation history is never given to another person
+by a rename or by creating an agent account: `422 validation_failed`,
+`fields.slug = "slug_retired"`. A slug has moderation history when the
+[`spam-purges`](../data-model.md#spampurge) sheet holds a record for it, or
+the `person-evaluations` sheet holds any record under it. Both outlive a purge
+on purpose (they are the record of why), and both are keyed by slug, so a
+person renamed onto such a slug would wear the earlier account's votes and
+purge record ([api/moderation.md → Votes belong to one account](../api/moderation.md#votes-belong-to-one-account)).
+A GitHub sign-up still takes its slug from the GitHub login, freed or not; the
+votes rule keeps the earlier account's votes off it.
+
+An [agent account](../api/agents.md#the-agent-account) is never renamed
+(`409 conflict`, `error.code = "agent_account"`): its votes and purges are
+recorded under `agent-<slug>`, which a rename does not follow.
+
 ## Mutability and redirects
 
 Slugs **can** change. When they do:

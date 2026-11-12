@@ -11,7 +11,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
-import { api, ApiError, type MemberListParams, type MemberRow, type VoteVerdict, type VoteView } from '@/lib/api';
+import { AgentsPanel, RecentAgentPurgesBanner } from '@/components/admin/AgentsPanel';
+import {
+  api,
+  ApiError,
+  type MemberListParams,
+  type MemberRow,
+  type StagedVoteView,
+  type VoteVerdict,
+  type VoteView,
+} from '@/lib/api';
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/time';
 
 const PER_PAGE = 50;
@@ -89,6 +98,12 @@ function Badges({ row }: { row: MemberRow }) {
       {links && <Chip tone="warn">{links} link{links === '1' ? '' : 's'} in bio</Chip>}
       {has('no-bio') && <Chip>no bio</Chip>}
       {has('no-avatar') && <Chip>no avatar</Chip>}
+      {has('slug-purged-before') && (
+        <Chip tone="bad" title="An earlier account under this slug was purged as spam; details show when, by whom and why.">
+          Slug purged before
+        </Chip>
+      )}
+      {row.isAgent && <Chip tone="neutral">AI agent account</Chip>}
     </div>
   );
 }
@@ -132,18 +147,63 @@ function purgeLabel(purgeAfter: string, now: Date = new Date()): string {
     : `Purges ${formatAbsoluteDate(purgeAfter, { dateStyle: 'medium' })}`;
 }
 
-function VoteBadge({ vote, hiddenByVote }: { vote: VoteView; hiddenByVote: boolean }) {
+function VoteBadge({ vote, hiddenByVote, note }: { vote: VoteView; hiddenByVote: boolean; note?: string }) {
   const spam = vote.verdict === 'spam';
+  const agent = vote.kind === 'agent';
+  const tone = agent
+    ? 'bg-violet-100 text-violet-900'
+    : spam
+      ? 'bg-destructive/10 text-destructive'
+      : 'bg-emerald-100 text-emerald-800';
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-        spam ? 'bg-destructive/10 text-destructive' : 'bg-emerald-100 text-emerald-800'
-      }`}
-      title={vote.reasoning ?? undefined}
-    >
-      {spam ? 'Spam' : 'Not spam'} · {vote.voter.fullName} · {formatRelativeTime(vote.evaluatedAt)}
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${tone}`} title={vote.reasoning ?? undefined}>
+      {spam ? 'Spam' : 'Not spam'} · {vote.voter.fullName}
+      {agent ? ' (AI)' : ''} · {formatRelativeTime(vote.evaluatedAt)}
       {hiddenByVote ? ' · hidden' : ''}
+      {note ? ` · ${note}` : ''}
     </span>
+  );
+}
+
+/**
+ * An agent's staged vote (specs/screens/admin-members.md): violet while it
+ * counts, grey once the agent's access is revoked; the first line of its
+ * reasoning beside it and its flags as chips.
+ */
+function StagedVoteBadge({ vote, purgeAfter }: { vote: StagedVoteView; purgeAfter: string | null }) {
+  const spam = vote.verdict === 'spam';
+  const firstLine = (vote.reasoning ?? '').split('\n')[0] ?? '';
+  const title = vote.counts
+    ? `${vote.reasoning ?? ''}\n\nStaged by an AI agent. Not spam overrules it; Spam confirms it.${
+        spam && purgeAfter ? ` Purges ${formatAbsoluteDate(purgeAfter, { dateStyle: 'medium' })} unless a person votes.` : ''
+      }`
+    : `${vote.reasoning ?? ''}\n\nThe agent's access was revoked: this vote is a record only and will not purge anyone.`;
+  return (
+    <div className="flex max-w-xs flex-col items-end gap-1 text-right" data-testid="staged-vote">
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+          vote.counts ? 'bg-violet-100 text-violet-900' : 'bg-muted text-muted-foreground'
+        }`}
+        title={title}
+      >
+        Staged {spam ? 'spam' : 'not spam'} · {vote.agent.fullName} (AI) · {formatRelativeTime(vote.evaluatedAt)}
+        {vote.counts ? '' : ' · access revoked'}
+      </span>
+      {firstLine && (
+        <span className="line-clamp-2 text-xs text-muted-foreground" title={vote.reasoning ?? undefined}>
+          {firstLine}
+        </span>
+      )}
+      {vote.flags.length > 0 && (
+        <span className="flex flex-wrap justify-end gap-1">
+          {vote.flags.map((f) => (
+            <span key={f} className="rounded bg-violet-50 px-1 text-[10px] text-violet-900">
+              {f}
+            </span>
+          ))}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -260,8 +320,12 @@ function MemberRowView({
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: 'nearest' });
   }, [selected]);
-  const hiddenByVote = row.deletedAt !== null && row.latestVote?.verdict === 'spam';
+  const staged = row.stagedVote ?? null;
+  const hiddenByVote =
+    row.deletedAt !== null && (row.latestVote ? row.latestVote.verdict === 'spam' : staged?.verdict === 'spam');
+  const hiddenBy = row.latestVote ? row.latestVote.voter.fullName : staged ? `${staged.agent.fullName} (AI)` : 'vote';
   const isSelf = row.slug === selfSlug;
+  const noVoting = isSelf || row.isAgent === true;
   const fp = row.footprint;
   const counts = [
     `${fp.memberships} project${fp.memberships === 1 ? '' : 's'}`,
@@ -298,13 +362,17 @@ function MemberRowView({
             <span className="text-sm text-muted-foreground">@{row.slug}</span>
             {row.deletedAt && (
               <span className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                {hiddenByVote ? `Hidden by ${row.latestVote?.voter.fullName ?? 'vote'}` : 'Deactivated'}
+                {hiddenByVote ? `Hidden by ${hiddenBy}` : 'Deactivated'}
               </span>
             )}
             {row.purgeAfter && (
               <span
                 className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive"
-                title="Scheduled spam purge: every staff vote is spam. A Not spam vote or reactivating them stops it."
+                title={
+                  row.latestVote
+                    ? 'Scheduled spam purge: every staff vote is spam. A Not spam vote or reactivating them stops it.'
+                    : 'Scheduled spam purge on an AI agent’s staged vote. A Not spam vote or reactivating them stops it.'
+                }
               >
                 {purgeLabel(row.purgeAfter)}
               </span>
@@ -329,14 +397,16 @@ function MemberRowView({
           {row.latestVote && !changing ? (
             <>
               <VoteBadge vote={row.latestVote} hiddenByVote={hiddenByVote} />
-              <Button size="sm" variant="ghost" onClick={() => setChanging(true)} disabled={isSelf}>
+              <Button size="sm" variant="ghost" onClick={() => setChanging(true)} disabled={noVoting}>
                 Change
               </Button>
             </>
           ) : (
+            <>
+            {staged && <StagedVoteBadge vote={staged} purgeAfter={row.purgeAfter} />}
             <VoteButtons
               slug={row.slug}
-              disabled={isSelf}
+              disabled={noVoting}
               pending={pendingVote}
               onPendingHandled={onPendingHandled}
               onDone={async () => {
@@ -344,6 +414,7 @@ function MemberRowView({
                 await onChanged();
               }}
             />
+            </>
           )}
           <Button size="sm" variant="link" onClick={onToggle} aria-expanded={expanded}>
             {expanded ? 'Hide details' : 'Details'}
@@ -360,6 +431,10 @@ function MemberDetailView({ slug }: { slug: string }) {
   if (q.isLoading) return <p className="mt-3 text-sm text-muted-foreground">Loading…</p>;
   if (q.isError || !q.data) return <p className="mt-3 text-sm text-destructive">Could not load details.</p>;
   const { person, footprint, votes } = q.data.data;
+  const earlierVotes = q.data.data.earlierVotes ?? [];
+  const earlierPurges = q.data.data.earlierPurges ?? [];
+  const humanVoted = votes.some((v) => v.kind !== 'agent');
+  const latestHuman = votes.find((v) => v.kind !== 'agent');
   const section = (title: string, items: React.ReactNode[]) =>
     items.length > 0 ? (
       <div>
@@ -419,19 +494,53 @@ function MemberDetailView({ slug }: { slug: string }) {
       <div>
         <h3 className="text-sm font-semibold">Votes</h3>
         {votes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No human votes yet.</p>
+          <p className="text-sm text-muted-foreground">No votes yet.</p>
         ) : (
           <ul className="space-y-2 text-sm">
-            {votes.map((v) => (
-              <li key={`${v.voter.slug}-${v.evaluatedAt}`}>
-                <VoteBadge vote={v} hiddenByVote={false} />
-                {v.reasoning && <p className="mt-1 text-muted-foreground">{v.reasoning}</p>}
-              </li>
-            ))}
+            {votes.map((v) => {
+              // Once a person has voted, an agent's vote is history: overruled or confirmed.
+              const note =
+                v.kind === 'agent' && humanVoted && latestHuman
+                  ? latestHuman.verdict === v.verdict
+                    ? 'confirmed'
+                    : 'overruled'
+                  : undefined;
+              return (
+                <li key={`${v.voter.slug}-${v.evaluatedAt}`}>
+                  <VoteBadge vote={v} hiddenByVote={false} note={note} />
+                  {v.kind === 'agent' && <span className="ml-1 text-xs text-violet-900">AI agent</span>}
+                  {v.flags && v.flags.length > 0 && (
+                    <span className="ml-1 text-xs text-muted-foreground">[{v.flags.join(', ')}]</span>
+                  )}
+                  {v.reasoning && <p className="mt-1 text-muted-foreground">{v.reasoning}</p>}
+                </li>
+              );
+            })}
           </ul>
         )}
+        {(earlierVotes.length > 0 || earlierPurges.length > 0) && (
+          <div className="mt-4 rounded-md border border-dashed p-3 text-sm text-muted-foreground" data-testid="earlier-account">
+            <h3 className="font-semibold">Earlier account</h3>
+            <p className="text-xs">An earlier account under this slug. None of this counts for this member.</p>
+            <ul className="mt-2 space-y-1">
+              {earlierPurges.map((p) => (
+                <li key={p.id}>
+                  Purged as spam {formatAbsoluteDate(p.purgedAt, { dateStyle: 'medium' })} by{' '}
+                  {p.by === 'scheduled' ? 'the daily sweep' : p.by}
+                  {p.reason ? ` — ${p.reason}` : ''}
+                </li>
+              ))}
+              {earlierVotes.map((v) => (
+                <li key={`earlier-${v.voter.slug}-${v.evaluatedAt}`} className="opacity-70">
+                  <VoteBadge vote={v} hiddenByVote={false} />
+                  {v.reasoning && <span className="ml-1">{v.reasoning}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <p className="mt-4 text-xs text-muted-foreground">
-          Purge lives on the <Link to={`/members/${slug}`} className="underline">person page</Link> (admins).
+          An administrator’s purge lives on the <Link to={`/members/${slug}`} className="underline">person page</Link>.
         </p>
       </div>
     </div>
@@ -453,6 +562,9 @@ export function AdminMembers() {
   const [expanded, setExpanded] = useState<string | null>(params.slug ?? null);
   const [selected, setSelected] = useState<string | null>(params.slug ?? null);
   const [pendingVote, setPendingVote] = useState<{ slug: string; verdict: VoteVerdict } | null>(null);
+  const [agentsOpen, setAgentsOpen] = useState(searchParams.has('agents'));
+  // The purge log's "by" filter; null while the log is closed.
+  const [logBy, setLogBy] = useState<string | null>(searchParams.has('purges') ? (searchParams.get('purges') ?? '') : null);
 
   const allowed = !!person && isStaff(person.accountLevel);
   useEffect(() => {
@@ -533,6 +645,19 @@ export function AdminMembers() {
         days later they're purged unless someone votes Not spam. Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>s</kbd> spam, <kbd>n</kbd> not spam,{' '}
         <kbd>Enter</kbd> details.
       </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        An AI agent staff granted access may vote too. Its votes are <span className="text-violet-900">staged</span>: they
+        hide the member at once and purge on the date shown unless a person votes; <strong>Not spam</strong> overrules,{' '}
+        <strong>Spam</strong> confirms. An agent with the purge scope may purge a member under 7 days old who posted spam;
+        those purges are in the Agents panel’s purge log at the foot of the page.
+      </p>
+      <RecentAgentPurgesBanner
+        onOpenLog={(by) => {
+          setAgentsOpen(true);
+          setLogBy(by);
+          requestAnimationFrame(() => document.getElementById('agents')?.scrollIntoView({ behavior: 'smooth' }));
+        }}
+      />
 
       <form
         className="mt-4 flex flex-wrap items-end gap-3"
@@ -562,7 +687,8 @@ export function AdminMembers() {
             onChange={(e) => setParam('vote', e.target.value)}
           >
             <option value="">Any</option>
-            <option value="none">No vote yet</option>
+            <option value="none">No human vote yet</option>
+            <option value="staged">Staged by an agent</option>
             <option value="spam">Voted spam</option>
             <option value="legit">Voted not spam</option>
           </select>
@@ -644,6 +770,19 @@ export function AdminMembers() {
           )}
         </>
       )}
+      <AgentsPanel
+        isAdmin={person?.accountLevel === 'administrator'}
+        open={agentsOpen}
+        onOpenChange={setAgentsOpen}
+        logBy={logBy ?? ''}
+        logOpen={logBy !== null}
+        onLogByChange={setLogBy}
+        onShowStaged={() => {
+          setParam('vote', 'staged');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onRosterChanged={refresh}
+      />
     </div>
   );
 }

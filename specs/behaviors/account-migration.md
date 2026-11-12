@@ -85,6 +85,7 @@ From the laddr import we have, for every legacy Person:
 2. Otherwise, look for legacy candidates:
    a. Email-match:    for each verified gh.email → PrivateProfile.email lookup
    b. Username-match: gh.login === Person.slug AND Person.githubUserId is null
+      AND Person is not an agent account
 3. Combine candidates, dedupe by Person.id
 4. Route based on candidate count:
    - 0 candidates → create fresh Person + PrivateProfile (no claim needed)
@@ -186,6 +187,15 @@ User provides the candidate's pre-cutover password — verified against `LegacyP
 User submits a claim request with the old slug + free-form proof. Staff reviews via side-channel and approves or denies. Same as today.
 
 These three proofs no longer gate first sign-in — they're only relevant for the manual "I have a duplicate account, merge it" case.
+
+An [agent account](../api/agents.md#the-agent-account) (a person with any
+`agent-grants` record) is never a candidate, by any of the three: matching
+skips it, the post-sign-up search does not return it, a claim confirmation
+naming it is refused as not a candidate, and staff approval of a claim
+request naming it is refused (`409 conflict`, `error.code = "agent_account"`).
+An agent has no email or password to prove, and its slug is the only thing a
+GitHub login could match; a GitHub account that happens to share the login
+must not take it over.
 
 ## Pre-cutover auto-link sweep
 

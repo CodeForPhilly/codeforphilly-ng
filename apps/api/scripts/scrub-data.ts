@@ -148,14 +148,30 @@ export function rewritePersonReferences(
   slugMap: Map<string, string>,
 ): Record<string, unknown> {
   let out = record;
-  for (const ref of SHEET_REFERENCES) {
-    if (ref.sheet !== sheetName || ref.target.sheet !== 'people' || ref.target.field !== 'slug') continue;
-    const value = out[ref.field];
+  const fields = [
+    ...SHEET_REFERENCES.filter(
+      (ref) => ref.sheet === sheetName && ref.target.sheet === 'people' && ref.target.field === 'slug',
+    ).map((ref) => ref.field),
+    ...(PERSON_SLUG_FIELDS[sheetName] ?? []),
+  ];
+  for (const field of fields) {
+    const value = out[field];
     const pseudo = typeof value === 'string' ? slugMap.get(value) : undefined;
-    if (pseudo !== undefined) out = { ...out, [ref.field]: pseudo };
+    if (pseudo !== undefined) out = { ...out, [field]: pseudo };
   }
   return out;
 }
+
+/**
+ * Fields that name a person by slug without being a declared reference (a
+ * rename does not rewrite them): who minted an agent grant, who unblocked a
+ * spam purge, and the purged slug itself, which a later sign-up may hold.
+ * The snapshot pseudonymizes them like references so no real slug leaks.
+ */
+const PERSON_SLUG_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  'agent-grants': ['createdBySlug'],
+  'spam-purges': ['personSlug', 'unblockedBySlug'],
+};
 
 /**
  * Replace `@mention` occurrences of real person slugs in markdown-like text.

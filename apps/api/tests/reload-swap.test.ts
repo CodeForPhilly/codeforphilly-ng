@@ -34,6 +34,8 @@ import {
   indexEvent,
   indexEventRsvp,
   indexEventSeries,
+  indexAgentGrant,
+  indexSpamPurge,
   indexHelpWantedInterest,
   indexPersonEvaluation,
   indexHelpWantedRole,
@@ -185,6 +187,27 @@ function buildState(base: number, slugs: { project: string; buzz: string; oldSlu
     confidence: 1,
     flags: [],
     evaluatedAt: '2026-05-01T00:00:00Z',
+  });
+  indexAgentGrant(state, {
+    id: uuid(base + 15),
+    personSlug: `bot-${base}`,
+    label: 'test',
+    scopes: ['moderation:read'],
+    createdAt: NOW,
+    createdBySlug: 'jane',
+    expiresAt: FAR_FUTURE,
+  });
+  indexSpamPurge(state, {
+    id: uuid(base + 16),
+    personSlug: `purged-${base}`,
+    personId: uuid(base + 17),
+    githubUserId: base,
+    purgedAt: NOW,
+    by: 'scheduled',
+    flags: [],
+    evidence: [],
+    beforeCommit: 'abc',
+    blocksSignIn: true,
   });
   return state;
 }

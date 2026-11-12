@@ -512,6 +512,9 @@ export async function accountClaimRoutes(fastify: FastifyInstance): Promise<void
         if (outcome.code === 'requester_missing') {
           throw new ApiValidationError('Requester Person missing', { requesterPersonId: 'missing' });
         }
+        if (outcome.code === 'agent_account') {
+          throw new ConflictError('An agent account cannot be claimed', 'agent_account');
+        }
         // already_claimed
         throw new ConflictError(
           'Target Person already linked to a GitHub identity',

@@ -43,7 +43,7 @@ import { ConfigError, openRepo, RefError, type Repository } from 'gitsheets';
 
 import { openPublicStore } from '../src/store/public.js';
 import { SHEET_REFERENCES } from '@cfp/shared';
-import { HUMAN_EVALUATOR_PREFIX } from '@cfp/shared/schemas';
+import { AGENT_EVALUATOR_PREFIX, HUMAN_EVALUATOR_PREFIX } from '@cfp/shared/schemas';
 import type { ProjectUpdate, TagAssignment } from '@cfp/shared/schemas';
 
 /**
@@ -149,11 +149,18 @@ async function openAnyRepo(path: string): Promise<Repository> {
  * Fold one person-evaluation record into the per-person verdict map. A
  * record missing `verdict` (or, for machine records, `confidence`) does not
  * contribute — heuristic records carry `score`, never `confidence`.
+ *
+ * `createdAtBySlug` (the people on the served branch) drops a site vote cast
+ * on an earlier account under the same slug: a `human-*` record whose
+ * `evaluatedAt` is before the current person's `createdAt` was cast on a
+ * purged account, and counts for nothing on this one
+ * (specs/behaviors/spam-exclusion.md → "Only this account's votes count").
  */
 export function foldEvaluation(
   verdictMap: Map<string, PersonVerdict>,
   record: Readonly<Record<string, unknown>>,
   threshold: number,
+  createdAtBySlug?: ReadonlyMap<string, string>,
 ): void {
   const personSlug = record['personSlug'];
   const evaluator = record['evaluator'];
@@ -168,10 +175,24 @@ export function foldEvaluation(
   const evaluatedAt =
     typeof rawAt === 'string' ? rawAt : rawAt instanceof Date ? rawAt.toISOString() : null;
 
+  if (isSiteVote(evaluator) && createdAtBySlug) {
+    const createdAt = createdAtBySlug.get(personSlug);
+    if (createdAt !== undefined && (evaluatedAt === null || Date.parse(evaluatedAt) < Date.parse(createdAt))) {
+      return;
+    }
+  }
+
   let entry = verdictMap.get(personSlug);
   if (!entry) {
     entry = { hasConfidentSpam: false, hasAnyLegit: false, humanVerdict: null, humanEvaluatedAt: null };
     verdictMap.set(personSlug, entry);
+  }
+  if (evaluator.startsWith(AGENT_EVALUATOR_PREFIX)) {
+    // An agent vote never prunes: its `legit` protects like any evaluator's;
+    // its `spam` reaches deletion only through the runtime's scheduled purge
+    // after three days (specs/behaviors/spam-exclusion.md).
+    if (verdict === 'legit') entry.hasAnyLegit = true;
+    return;
   }
   if (evaluator.startsWith(HUMAN_EVALUATOR_PREFIX)) {
     // Latest human vote wins; ties resolve to whichever is read last.
@@ -187,6 +208,34 @@ export function foldEvaluation(
   }
 }
 
+/** A vote cast on the site — staff or agent — as opposed to an offline machine pass. */
+function isSiteVote(evaluator: string): boolean {
+  return evaluator.startsWith(HUMAN_EVALUATOR_PREFIX) || evaluator.startsWith(AGENT_EVALUATOR_PREFIX);
+}
+
+/**
+ * Every person's `createdAt` at `ref` in `repoPath`, by slug — what decides
+ * which site votes belong to the current account under a slug.
+ */
+export async function peopleCreatedAt(repoPath: string, ref: string): Promise<Map<string, string>> {
+  const repo = await openAnyRepo(repoPath);
+  const out = new Map<string, string>();
+  let records: readonly Record<string, unknown>[];
+  try {
+    records = await (await repo.openSheet('people', { ref })).queryAll();
+  } catch (err) {
+    if (err instanceof ConfigError && err.code === 'config_missing') return out;
+    throw err;
+  }
+  for (const p of records) {
+    const slug = p['slug'];
+    const at = p['createdAt'];
+    const createdAt = typeof at === 'string' ? at : at instanceof Date ? at.toISOString() : null;
+    if (typeof slug === 'string' && createdAt) out.set(slug, createdAt);
+  }
+  return out;
+}
+
 /**
  * Read every person-evaluation at `ref` in `repo` and fold it into
  * `verdictMap`, through a read-only sheet pinned at `ref`. A ref without a
@@ -198,6 +247,7 @@ export async function aggregateVerdicts(
   threshold: number,
   log: (msg: string) => void,
   verdictMap: Map<string, PersonVerdict> = new Map(),
+  createdAtBySlug?: ReadonlyMap<string, string>,
 ): Promise<Map<string, PersonVerdict>> {
   log(`[prune-spam] reading person-evaluations in ${repoPath} at ref=${ref}`);
   const repo = await openAnyRepo(repoPath);
@@ -212,7 +262,7 @@ export async function aggregateVerdicts(
     else throw err;
   }
   log(`[prune-spam] found ${records.length} evaluation records`);
-  for (const record of records) foldEvaluation(verdictMap, record, threshold);
+  for (const record of records) foldEvaluation(verdictMap, record, threshold, createdAtBySlug);
   return verdictMap;
 }
 
@@ -347,13 +397,17 @@ export async function pruneSpam(args: CliArgs): Promise<PruneSummary> {
     `[prune-spam] reading machine verdicts from ${args.evaluationsRepo}@${args.evaluationsRef}, ` +
       `human votes from ${args.dataRepo}@${args.humanVotesRef}, threshold=${args.threshold}`,
   );
+  // Site votes on an earlier account under a slug don't count (either repo).
+  const createdAtBySlug = await peopleCreatedAt(args.dataRepo, args.humanVotesRef);
   const verdictMap = await aggregateVerdicts(
     args.evaluationsRepo,
     args.evaluationsRef,
     args.threshold,
     log,
+    new Map(),
+    createdAtBySlug,
   );
-  await aggregateVerdicts(args.dataRepo, args.humanVotesRef, args.threshold, log, verdictMap);
+  await aggregateVerdicts(args.dataRepo, args.humanVotesRef, args.threshold, log, verdictMap, createdAtBySlug);
 
   const { pruneSet, humanSpam } = computePruneSet(verdictMap);
   log(

@@ -36,10 +36,13 @@ export class RateLimitedError extends Error {
 /** Thrown when a request fails our own validation (422). */
 export class ApiValidationError extends Error {
   readonly fields?: Record<string, string>;
-  constructor(message: string, fields?: Record<string, string>) {
+  /** `error.code`; `validation_failed` unless a spec names another (e.g. `evidence_invalid`). */
+  readonly code: string;
+  constructor(message: string, fields?: Record<string, string>, code = 'validation_failed') {
     super(message);
     this.name = 'ApiValidationError';
     this.fields = fields;
+    this.code = code;
   }
 }
 
@@ -113,7 +116,7 @@ export function mapError(
   if (err instanceof ApiValidationError) {
     void reply
       .code(422)
-      .send(errorResponse('validation_failed', err.message, traceId, err.fields));
+      .send(errorResponse(err.code, err.message, traceId, err.fields));
     return;
   }
 

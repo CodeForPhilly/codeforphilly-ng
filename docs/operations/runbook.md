@@ -231,6 +231,139 @@ It answers counts only, never emails. Spec:
 the flag on would delete production data. A pod logs
 `scheduled spam purge disabled` at boot when the flag is off.
 
+## Agents
+
+An agent is an automated moderator (the first is Code for Philly's ops bot)
+with its own site account, reaching the API with a scoped bearer grant
+([api/agents.md](../../specs/api/agents.md)). Grants are minted and revoked by
+an administrator; every step is a public commit. Calls below run in the
+browser console on the site, signed in as an administrator (or staff, where
+noted), like the orphan cleanup above.
+
+```js
+const api = (method, path, body) => fetch(path, {
+  method, headers: { 'content-type': 'application/json' }, body: body && JSON.stringify(body),
+}).then((r) => r.json()).then((j) => (console.log(j), j.data));
+```
+
+- **Create the agent** (once), with its first grant: `grant` is required, since
+  an account is an agent because it holds one. Its bio says it is an AI and who
+  runs it. The first grant is read + vote only; purge comes later
+  ([plans/bot-spam-votes.md](../../plans/bot-spam-votes.md) → Rollout).
+
+  ```js
+  api('POST', '/api/admin/agents', {
+    slug: 'grittybot', fullName: 'GrittyBot',
+    bio: 'An AI ops bot run by Code for Philly. Its spam votes on /admin/members are staged and staff overrule them; it purges only accounts that posted spam, and says why.',
+    grant: { label: 'ops bot, host <name>', scopes: ['moderation:read', 'moderation:vote'], expiresInDays: 90 },
+  });
+  ```
+
+- **Hand the token to its host.** The response's `token` (`cfpa_…`) is shown
+  once and stored nowhere but its hash. Put it straight into the agent's
+  credential file on its host (for the ops bot,
+  `~/.config/grittybot/cfp-agent-token`, mode 0600); never in a chat, issue,
+  repo or ticket. Lose it and mint a new one.
+- **Rotate / renew / change scopes** (nothing is wrong with the token). Scopes
+  are fixed for a grant's life, so rotating, renewing (grants last 1–180 days,
+  default 90) or adding `moderation:purge` is: mint the new grant first, then
+  revoke the old one **without** withdrawing votes. The agent always holds an
+  active grant, so its staged votes count throughout. Minting a grant with
+  `moderation:purge` requires `moderation:read`.
+
+  ```js
+  const { grant, token } = await api('POST', '/api/admin/agents/grittybot/grants',
+    { label: 'ops bot, host <name>', scopes: ['moderation:read', 'moderation:vote', 'moderation:purge'], expiresInDays: 90 });
+  // replace the token file on the host, then:
+  api('POST', '/api/admin/agents/grittybot/grants/<old grant id>/revoke');
+  ```
+
+- **Compromise** (the token may be in someone else's hands, or the agent has
+  gone wrong): revoke **with** `withdrawVotes: true`. In one commit, the token
+  is dead (the next request with it gets `401 grant_invalid`) and every vote
+  the agent staged on members no human has voted on is withdrawn, un-hiding
+  the members its spam votes hid. Do this before minting a replacement: a plain
+  revoke only stops the staged votes counting while the agent holds no active
+  grant, and the next grant minted for it brings them all back. The Agents
+  panel's Revoke confirm has the checkbox "This token may be compromised: also
+  withdraw this agent's staged votes". Neither undoes purges: check the purge
+  log for the agent and restore any wrong one (below).
+
+  ```js
+  api('POST', '/api/admin/agents/grittybot/grants/<grant id>/revoke', { withdrawVotes: true });
+  ```
+- **Withdraw** (staff) every vote the agent staged on members no human has
+  voted on, un-hiding the members its votes hid, in one commit, without
+  revoking anything (for a run of bad votes from a token that is still sound;
+  use `since` to take back only the recent ones). Purges are not undone by it
+  (restore them one by one, below).
+
+  ```js
+  api('POST', '/api/admin/agents/grittybot/withdraw-votes', { since: '2026-11-01T00:00:00Z' });
+  ```
+
+The Agents panel at the foot of `/admin/members` does all of this with
+buttons, and shows each agent's grants, staged votes and purges.
+
+## Restore a purged member
+
+A purge (an agent's, an administrator's, or the daily sweep's) deletes from
+the data repo's tree; every deleted public record is in the purge commit's
+parent. **Private data does not come back**: the production private store is
+a filesystem volume with no versioning or backup, so the person's email,
+newsletter choice, Slack sign-in time and GitHub facts are gone and are
+rebuilt only from GitHub on their next sign-in
+([person-lifecycle.md → Restoring a purged member](../../specs/behaviors/person-lifecycle.md#restoring-a-purged-member)).
+
+1. **Find the commit.** An agent or staff spam purge: the purge log's
+   **Commit** link on `/admin/members` opens the history of the purge record;
+   the purge commit is the oldest entry (an unblock adds one above it). From a
+   clone: `git log --format=%H --grep='^Purge-Id: <purge id>$'`. A non-spam staff purge:
+   `git log --grep='^Action: person.purge$' --grep='Subject-Slug: <slug>' --all-match`.
+   The sweep: `git log --grep='scheduled spam purge'` and find the slug in the
+   message.
+2. **Lift the block** from the purge log (**Unblock**, with a reason), or
+   `api('POST', '/api/admin/spam-purges/<id>/unblock', { reason: '…' })`. The
+   record stays, marked unblocked.
+3. **Restore the records** in a working clone of `codeforphilly-data` on
+   `published`, pulled after step 2 so it holds the unblock commit:
+
+   ```bash
+   git pull --ff-only
+   # An agent or staff purge: one person per commit. Revert it, but keep the log.
+   # The unblock edited the purge record, so the revert stops with a
+   # modify/delete conflict on it and exits non-zero; the checkout below
+   # resolves it by keeping the record as it stands.
+   git revert --no-commit <sha>
+   git checkout HEAD -- spam-purges/
+   git status --short   # expect only the person's records, and the purge's vote record reverted
+   git commit -m "people: restore <slug>" --trailer "Action: person.restore" --trailer "Subject-Slug: <slug>"
+
+   # A sweep commit purges a batch: take only this person's paths from the parent.
+   git checkout <sha>^ -- people/<slug>.toml people/<slug>/   # plus their memberships, updates, … as needed
+   git commit -m "people: restore <slug>" --trailer "Action: person.restore" --trailer "Subject-Slug: <slug>"
+   ```
+
+   Commit as yourself with a pseudonymous email
+   (`<you>@users.noreply.codeforphilly.org`). Push; the hot-reload webhook
+   rebuilds the in-memory state.
+4. **Vote Not spam** on the restored member's row, before the next daily
+   sweep. Votes are not deleted by a purge, so a member restored from the
+   sweep (or from a staff purge that followed a spam vote) comes back
+   deactivated with their spam votes still standing, and past the three
+   days: the next sweep would purge them again. An agent purge writes the agent's vote in the purge commit, so the
+   revert puts back whatever stood before: nothing, or the agent's earlier
+   staged spam vote, which hides them again. Not spam un-hides them, keeps
+   the sweep off them and puts a human verdict on record. The row keeps the
+   `Slug purged before` badge and lists the purge under Earlier account: the
+   purge record names the slug, and stays.
+5. **If the slug was taken since**, the restore conflicts on
+   `people/<slug>.toml`: that is a merge for an administrator to decide, not a
+   revert.
+6. **Tell the person** to sign in with GitHub: the restored `githubUserId`
+   matches and sign-in rebuilds their private profile (email from GitHub;
+   sign-in count starts again, newsletter choice and Slack link are gone).
+
 ## Helpful commands
 
 ```bash

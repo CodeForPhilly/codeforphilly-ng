@@ -16,7 +16,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
-import { PUBLIC_SHEET_SCHEMAS } from '../store/public.js';
+import { PUBLIC_SHEET_SCHEMAS, type PublicStore } from '../store/public.js';
 
 type SheetName = keyof typeof PUBLIC_SHEET_SCHEMAS;
 
@@ -108,7 +108,9 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
       const name = segments[segments.length - 1] as string;
       const recordPath = segments.slice(1, -1).join('/');
 
-      const sheet = fastify.store.public[sheetName];
+      // Every sheet's getAttachment has the same shape; indexing the store by
+      // a union of sheet names is too complex for tsc to type directly.
+      const sheet = fastify.store.public[sheetName as 'people'] as Pick<PublicStore['people'], 'getAttachment'>;
       const blob = await sheet.getAttachment(recordPath, name);
       if (!blob) throw new ApiNotFoundError(`attachment not found: ${key}`);
 
