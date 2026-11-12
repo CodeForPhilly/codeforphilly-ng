@@ -93,6 +93,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
         person,
         footprint,
         votes: fastify.services.moderation.humanVotes(slug),
+        earlierVotes: fastify.services.moderation.earlierVotes(slug),
       });
     },
   );

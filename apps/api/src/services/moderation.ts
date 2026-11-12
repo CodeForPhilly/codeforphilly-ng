@@ -8,6 +8,7 @@
  * side effect from specs/behaviors/person-lifecycle.md.
  */
 import { spamPurgeDueAt } from './spam-purge.js';
+import { votesOnAccount, votesOnEarlierAccounts } from './votes.js';
 import {
   PersonSchema,
   PersonEvaluationSchema,
@@ -302,21 +303,34 @@ export class ModerationService {
     await Promise.all(Array.from({ length: Math.min(GITHUB_PROBE_CONCURRENCY, queue.length) }, worker));
   }
 
-  /** Every human vote on a person, newest first. */
+  /**
+   * Every human vote on this person's account, newest first. Votes on an
+   * earlier account under the same slug are not theirs (`earlierVotes`).
+   */
   humanVotes(personSlug: string): VoteView[] {
-    const keys = this.#state.evaluationsByPerson.get(personSlug);
-    if (!keys) return [];
-    const votes: VoteView[] = [];
-    for (const key of keys) {
-      const rec = this.#state.personEvaluations.get(key);
-      if (!rec || !isHumanEvaluator(rec.evaluator)) continue;
-      votes.push(this.#voteView(rec));
-    }
-    return votes.sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
+    const person = this.#person(personSlug);
+    if (!person) return [];
+    return this.#views(votesOnAccount(this.#state, person).filter((r) => isHumanEvaluator(r.evaluator)));
   }
 
   latestHumanVote(personSlug: string): VoteView | null {
     return this.humanVotes(personSlug)[0] ?? null;
+  }
+
+  /** Votes cast on an earlier account under this slug, newest first. */
+  earlierVotes(personSlug: string): VoteView[] {
+    const person = this.#person(personSlug);
+    if (!person) return [];
+    return this.#views(votesOnEarlierAccounts(this.#state, person).filter((r) => isHumanEvaluator(r.evaluator)));
+  }
+
+  #person(slug: string): Person | undefined {
+    const id = this.#state.personIdBySlug.get(slug);
+    return id ? this.#state.people.get(id) : undefined;
+  }
+
+  #views(records: readonly PersonEvaluation[]): VoteView[] {
+    return records.map((r) => this.#voteView(r)).sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
   }
 
   async listMembers(opts: MemberListOptions): Promise<MemberListResult | { error: 'invalid_sort' }> {
@@ -590,7 +604,7 @@ export class ModerationWriteService {
       throw new ApiValidationError('Reasoning is too long', { reasoning: 'max 1000 characters' });
     }
 
-    const previousLatest = latestHumanVerdict(this.#state, slug);
+    const previousLatest = latestHumanVerdict(this.#state, existing);
     const now = nowIso();
     const vote: PersonEvaluation = PersonEvaluationSchema.parse({
       personSlug: slug,
@@ -620,13 +634,10 @@ export class ModerationWriteService {
   }
 }
 
-function latestHumanVerdict(state: InMemoryState, personSlug: string): PersonEvaluation['verdict'] | null {
-  const keys = state.evaluationsByPerson.get(personSlug);
-  if (!keys) return null;
+function latestHumanVerdict(state: InMemoryState, person: Person): PersonEvaluation['verdict'] | null {
   let latest: PersonEvaluation | null = null;
-  for (const key of keys) {
-    const rec = state.personEvaluations.get(key);
-    if (!rec || !isHumanEvaluator(rec.evaluator)) continue;
+  for (const rec of votesOnAccount(state, person)) {
+    if (!isHumanEvaluator(rec.evaluator)) continue;
     if (!latest || rec.evaluatedAt > latest.evaluatedAt) latest = rec;
   }
   return latest?.verdict ?? null;

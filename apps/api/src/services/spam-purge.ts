@@ -13,6 +13,7 @@ import { StateApply } from '../store/state-apply.js';
 import type { Store } from '../store/store.js';
 import type { SessionMetadataStore } from '../auth/session-metadata.js';
 import { purgePeople } from './person-purge.js';
+import { votesOnAccount } from './votes.js';
 
 /** How long a spam vote stands before the sweep acts on it. */
 export const SPAM_PURGE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
@@ -21,16 +22,15 @@ export const SPAM_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * When the sweep will purge `person`, or null if it won't: every human vote
- * on them is `spam`, they are still deactivated and not staff, and the date is
- * three days after the newest vote.
+ * on their account is `spam`, they are still deactivated and not staff, and
+ * the date is three days after the newest vote. Votes cast on an earlier
+ * account under the same slug are ignored (./votes.ts).
  */
 export function spamPurgeDueAt(state: InMemoryState, person: Person): Date | null {
   if (!person.deletedAt || person.accountLevel !== 'user') return null;
-  const votes = [...(state.evaluationsByPerson.get(person.slug) ?? [])]
-    .map((key) => state.personEvaluations.get(key))
-    .filter((e) => e !== undefined && isHumanEvaluator(e.evaluator));
-  if (votes.length === 0 || votes.some((v) => v!.verdict !== 'spam')) return null;
-  const newest = Math.max(...votes.map((v) => Date.parse(v!.evaluatedAt)));
+  const votes = votesOnAccount(state, person).filter((e) => isHumanEvaluator(e.evaluator));
+  if (votes.length === 0 || votes.some((v) => v.verdict !== 'spam')) return null;
+  const newest = Math.max(...votes.map((v) => Date.parse(v.evaluatedAt)));
   return new Date(newest + SPAM_PURGE_GRACE_MS);
 }
 

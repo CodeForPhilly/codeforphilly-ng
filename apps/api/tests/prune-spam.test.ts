@@ -202,6 +202,22 @@ describe('prune-spam', () => {
     expect(await git(data.path, 'rev-parse', 'published')).toBe(summary.commitHash);
   });
 
+  it("ignores a site vote cast on an earlier account under the same slug", async () => {
+    // `reborn` signed up again (LATER) after an earlier account under the slug
+    // drew a staff spam vote (NOW); that vote is not this account's.
+    const { data, evaluationsPath } = await setup({
+      people: [{ ...person(1, 'reborn'), createdAt: LATER, updatedAt: LATER }, person(2, 'voted')],
+      machineEvals: [],
+      humanVotes: [
+        { personSlug: 'reborn', evaluator: 'human-admin', verdict: 'spam', confidence: 1, flags: [], evaluatedAt: NOW },
+        { personSlug: 'voted', evaluator: 'human-admin', verdict: 'spam', confidence: 1, flags: [], evaluatedAt: LATER },
+      ],
+    });
+    const summary = await pruneSpam(args(data, evaluationsPath));
+    expect(summary.prunedPeople).toBe(1);
+    expect(await slugsOn(data.path, 'published', 'people')).toEqual(['reborn']);
+  });
+
   it('creates the local branch from origin/<branch> on a fresh clone', async () => {
     const { data, evaluationsPath } = await setup({
       people: [person(1, 'spammer'), person(2, 'kept')],
