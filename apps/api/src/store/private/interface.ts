@@ -1,5 +1,6 @@
 import type {
   AccountClaimRequest,
+  AgentGrantSecret,
   LegacyPasswordCredential,
   PasswordToken,
   PrivateProfile,
@@ -26,9 +27,12 @@ export interface PrivateStoreTx {
   putLegacyPassword(cred: LegacyPasswordCredential): void;
   deleteLegacyPassword(personId: string): void;
   putClaimRequest(req: AccountClaimRequest): void;
+  /** Store the hash of a newly minted agent grant's token. */
+  putGrantSecret(secret: AgentGrantSecret): void;
   /**
    * Delete everything the private store holds for a person: profile, legacy
-   * password, password-reset tokens, and account-claim requests naming them
+   * password, password-reset tokens, account-claim requests naming them, and
+   * (for an agent account) its grant token hashes
    * (specs/behaviors/person-lifecycle.md → Purge).
    */
   deletePersonData(personId: string): void;
@@ -71,6 +75,13 @@ export interface PrivateStore {
   putClaimRequest(req: AccountClaimRequest): Promise<void>;
   listOpenClaimRequests(): Promise<AccountClaimRequest[]>;
   listAllClaimRequests(): Promise<AccountClaimRequest[]>;
+
+  // --- Agent grant secrets (agent-grant-secrets.jsonl) ---
+  /** The secret whose token hashes to `tokenHash` (a Map lookup). */
+  getGrantSecretByHash(tokenHash: string): AgentGrantSecret | null;
+  getGrantSecret(grantId: string): AgentGrantSecret | null;
+  /** Replace one secret record outside a transaction (used for `lastUsedAt`). */
+  putGrantSecret(secret: AgentGrantSecret): Promise<void>;
 
   /**
    * Run a handler with a transaction object. On success, flush updated

@@ -8,6 +8,7 @@
  * They're rebuilt from scratch at boot and kept in sync by write-api.
  */
 import type {
+  AgentGrant,
   BlogPost,
   Event,
   EventRsvp,
@@ -21,6 +22,7 @@ import type {
   ProjectMembership,
   ProjectUpdate,
   SlugHistory,
+  SpamPurge,
   Tag,
   TagAssignment,
 } from '@cfp/shared/schemas';
@@ -145,6 +147,18 @@ export interface InMemoryState {
   eventSeriesIdBySlug: Map<string, string>;
   /** seriesId → Set<eventId> — the series page. */
   eventsBySeries: Map<string, Set<string>>;
+
+  /** Agent grants by id (specs/data-model.md#agentgrant). */
+  agentGrants: Map<string, AgentGrant>;
+  /** agent personSlug → Set<grantId>. A person with any grant is an agent account. */
+  agentGrantsByPerson: Map<string, Set<string>>;
+
+  /** Spam-purge records by id (specs/data-model.md#spampurge). */
+  spamPurges: Map<string, SpamPurge>;
+  /** githubUserId → Set<spamPurgeId> — the GitHub callback's sign-up block check. */
+  spamPurgesByGithubUserId: Map<number, Set<string>>;
+  /** purged personSlug → Set<spamPurgeId> — `slug-purged-before`, `earlierPurges`. */
+  spamPurgesBySlug: Map<string, Set<string>>;
 }
 
 /**
@@ -246,6 +260,11 @@ export function createEmptyState(): InMemoryState {
     rsvpIdByEventAndPerson: new Map(),
     eventSeriesIdBySlug: new Map(),
     eventsBySeries: new Map(),
+    agentGrants: new Map(),
+    agentGrantsByPerson: new Map(),
+    spamPurges: new Map(),
+    spamPurgesByGithubUserId: new Map(),
+    spamPurgesBySlug: new Map(),
   };
 }
 
@@ -427,6 +446,25 @@ export function indexPersonEvaluation(state: InMemoryState, record: PersonEvalua
   set.add(key);
 }
 
+/** Add or replace one agent grant and update its person index. */
+export function indexAgentGrant(state: InMemoryState, grant: AgentGrant): void {
+  const old = state.agentGrants.get(grant.id);
+  if (old) unindexAgentGrant(state, old);
+  state.agentGrants.set(grant.id, grant);
+  addToSet(state.agentGrantsByPerson, grant.personSlug, grant.id);
+}
+
+/** Add or replace one spam-purge record and update its indices. */
+export function indexSpamPurge(state: InMemoryState, record: SpamPurge): void {
+  const old = state.spamPurges.get(record.id);
+  if (old) unindexSpamPurge(state, old);
+  state.spamPurges.set(record.id, record);
+  addToSet(state.spamPurgesBySlug, record.personSlug, record.id);
+  if (typeof record.githubUserId === 'number') {
+    addToSet(state.spamPurgesByGithubUserId, record.githubUserId, record.id);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Unindexing — the exact inverse of each index* above, so applying a commit
 // diff (unindex the old version, index the new one) leaves the state equal to
@@ -538,4 +576,17 @@ export function unindexPersonEvaluation(state: InMemoryState, record: PersonEval
   const key = `${record.personSlug}/${record.evaluator}`;
   state.personEvaluations.delete(key);
   removeFromSet(state.evaluationsByPerson, record.personSlug, key);
+}
+
+export function unindexAgentGrant(state: InMemoryState, grant: AgentGrant): void {
+  state.agentGrants.delete(grant.id);
+  removeFromSet(state.agentGrantsByPerson, grant.personSlug, grant.id);
+}
+
+export function unindexSpamPurge(state: InMemoryState, record: SpamPurge): void {
+  state.spamPurges.delete(record.id);
+  removeFromSet(state.spamPurgesBySlug, record.personSlug, record.id);
+  if (typeof record.githubUserId === 'number') {
+    removeFromSet(state.spamPurgesByGithubUserId, record.githubUserId, record.id);
+  }
 }

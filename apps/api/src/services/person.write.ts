@@ -15,8 +15,10 @@ import { uuidv7 } from 'uuidv7';
 import {
   PersonSchema,
   PrivateProfileSchema,
+  humanEvaluatorFor,
   type Person,
   type PrivateProfile,
+  type SpamPurge,
 } from '@cfp/shared/schemas';
 import type { DualStoreTx } from '../store/store.js';
 import type { InMemoryState } from '../store/memory/state.js';
@@ -31,13 +33,16 @@ import {
   isValidPersonSlug,
 } from '../lib/slug.js';
 import { requireAuth } from '../auth/require.js';
+import { isAgentAccount } from '../auth/agent-grant.js';
 import type { SessionContext } from '../auth/middleware.js';
 import { applyTagsForEntity, type TagAssignmentInput, type TagNamespace } from './tag.write.js';
 import type { PrivateStore } from '../store/private/index.js';
 import { cascadeRename } from './reference-cascade.js';
 import { purgePeople } from './person-purge.js';
+import { spamPurgeRecord } from './spam-purges.js';
 import { purgeableProjects } from './project-purge.js';
 import { rekeyAttachment, upsertMoved } from './slug-rename.js';
+import { slugHasModerationHistory } from './votes.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -81,6 +86,11 @@ export class PersonWriteService {
 
     let newSlug = existing.slug;
     if (input.slug !== undefined && input.slug !== existing.slug) {
+      // An agent's votes and purges are recorded under `agent-<slug>`, which a
+      // rename would not follow (specs/api/agents.md → The agent account).
+      if (isAgentAccount(this.#state, existing.slug)) {
+        throw new ConflictError('An agent account cannot be renamed', 'agent_account');
+      }
       const candidate = input.slug.toLowerCase();
       if (!isValidPersonSlug(candidate)) {
         throw new ApiValidationError('Invalid slug format', { slug: 'invalid format' });
@@ -90,6 +100,13 @@ export class PersonWriteService {
       }
       if (this.#state.personIdBySlug.has(candidate)) {
         throw new ConflictError(`Slug '${candidate}' is already taken`, 'slug_taken');
+      }
+      // specs/behaviors/slug-handles.md → Moderation history retires a slug.
+      if (slugHasModerationHistory(this.#state, candidate)) {
+        throw new ApiValidationError(
+          `Slug '${candidate}' belonged to an earlier account with moderation history; choose another`,
+          { slug: 'slug_retired' },
+        );
       }
       newSlug = candidate;
     }
@@ -274,7 +291,11 @@ export class PersonWriteService {
     tx: DualStoreTx,
     slug: string,
     session: SessionContext,
-  ): Promise<{ stateApply: StateApply }> {
+    opts: {
+      /** "This was spam": write a spam-purges record that blocks re-sign-up (specs/api/people.md). */
+      readonly spam?: { readonly reason: string | null; readonly beforeCommit: () => Promise<string> };
+    } = {},
+  ): Promise<{ stateApply: StateApply; spamPurge: SpamPurge | null }> {
     requireAuth('administrator', { session });
 
     const id = this.#state.personIdBySlug.get(slug);
@@ -285,7 +306,19 @@ export class PersonWriteService {
     const stateApply = new StateApply();
     await purgePeople(tx, this.#state, stateApply, [existing]);
 
-    return { stateApply };
+    let spamPurge: SpamPurge | null = null;
+    if (opts.spam) {
+      spamPurge = spamPurgeRecord({
+        person: existing,
+        by: humanEvaluatorFor(session.person!.slug),
+        reason: opts.spam.reason,
+        beforeCommit: await opts.spam.beforeCommit(),
+      });
+      await tx.public['spam-purges'].upsert(spamPurge);
+      stateApply.upsertSpamPurge(spamPurge);
+    }
+
+    return { stateApply, spamPurge };
   }
 
   /**
@@ -324,6 +357,12 @@ export class PersonWriteService {
     if (!existing) throw new ApiNotFoundError(`Person '${slug}' not found`);
 
     const previousLevel = existing.accountLevel;
+
+    // An agent account is never staff, so an agent's vote and a human's vote
+    // can never come from one account (specs/api/agents.md).
+    if (level !== 'user' && isAgentAccount(this.#state, existing.slug)) {
+      throw new ConflictError('An agent account cannot be raised above user', 'agent_account');
+    }
 
     // Idempotent: setting the current level is a no-op (no commit).
     if (previousLevel === level) {

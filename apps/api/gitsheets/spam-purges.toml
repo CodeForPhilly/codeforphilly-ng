@@ -1,0 +1,11 @@
+[gitsheet]
+path = "${{ personSlug }}/${{ id }}"
+root = "spam-purges"
+
+# One record per person purged as spam — by an administrator who marked the
+# purge as spam, by an agent purge, or by the scheduled spam purge
+# (codeforphilly-ng specs/data-model.md#spampurge). It is the purge log and
+# the sign-up block that keeps the same GitHub account from coming straight
+# back until staff unblock it. `personSlug` is the purged slug, not a
+# reference: the person is gone and the slug may be taken again.
+implements = ["codeforphilly.org/spam-purges/v1"]

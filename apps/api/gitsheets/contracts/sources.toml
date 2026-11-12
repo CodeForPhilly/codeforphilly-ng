@@ -1,3 +1,7 @@
+["codeforphilly.org/agent-grants/v1"]
+adopted = 2026-11-12T19:53:17.251Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/71bf951824e93b7537025fcc1cd479cd88fb1331/contracts/codeforphilly.org/agent-grants/v1.json"
+
 ["codeforphilly.org/blog-posts/v1"]
 adopted = 2026-10-14T03:31:18.13Z
 source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/blog-posts/v1.json"
@@ -81,6 +85,10 @@ source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b
 ["codeforphilly.org/slug-history/v1"]
 adopted = 2026-10-14T03:31:33.684Z
 source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/7fe6b81a0bbd05b7a4e6896d55e181fdb61cfe42/contracts/codeforphilly.org/slug-history/v1.json"
+
+["codeforphilly.org/spam-purges/v1"]
+adopted = 2026-11-12T19:53:17.88Z
+source = "https://raw.githubusercontent.com/CodeForPhilly/codeforphilly-ng/71bf951824e93b7537025fcc1cd479cd88fb1331/contracts/codeforphilly.org/spam-purges/v1.json"
 
 ["codeforphilly.org/tag-assignments/v1"]
 adopted = 2026-10-14T03:31:35.046Z

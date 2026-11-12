@@ -11,10 +11,11 @@
  * candidate: email-match seeds the candidate set, username-match adds to it,
  * and the user is the one who confirms at /account-claim.
  */
-import type { Person } from '@cfp/shared/schemas';
+import { spamPurgeBlocks, type Person } from '@cfp/shared/schemas';
 import type { InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/index.js';
 import type { ResolvedGitHubIdentity } from '../auth/github-client.js';
+import { isAgentAccount } from '../auth/agent-grant.js';
 
 export type MatchResult =
   | { kind: 'existing'; personId: string; person: Person }
@@ -45,7 +46,8 @@ export async function resolveIdentity(
     if (!pid) continue;
     const person = state.people.get(pid);
     // Skip already-linked persons — they belong to someone else's GH account.
-    if (person && !person.githubUserId && !person.deletedAt) {
+    // An agent account is never a candidate (it has no email, but be sure).
+    if (person && !person.githubUserId && !person.deletedAt && !isAgentAccount(state, person.slug)) {
       candidates.add(pid);
     }
   }
@@ -55,11 +57,25 @@ export async function resolveIdentity(
   const usernameMatchId = state.personIdBySlug.get(usernameSlug);
   if (usernameMatchId) {
     const person = state.people.get(usernameMatchId);
-    if (person && !person.githubUserId && !person.deletedAt) {
+    // An agent account's slug is not a GitHub login to be matched
+    // (specs/behaviors/account-migration.md → Identity proofs).
+    if (person && !person.githubUserId && !person.deletedAt && !isAgentAccount(state, person.slug)) {
       candidates.add(usernameMatchId);
     }
   }
 
   if (candidates.size === 0) return { kind: 'create-fresh' };
   return { kind: 'candidates', candidates: [...candidates] };
+}
+
+/**
+ * Whether a `spam-purges` record blocks this GitHub id from signing up or
+ * linking (specs/api/auth.md → "Purged as spam"): an in-memory index lookup.
+ */
+export function isGitHubIdBlocked(state: InMemoryState, ghUserId: number): boolean {
+  for (const id of state.spamPurgesByGithubUserId.get(ghUserId) ?? []) {
+    const record = state.spamPurges.get(id);
+    if (record && spamPurgeBlocks(record)) return true;
+  }
+  return false;
 }

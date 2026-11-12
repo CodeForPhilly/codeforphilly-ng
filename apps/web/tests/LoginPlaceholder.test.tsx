@@ -43,6 +43,22 @@ describe('LoginPlaceholder', () => {
     expect(screen.getByRole('link', { name: /forgot your password/i })).toBeInTheDocument();
   });
 
+  it('explains a sign-up refused because the GitHub account was purged as spam', async () => {
+    renderScreen(
+      <AuthProvider>
+        <LoginPlaceholder />
+      </AuthProvider>,
+      { initialEntries: ['/login?error=signup_blocked'] },
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/removed for spam, so it can.t sign up again/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole('link', { name: 'accounts@codeforphilly.org' })).toHaveAttribute(
+      'href',
+      'mailto:accounts@codeforphilly.org',
+    );
+  });
+
   it('keeps submit disabled until both fields are filled', async () => {
     render();
     await waitFor(() => {
