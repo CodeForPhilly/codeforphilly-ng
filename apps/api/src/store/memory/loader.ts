@@ -7,6 +7,7 @@
 import type { PublicStore } from '../public.js';
 import {
   createEmptyState,
+  indexAgentGrant,
   indexBlogPost,
   indexEvent,
   indexEventRsvp,
@@ -20,6 +21,7 @@ import {
   indexProjectBuzz,
   indexProjectUpdate,
   indexSlugHistory,
+  indexSpamPurge,
   indexTag,
   indexTagAssignment,
   type InMemoryState,
@@ -54,6 +56,9 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
   const events = await publicStore.events.queryAll();
   const eventRsvps = await publicStore['event-rsvps'].queryAll();
   const eventSeries = await publicStore['event-series'].queryAll();
+  // Agent grants and spam-purge records (specs/api/agents.md, moderation.md).
+  const agentGrants = await publicStore['agent-grants'].queryAll();
+  const spamPurges = await publicStore['spam-purges'].queryAll();
 
   for (const p of projects) indexProject(state, p);
   for (const p of people) indexPerson(state, p);
@@ -74,6 +79,8 @@ export async function loadInMemoryState(publicStore: PublicStore): Promise<InMem
   for (const s of eventSeries) indexEventSeries(state, s);
   for (const ev of events) indexEvent(state, ev);
   for (const r of eventRsvps) indexEventRsvp(state, r);
+  for (const g of agentGrants) indexAgentGrant(state, g);
+  for (const sp of spamPurges) indexSpamPurge(state, sp);
 
   return state;
 }

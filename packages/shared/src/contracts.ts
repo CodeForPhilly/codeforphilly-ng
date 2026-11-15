@@ -17,6 +17,7 @@
 import { toJSONSchema, type z } from 'zod';
 
 import {
+  AgentGrantSchema,
   BlogPostSchema,
   EventRsvpSchema,
   EventSchema,
@@ -31,6 +32,7 @@ import {
   ProjectUpdateSchema,
   RevocationSchema,
   SlugHistorySchema,
+  SpamPurgeSchema,
   TagAssignmentSchema,
   TagSchema,
 } from './schemas/index.js';
@@ -68,6 +70,8 @@ export const SHEET_CONTRACTS = {
   // v1 was hand-authored before contracts were generated; v2 is the first
   // generated version (it adds the evaluatedAt datetime pattern).
   'person-evaluations': { schema: PersonEvaluationSchema, version: 2, title: 'Person evaluation' },
+  'agent-grants': { schema: AgentGrantSchema, version: 1, title: 'Agent grant' },
+  'spam-purges': { schema: SpamPurgeSchema, version: 1, title: 'Spam purge' },
 } as const satisfies Record<string, SheetContract>;
 
 export type ContractSheet = keyof typeof SHEET_CONTRACTS;

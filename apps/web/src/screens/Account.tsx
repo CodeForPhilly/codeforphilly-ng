@@ -39,6 +39,8 @@ const LINK_GITHUB_ERROR_MESSAGES: Record<string, string> = {
   github_id_in_use_elsewhere:
     'That GitHub account is already connected to a different Code for Philly account. Email accounts@codeforphilly.org if this is a mistake.',
   github_unreachable: 'We could not reach GitHub. Please try again in a moment.',
+  github_blocked:
+    'That GitHub account was removed from Code for Philly for spam and can’t be connected. Email accounts@codeforphilly.org if this is a mistake.',
   oauth_state_mismatch: 'Something went wrong with the GitHub link flow. Please try again.',
   oauth_session_invalid: 'Something went wrong with the GitHub link flow. Please try again.',
 };

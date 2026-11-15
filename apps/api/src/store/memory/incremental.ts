@@ -12,6 +12,7 @@ import { RECORD_PATH_KEY, RECORD_SHEET_KEY, type DiffChange } from 'gitsheets';
 import type { FtsEngine } from '../fts.js';
 import type { PublicStore } from '../public.js';
 import {
+  indexAgentGrant,
   indexBlogPost,
   indexEvent,
   indexEventRsvp,
@@ -25,8 +26,10 @@ import {
   indexProjectBuzz,
   indexProjectUpdate,
   indexSlugHistory,
+  indexSpamPurge,
   indexTag,
   indexTagAssignment,
+  unindexAgentGrant,
   unindexBlogPost,
   unindexEvent,
   unindexEventRsvp,
@@ -40,6 +43,7 @@ import {
   unindexProjectBuzz,
   unindexProjectUpdate,
   unindexSlugHistory,
+  unindexSpamPurge,
   unindexTag,
   unindexTagAssignment,
   type InMemoryState,
@@ -116,6 +120,8 @@ const HANDLERS = [
   handler({ sheet: 'event-series', unindex: unindexEventSeries, index: indexEventSeries }),
   handler({ sheet: 'events', unindex: unindexEvent, index: indexEvent }),
   handler({ sheet: 'event-rsvps', unindex: unindexEventRsvp, index: indexEventRsvp }),
+  handler({ sheet: 'agent-grants', unindex: unindexAgentGrant, index: indexAgentGrant }),
+  handler({ sheet: 'spam-purges', unindex: unindexSpamPurge, index: indexSpamPurge }),
 ] as const;
 
 interface CollectedChanges {

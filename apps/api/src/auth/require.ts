@@ -8,7 +8,7 @@
  * with full entity context (project, owned-resource, self) to decide
  * `self`, `member`, `maintainer`, `poster`/`author` cases.
  */
-import type { Project, ProjectMembership } from '@cfp/shared/schemas';
+import { AGENT_SCOPES, type Project, type ProjectMembership } from '@cfp/shared/schemas';
 import { ForbiddenError, UnauthenticatedError } from '../lib/errors.js';
 import type { SessionContext } from './middleware.js';
 
@@ -79,12 +79,24 @@ const MARKER_TOKENS = new Set([
   'author',
 ]);
 
+/** `agent:<scope>` — satisfied only by an agent grant carrying that scope. */
+const AGENT_MARKER_PREFIX = 'agent:';
+const AGENT_MARKER_SCOPES = new Set(AGENT_SCOPES as readonly string[]);
+
+function isAgentMarker(token: string): boolean {
+  return token.startsWith(AGENT_MARKER_PREFIX) && AGENT_MARKER_SCOPES.has(token.slice(AGENT_MARKER_PREFIX.length));
+}
+
 /**
  * Check a marker expression like `maintainer | staff` against the session.
  *
  * Throws `UnauthenticatedError` if any non-`public` marker is required and the
  * caller is anonymous; throws `ForbiddenError` if the caller is authenticated
  * but none of the markers match.
+ *
+ * A session made for an agent grant (`session.agent`) satisfies only
+ * `agent:<scope>` markers for its own scopes; to every other marker it is
+ * anonymous (specs/behaviors/authorization.md → Agent grants).
  */
 export function requireAuth(expression: MarkerExpression, ctx: AuthContext): SessionContext {
   const tokens = expression
@@ -96,12 +108,19 @@ export function requireAuth(expression: MarkerExpression, ctx: AuthContext): Ses
     throw new Error(`requireAuth: empty marker expression`);
   }
   for (const t of tokens) {
-    if (!MARKER_TOKENS.has(t)) {
+    if (!MARKER_TOKENS.has(t) && !isAgentMarker(t)) {
       throw new Error(`requireAuth: unknown marker '${t}' in '${expression}'`);
     }
   }
 
   const { session } = ctx;
+
+  if (session.agent) {
+    const scopes = new Set<string>(session.agent.scopes);
+    if (tokens.some((t) => isAgentMarker(t) && scopes.has(t.slice(AGENT_MARKER_PREFIX.length)))) return session;
+    if (tokens.includes('public')) return session;
+    throw new UnauthenticatedError('Authentication required');
+  }
 
   if (tokens.includes('public')) return session;
 
@@ -125,7 +144,7 @@ export function requireAuth(expression: MarkerExpression, ctx: AuthContext): Ses
 
 /** Convenience: throws `UnauthenticatedError` unless the caller is signed in. */
 export function requireSignedIn(session: SessionContext): SessionContext {
-  if (!isAuthenticated(session)) {
+  if (!isAuthenticated(session) || session.agent) {
     throw new UnauthenticatedError('Authentication required');
   }
   return session;

@@ -24,6 +24,7 @@ declare module 'fastify' {
 
 async function spamPurgePlugin(fastify: FastifyInstance): Promise<void> {
   const service = new SpamPurgeService({
+    headCommit: async () => (await fastify.publicRepo.resolveRef('HEAD')) ?? 'unknown',
     state: fastify.inMemoryState,
     fts: fastify.fts,
     store: fastify.store,

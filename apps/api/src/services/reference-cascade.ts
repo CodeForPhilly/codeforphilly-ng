@@ -12,6 +12,7 @@
  */
 import { SHEET_REFERENCES, type ContractSheet, type SheetReference } from '@cfp/shared';
 import type {
+  AgentGrant,
   EventRsvp,
   HelpWantedInterestExpression,
   HelpWantedRole,
@@ -76,6 +77,11 @@ const REFERENCING_SHEETS: Partial<Record<ContractSheet, ReferencingSheet<never>>
     records: (s) => s.eventRsvps.values(),
     remove: (a, r) => a.removeEventRsvp(r),
     upsert: (a, r) => a.upsertEventRsvp(r),
+  }),
+  'agent-grants': sheet<AgentGrant>({
+    records: (s) => s.agentGrants.values(),
+    remove: (a, r) => a.removeAgentGrant(r),
+    upsert: (a, r) => a.upsertAgentGrant(r),
   }),
   'person-evaluations': sheet<PersonEvaluation>({
     records: (s) => s.personEvaluations.values(),

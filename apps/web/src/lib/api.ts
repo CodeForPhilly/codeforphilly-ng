@@ -765,10 +765,24 @@ export interface UpdateTagInput {
 export type VoteVerdict = 'spam' | 'legit';
 
 export interface VoteView {
+  /** A staff member's vote (`human`) or an AI agent's (`agent`). */
+  readonly kind?: 'human' | 'agent' | 'machine';
   readonly verdict: 'spam' | 'legit' | 'uncertain';
   readonly reasoning: string | null;
+  readonly flags?: string[];
   readonly voter: { readonly slug: string; readonly fullName: string };
   readonly evaluatedAt: string;
+}
+
+/** The newest agent vote on a member no human has voted on. */
+export interface StagedVoteView {
+  readonly verdict: 'spam' | 'legit' | 'uncertain';
+  readonly agent: { readonly slug: string; readonly fullName: string };
+  readonly reasoning: string | null;
+  readonly flags: string[];
+  readonly evaluatedAt: string;
+  /** False once the agent holds no active grant: it no longer purges anyone. */
+  readonly counts: boolean;
 }
 
 export type MemberOrigin = 'imported' | 'signed-up';
@@ -791,6 +805,7 @@ export interface MemberRow {
   readonly deletedAt: string | null;
   readonly origin: MemberOrigin;
   readonly email: string | null;
+  readonly emailDomain?: string | null;
   readonly hasGitHubLink: boolean;
   readonly github: MemberGitHub | null;
   readonly lastLoginAt: string | null;
@@ -807,6 +822,9 @@ export interface MemberRow {
     readonly tags: number;
   };
   readonly latestVote: VoteView | null;
+  readonly stagedVote?: StagedVoteView | null;
+  /** An agent account: nobody votes on it. */
+  readonly isAgent?: boolean;
   /** When the scheduled spam purge will take this member, or null. */
   readonly purgeAfter: string | null;
   readonly signals: string[];
@@ -815,7 +833,7 @@ export interface MemberRow {
 
 export interface MemberListParams {
   q?: string;
-  vote?: 'none' | VoteVerdict;
+  vote?: 'none' | 'staged' | VoteVerdict;
   origin?: MemberOrigin;
   joinedAfter?: string;
   joinedBefore?: string;
@@ -843,6 +861,64 @@ export interface MemberDetail {
   readonly person: PersonDetail;
   readonly footprint: MemberFootprint;
   readonly votes: VoteView[];
+  /** Votes on an earlier account under this slug: they do not count for this member. */
+  readonly earlierVotes?: VoteView[];
+  readonly earlierPurges?: Array<{ id: string; purgedAt: string; by: string; reason: string | null }>;
+}
+
+// --- Agents and the spam-purge log (specs/api/agents.md) -------------------
+
+export type AgentScope = 'moderation:read' | 'moderation:vote' | 'moderation:purge';
+
+export interface AgentGrantView {
+  readonly id: string;
+  readonly label: string;
+  readonly scopes: AgentScope[];
+  readonly createdAt: string;
+  readonly createdBy: { readonly slug: string; readonly fullName: string };
+  readonly expiresAt: string;
+  readonly revokedAt: string | null;
+  readonly lastUsedAt: string | null;
+  readonly active: boolean;
+}
+
+export interface AgentView {
+  readonly person: { readonly slug: string; readonly fullName: string; readonly deletedAt: string | null };
+  readonly grants: AgentGrantView[];
+  readonly stagedVotes: { readonly spam: number; readonly legit: number };
+  readonly purges: { readonly last24h: number; readonly last30d: number };
+}
+
+export interface GrantInput {
+  label: string;
+  scopes: AgentScope[];
+  expiresInDays?: number;
+}
+
+export interface SpamPurgeView {
+  readonly id: string;
+  readonly personSlug: string;
+  readonly purgedAt: string;
+  readonly by: string;
+  readonly byRef: { readonly kind: 'agent' | 'human' | 'scheduled'; readonly slug: string | null; readonly fullName: string };
+  readonly reason: string | null;
+  readonly flags: string[];
+  readonly evidence: Array<{ record: string; field?: string; path: string; url: string }>;
+  readonly beforeCommit: string;
+  readonly commitUrl: string;
+  readonly blocksSignIn: boolean;
+  readonly blocking: boolean;
+  readonly unblockedAt: string | null;
+  readonly unblockedBy: { readonly slug: string; readonly fullName: string } | null;
+}
+
+export interface SpamPurgeListParams {
+  by?: string;
+  slug?: string;
+  since?: string;
+  blocking?: boolean;
+  page?: number;
+  perPage?: number;
 }
 
 export const api = {
@@ -981,8 +1057,11 @@ export const api = {
       slug: string,
     ): Promise<SuccessEnvelope<{ projects: Array<{ slug: string; title: string }> }>> =>
       request(`/api/people/${encodeURIComponent(slug)}/purge-preview`),
-    purge: (slug: string): Promise<void> =>
-      request(`/api/people/${encodeURIComponent(slug)}/purge`, { method: 'POST' }),
+    purge: (slug: string, opts: { spam?: boolean; reason?: string } = {}): Promise<void> =>
+      request(`/api/people/${encodeURIComponent(slug)}/purge`, {
+        method: 'POST',
+        body: JSON.stringify(opts.spam ? { spam: true, ...(opts.reason ? { reason: opts.reason } : {}) } : {}),
+      }),
   },
   tags: {
     list: (params: TagListParams = {}): Promise<PaginatedEnvelope<TagResponse>> =>
@@ -1159,6 +1238,35 @@ export const api = {
       request(`/api/admin/members/${encodeURIComponent(slug)}/vote`, {
         method: 'POST',
         body: JSON.stringify(reasoning ? { verdict, reasoning } : { verdict }),
+      }),
+    agents: (): Promise<SuccessEnvelope<AgentView[]>> => request(`/api/admin/agents`),
+    createAgent: (input: {
+      slug: string;
+      fullName: string;
+      bio: string;
+      grant: GrantInput;
+    }): Promise<SuccessEnvelope<{ person: PersonDetail; grant: AgentGrantView; token: string }>> =>
+      request(`/api/admin/agents`, { method: 'POST', body: JSON.stringify(input) }),
+    mintGrant: (slug: string, input: GrantInput): Promise<SuccessEnvelope<{ grant: AgentGrantView; token: string }>> =>
+      request(`/api/admin/agents/${encodeURIComponent(slug)}/grants`, { method: 'POST', body: JSON.stringify(input) }),
+    /** `withdrawVotes`: the token may be compromised — also withdraw the agent's staged votes, in the same commit. */
+    revokeGrant: (
+      slug: string,
+      id: string,
+      opts: { withdrawVotes?: boolean } = {},
+    ): Promise<SuccessEnvelope<{ grant: AgentGrantView; withdrawn?: number; reactivated?: number }>> =>
+      request(`/api/admin/agents/${encodeURIComponent(slug)}/grants/${encodeURIComponent(id)}/revoke`, {
+        method: 'POST',
+        body: JSON.stringify(opts.withdrawVotes ? { withdrawVotes: true } : {}),
+      }),
+    withdrawVotes: (slug: string): Promise<SuccessEnvelope<{ withdrawn: number; reactivated: number }>> =>
+      request(`/api/admin/agents/${encodeURIComponent(slug)}/withdraw-votes`, { method: 'POST', body: '{}' }),
+    spamPurges: (params: SpamPurgeListParams = {}): Promise<PaginatedEnvelope<SpamPurgeView>> =>
+      request(`/api/admin/spam-purges${buildQuery(params)}`),
+    unblock: (id: string, reason?: string): Promise<SuccessEnvelope<{ purge: SpamPurgeView }>> =>
+      request(`/api/admin/spam-purges/${encodeURIComponent(id)}/unblock`, {
+        method: 'POST',
+        body: JSON.stringify(reason ? { reason } : {}),
       }),
   },
   staffAccountClaim: {

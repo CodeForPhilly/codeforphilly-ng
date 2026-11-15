@@ -6,7 +6,8 @@ import { references } from '../references.js';
  * One spam verdict per (person, evaluator) — the `person-evaluations` sheet.
  *
  * On the public data repo the only writer is the site: staff votes with
- * `evaluator = "human-<voterSlug>"`. Machine evaluators (heuristic, LLM) live
+ * `evaluator = "human-<voterSlug>"` and agent votes with
+ * `evaluator = "agent-<agentSlug>"`. Machine evaluators (heuristic, LLM) live
  * in the private spam-detection repo and share this shape so the prune can
  * aggregate both. See specs/behaviors/spam-exclusion.md.
  */
@@ -26,6 +27,35 @@ export const PersonEvaluationSchema = z.object({
 export type PersonEvaluation = z.infer<typeof PersonEvaluationSchema>;
 
 export const HUMAN_EVALUATOR_PREFIX = 'human-';
+export const AGENT_EVALUATOR_PREFIX = 'agent-';
+
+/**
+ * The evaluator's kind, read from its prefix
+ * (specs/behaviors/spam-exclusion.md → Where verdicts come from): a staff
+ * member, an agent account on the site, or an offline machine pass.
+ */
+export type EvaluatorKind = 'human' | 'agent' | 'machine';
+
+export function evaluatorKind(evaluator: string): EvaluatorKind {
+  if (evaluator.startsWith(HUMAN_EVALUATOR_PREFIX)) return 'human';
+  if (evaluator.startsWith(AGENT_EVALUATOR_PREFIX)) return 'agent';
+  return 'machine';
+}
+
+/** The voter's slug for a `human-` or `agent-` evaluator, else null. */
+export function evaluatorSlug(evaluator: string): string | null {
+  if (evaluator.startsWith(HUMAN_EVALUATOR_PREFIX)) return evaluator.slice(HUMAN_EVALUATOR_PREFIX.length);
+  if (evaluator.startsWith(AGENT_EVALUATOR_PREFIX)) return evaluator.slice(AGENT_EVALUATOR_PREFIX.length);
+  return null;
+}
+
+export function isAgentEvaluator(evaluator: string): boolean {
+  return evaluator.startsWith(AGENT_EVALUATOR_PREFIX);
+}
+
+export function agentEvaluatorFor(agentSlug: string): string {
+  return `${AGENT_EVALUATOR_PREFIX}${agentSlug}`;
+}
 
 export function isHumanEvaluator(evaluator: string): boolean {
   return evaluator.startsWith(HUMAN_EVALUATOR_PREFIX);

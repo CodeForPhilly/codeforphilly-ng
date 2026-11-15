@@ -100,6 +100,16 @@ async function purgePersonRecords(
     }
   }
 
+  // 6b. An agent account's grants go with it (their token hashes went with
+  // the private data above), so nothing is left that could authenticate.
+  for (const grantId of state.agentGrantsByPerson.get(existing.slug) ?? new Set<string>()) {
+    const grant = state.agentGrants.get(grantId);
+    if (grant && !deleted.has(grant.id)) {
+      await tx.public['agent-grants'].delete(grant);
+      stateApply.removeAgentGrant(grant);
+    }
+  }
+
   // 7. Delete authored blog-posts.
   for (const post of state.blogPosts.values()) {
     if (post.authorId === personId) {

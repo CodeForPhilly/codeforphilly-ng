@@ -8,6 +8,7 @@
  * applied — in-memory state stays in sync with the on-disk gitsheets state.
  */
 import type {
+  AgentGrant,
   BlogPost,
   Event,
   EventRsvp,
@@ -21,12 +22,14 @@ import type {
   ProjectMembership,
   ProjectUpdate,
   SlugHistory,
+  SpamPurge,
   Tag,
   TagAssignment,
 } from '@cfp/shared/schemas';
 import type { FtsEngine } from './fts.js';
 import { invalidateFacets } from './memory/facets.js';
 import {
+  indexAgentGrant,
   indexEvent,
   indexEventRsvp,
   indexEventSeries,
@@ -39,8 +42,10 @@ import {
   indexProjectBuzz,
   indexProjectUpdate,
   indexSlugHistory,
+  indexSpamPurge,
   indexTag,
   indexTagAssignment,
+  unindexAgentGrant,
   unindexEventRsvp,
   unindexEventSeries,
   unindexHelpWantedInterest,
@@ -49,6 +54,7 @@ import {
   unindexPersonEvaluation,
   unindexProjectBuzz,
   unindexProjectUpdate,
+  unindexSpamPurge,
   type InMemoryState,
 } from './memory/state.js';
 
@@ -322,6 +328,26 @@ export class StateApply {
 
   removeEventRsvp(rsvp: EventRsvp): this {
     this.#ops.push((state) => unindexEventRsvp(state, rsvp));
+    return this;
+  }
+
+  upsertAgentGrant(grant: AgentGrant): this {
+    this.#ops.push((state) => indexAgentGrant(state, grant));
+    return this;
+  }
+
+  removeAgentGrant(grant: AgentGrant): this {
+    this.#ops.push((state) => unindexAgentGrant(state, grant));
+    return this;
+  }
+
+  upsertSpamPurge(record: SpamPurge): this {
+    this.#ops.push((state) => indexSpamPurge(state, record));
+    return this;
+  }
+
+  removeSpamPurge(record: SpamPurge): this {
+    this.#ops.push((state) => unindexSpamPurge(state, record));
     return this;
   }
 

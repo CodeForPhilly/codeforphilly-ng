@@ -1,32 +1,51 @@
 /**
- * Moderation: the staff members roster, per-member footprint, and human spam
- * votes. Per specs/api/moderation.md and specs/screens/admin-members.md.
+ * Moderation: the staff members roster, per-member footprint, and spam votes
+ * by staff and by agents. Per specs/api/moderation.md and
+ * specs/screens/admin-members.md.
  *
  * Reads come entirely from in-memory state plus the private store (email)
- * and session metadata (last sign-in). The only write is `castVote`, which
- * records a `human-<voterSlug>` person-evaluation and applies the lifecycle
- * side effect from specs/behaviors/person-lifecycle.md.
+ * and session metadata (last sign-in). The writes record a
+ * `human-<voterSlug>` or `agent-<agentSlug>` person-evaluation and apply the
+ * lifecycle side effect from specs/behaviors/person-lifecycle.md; an agent's
+ * vote is staged and fenced by the rules in moderation.md → Agent votes.
  */
 import { spamPurgeDueAt } from './spam-purge.js';
 import {
+  agentVotesOnAccount,
+  hasHumanVote,
+  humanVotesOnAccount,
+  newestVote,
+  stagedAgentVote,
+  votesOnAccount,
+  votesOnEarlierAccounts,
+} from './votes.js';
+import {
   PersonSchema,
   PersonEvaluationSchema,
-  HUMAN_EVALUATOR_PREFIX,
+  agentEvaluatorFor,
+  evaluatorKind,
+  evaluatorSlug,
   humanEvaluatorFor,
-  isHumanEvaluator,
+  type EvaluatorKind,
   type Person,
   type PersonEvaluation,
+  type SpamPurge,
 } from '@cfp/shared/schemas';
+import { agentHasActiveGrant, isAgentAccount, isGrantActive } from '../auth/agent-grant.js';
+import { agentTextProblem } from './agent-text.js';
 import { projectBySlug, type InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/interface.js';
 import type { DualStoreTx } from '../store/store.js';
 import { StateApply } from '../store/state-apply.js';
 import type { SessionContext } from '../auth/middleware.js';
-import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
+import { ApiNotFoundError, ApiValidationError, ConflictError, RateLimitedError } from '../lib/errors.js';
 import { githubFactsFrom, type GitHubProbeResult } from '../auth/github-client.js';
 
 export type VoteVerdict = 'spam' | 'legit';
-export type VoteFilter = 'none' | VoteVerdict;
+export type VoteFilter = 'none' | 'staged' | VoteVerdict;
+
+/** Who is reading the roster: agents see email domains only (moderation.md → Agent callers). */
+export type RosterViewer = 'staff' | 'agent';
 
 export interface MemberListOptions {
   readonly q?: string;
@@ -38,6 +57,7 @@ export interface MemberListOptions {
   readonly sort?: string;
   readonly page?: number;
   readonly perPage?: number;
+  readonly viewer?: RosterViewer;
 }
 
 export interface VoterRef {
@@ -46,10 +66,33 @@ export interface VoterRef {
 }
 
 export interface VoteView {
+  /** From the evaluator's prefix: a staff member's vote or an agent's. */
+  readonly kind: EvaluatorKind;
   readonly verdict: 'spam' | 'legit' | 'uncertain';
   readonly reasoning: string | null;
+  /** Reason tags, less the `manual-override` / `agent` markers. */
+  readonly flags: string[];
   readonly voter: VoterRef;
   readonly evaluatedAt: string;
+}
+
+/** The newest agent vote when no human has voted (moderation.md → stagedVote). */
+export interface StagedVoteView {
+  readonly verdict: 'spam' | 'legit' | 'uncertain';
+  readonly agent: VoterRef;
+  readonly reasoning: string | null;
+  readonly flags: string[];
+  readonly evaluatedAt: string;
+  /** False once the agent holds no active grant: the vote no longer queues a purge. */
+  readonly counts: boolean;
+}
+
+/** A spam-purge record as the detail's `earlierPurges` lists it. */
+export interface EarlierPurgeView {
+  readonly id: string;
+  readonly purgedAt: string;
+  readonly by: string;
+  readonly reason: string | null;
 }
 
 export interface FootprintCounts {
@@ -81,7 +124,9 @@ export interface MemberRow {
   readonly deletedAt: string | null;
   /** Imported from laddr (has a legacyId) or signed up on this site through GitHub. */
   readonly origin: MemberOrigin;
+  /** Always null for an agent caller. */
   readonly email: string | null;
+  readonly emailDomain: string | null;
   readonly hasGitHubLink: boolean;
   readonly github: MemberGitHub | null;
   readonly lastLoginAt: string | null;
@@ -90,7 +135,11 @@ export interface MemberRow {
   readonly emailBounce: { readonly type: string; readonly bouncedAt: string } | null;
   readonly bioExcerpt: string;
   readonly footprint: FootprintCounts;
+  /** The latest human vote on this account; never an agent's. */
   readonly latestVote: VoteView | null;
+  readonly stagedVote: StagedVoteView | null;
+  /** Whether this is an agent account (nobody votes on it). */
+  readonly isAgent: boolean;
   /** When the scheduled spam purge will take this member, or null (specs/behaviors/person-lifecycle.md). */
   readonly purgeAfter: string | null;
   /** Row-local facts worth a glance; see `computeSignals`. */
@@ -181,6 +230,8 @@ export function computeSignals(input: {
   readonly emailBounce: { type: string } | null;
   readonly lastSlackSsoAt: string | null;
   readonly footprint: FootprintCounts;
+  /** A spam-purges record names this slug: an earlier account under it was purged as spam. */
+  readonly slugPurgedBefore?: boolean;
 }): { signals: string[]; attention: number } {
   const { person } = input;
   const signals: string[] = [];
@@ -207,6 +258,7 @@ export function computeSignals(input: {
       negative('github-no-activity');
     }
   }
+  if (input.slugPurgedBefore) negative('slug-purged-before');
   if (input.lastSlackSsoAt) signals.push('slack-sso');
   const fp = input.footprint;
   if (fp.memberships + fp.updates + fp.buzz + fp.blogPosts + fp.helpWantedInterest > 0) signals.push('has-footprint');
@@ -235,6 +287,18 @@ export function bioExcerpt(bio: string | null | undefined, max = 160): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/** The part of an email after the `@`, lowercased, or null. */
+export function emailDomainOf(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const at = email.lastIndexOf('@');
+  return at >= 0 && at < email.length - 1 ? email.slice(at + 1).toLowerCase() : null;
+}
+
+/** Flags shown with a vote: the stored ones less the kind markers. */
+function shownFlags(rec: PersonEvaluation): string[] {
+  return rec.flags.filter((f) => f !== 'agent' && f !== 'manual-override');
 }
 
 export class ModerationService {
@@ -302,21 +366,74 @@ export class ModerationService {
     await Promise.all(Array.from({ length: Math.min(GITHUB_PROBE_CONCURRENCY, queue.length) }, worker));
   }
 
-  /** Every human vote on a person, newest first. */
+  /**
+   * Every vote on this person's account — staff and agent — newest first.
+   * Votes on an earlier account under the same slug are not theirs
+   * (`earlierVotes`).
+   */
+  votes(personSlug: string): VoteView[] {
+    const person = this.#person(personSlug);
+    if (!person) return [];
+    return this.#views(votesOnAccount(this.#state, person).filter((r) => evaluatorKind(r.evaluator) !== 'machine'));
+  }
+
+  /** Every human vote on this person's account, newest first. */
   humanVotes(personSlug: string): VoteView[] {
-    const keys = this.#state.evaluationsByPerson.get(personSlug);
-    if (!keys) return [];
-    const votes: VoteView[] = [];
-    for (const key of keys) {
-      const rec = this.#state.personEvaluations.get(key);
-      if (!rec || !isHumanEvaluator(rec.evaluator)) continue;
-      votes.push(this.#voteView(rec));
-    }
-    return votes.sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
+    const person = this.#person(personSlug);
+    if (!person) return [];
+    return this.#views(humanVotesOnAccount(this.#state, person));
   }
 
   latestHumanVote(personSlug: string): VoteView | null {
     return this.humanVotes(personSlug)[0] ?? null;
+  }
+
+  /** Votes cast on an earlier account under this slug, newest first. */
+  earlierVotes(personSlug: string): VoteView[] {
+    const person = this.#person(personSlug);
+    if (!person) return [];
+    return this.#views(
+      votesOnEarlierAccounts(this.#state, person).filter((r) => evaluatorKind(r.evaluator) !== 'machine'),
+    );
+  }
+
+  /** The `spam-purges` records for this slug, newest first. */
+  earlierPurges(personSlug: string): EarlierPurgeView[] {
+    return [...(this.#state.spamPurgesBySlug.get(personSlug) ?? [])]
+      .map((id) => this.#state.spamPurges.get(id))
+      .filter((p): p is SpamPurge => p !== undefined)
+      .sort((a, b) => b.purgedAt.localeCompare(a.purgedAt))
+      .map((p) => ({ id: p.id, purgedAt: p.purgedAt, by: p.by, reason: p.reason ?? null }));
+  }
+
+  /** The roster's `stagedVote` for one person, or null. */
+  stagedVote(personSlug: string, now: Date = new Date()): StagedVoteView | null {
+    const person = this.#person(personSlug);
+    if (!person) return null;
+    const rec = stagedAgentVote(this.#state, person);
+    if (!rec) return null;
+    const agentSlug = evaluatorSlug(rec.evaluator) ?? rec.evaluator;
+    return {
+      verdict: rec.verdict,
+      agent: this.#voterRef(agentSlug),
+      reasoning: rec.reasoning ?? null,
+      flags: shownFlags(rec),
+      evaluatedAt: rec.evaluatedAt,
+      counts: agentHasActiveGrant(this.#state, agentSlug, now),
+    };
+  }
+
+  #person(slug: string): Person | undefined {
+    const id = this.#state.personIdBySlug.get(slug);
+    return id ? this.#state.people.get(id) : undefined;
+  }
+
+  #voterRef(slug: string): VoterRef {
+    return { slug, fullName: this.#person(slug)?.fullName ?? slug };
+  }
+
+  #views(records: readonly PersonEvaluation[]): VoteView[] {
+    return records.map((r) => this.#voteView(r)).sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
   }
 
   async listMembers(opts: MemberListOptions): Promise<MemberListResult | { error: 'invalid_sort' }> {
@@ -337,11 +454,12 @@ export class ModerationService {
     if (opts.joinedBefore) people = people.filter((p) => p.createdAt <= opts.joinedBefore!);
     if (opts.vote) {
       people = people.filter((p) => {
-        const latest = this.latestHumanVote(p.slug);
-        if (opts.vote === 'none') return latest === null;
-        return latest?.verdict === opts.vote;
+        if (opts.vote === 'none') return !hasHumanVote(this.#state, p);
+        if (opts.vote === 'staged') return stagedAgentVote(this.#state, p) !== null;
+        return newestVote(humanVotesOnAccount(this.#state, p))?.verdict === opts.vote;
       });
     }
+    const viewer: RosterViewer = opts.viewer ?? 'staff';
 
     const authored = this.#authoredCounts();
     const lastLogins = new Map<string, { lastLoginAt: string | null; count: number }>();
@@ -361,8 +479,10 @@ export class ModerationService {
         }
         // Email is searched for any query, not just ones with an "@" — a bare
         // domain or local-part substring is the common case when triaging.
+        // An agent searches the domain only (moderation.md → Agent callers).
         const email = await emailOf(p);
-        if (email && email.toLowerCase().includes(q)) matched.push(p);
+        const searchable = viewer === 'agent' ? emailDomainOf(email) : email?.toLowerCase();
+        if (searchable && searchable.includes(q)) matched.push(p);
       }
       people = matched;
     }
@@ -390,24 +510,25 @@ export class ModerationService {
     await this.refreshGitHubFacts(slice);
 
     const items: MemberRow[] = [];
-    for (const p of slice) items.push(await this.#row(p, authored, sessionsOf(p)));
+    for (const p of slice) items.push(await this.#row(p, authored, sessionsOf(p), viewer));
 
     return { items, totalItems: people.length, page, perPage };
   }
 
   /** The roster row for one person (used by the list and the detail endpoint). */
-  async memberRow(slug: string): Promise<MemberRow | null> {
+  async memberRow(slug: string, viewer: RosterViewer = 'staff'): Promise<MemberRow | null> {
     const id = this.#state.personIdBySlug.get(slug);
     const person = id ? this.#state.people.get(id) : undefined;
     if (!person) return null;
     await this.refreshGitHubFacts([person]);
-    return this.#row(person, this.#authoredCounts(), this.#sessions(person.id));
+    return this.#row(person, this.#authoredCounts(), this.#sessions(person.id), viewer);
   }
 
   async #row(
     p: Person,
     authored: AuthoredCounts,
     sessions: { lastLoginAt: string | null; count: number },
+    viewer: RosterViewer = 'staff',
   ): Promise<MemberRow> {
     const profile = await this.#privateStore.getProfile(p.id);
     const github: MemberGitHub | null =
@@ -442,6 +563,7 @@ export class ModerationService {
       emailBounce,
       lastSlackSsoAt,
       footprint,
+      slugPurgedBefore: (this.#state.spamPurgesBySlug.get(p.slug)?.size ?? 0) > 0,
     });
     return {
       id: p.id,
@@ -451,7 +573,8 @@ export class ModerationService {
       createdAt: p.createdAt,
       deletedAt: p.deletedAt ?? null,
       origin: typeof p.legacyId === 'number' ? 'imported' : 'signed-up',
-      email,
+      email: viewer === 'agent' ? null : email,
+      emailDomain: emailDomainOf(email),
       hasGitHubLink: typeof p.githubUserId === 'number',
       github,
       lastLoginAt: sessions.lastLoginAt,
@@ -461,6 +584,8 @@ export class ModerationService {
       bioExcerpt: bioExcerpt(p.bio),
       footprint,
       latestVote: this.latestHumanVote(p.slug),
+      stagedVote: this.stagedVote(p.slug),
+      isAgent: isAgentAccount(this.#state, p.slug),
       purgeAfter: spamPurgeDueAt(this.#state, p)?.toISOString() ?? null,
       signals,
       attention,
@@ -526,13 +651,13 @@ export class ModerationService {
   }
 
   #voteView(rec: PersonEvaluation): VoteView {
-    const voterSlug = rec.evaluator.slice(HUMAN_EVALUATOR_PREFIX.length);
-    const voterId = this.#state.personIdBySlug.get(voterSlug);
-    const voter = voterId ? this.#state.people.get(voterId) : undefined;
+    const voterSlug = evaluatorSlug(rec.evaluator) ?? rec.evaluator;
     return {
+      kind: evaluatorKind(rec.evaluator),
       verdict: rec.verdict,
       reasoning: rec.reasoning ?? null,
-      voter: { slug: voterSlug, fullName: voter?.fullName ?? voterSlug },
+      flags: shownFlags(rec),
+      voter: this.#voterRef(voterSlug),
       evaluatedAt: rec.evaluatedAt,
     };
   }
@@ -556,6 +681,28 @@ export class ModerationService {
 export interface CastVoteInput {
   readonly verdict: VoteVerdict;
   readonly reasoning?: string;
+  /** Agents only: 0–10 reason tags. */
+  readonly flags?: readonly string[];
+}
+
+/** Agent vote limits — specs/api/moderation.md → Agent votes. */
+export const AGENT_SPAM_VOTES_PER_DAY = 20;
+export const AGENT_SPAM_VOTE_MAX_AGE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const FLAG_RE = /^[a-z0-9][a-z0-9:-]{0,39}$/;
+
+/** Validate an agent's reason tags (votes and purges): 0–10, each `^[a-z0-9][a-z0-9:-]{0,39}$`. */
+export function validateFlags(flags: readonly string[] | undefined): string[] {
+  const list = flags ?? [];
+  if (!Array.isArray(list) || list.length > 10 || list.some((f) => typeof f !== 'string' || !FLAG_RE.test(f))) {
+    throw new ApiValidationError('Invalid flags', { flags: '0–10 tags matching ^[a-z0-9][a-z0-9:-]{0,39}$' });
+  }
+  return [...new Set(list)];
+}
+
+/** The reversal rule: was the latest vote on this account (human or agent) `spam`? */
+function latestVoteWasSpam(state: InMemoryState, person: Person): boolean {
+  return newestVote(votesOnAccount(state, person).filter((v) => evaluatorKind(v.evaluator) !== 'machine'))?.verdict === 'spam';
 }
 
 export class ModerationWriteService {
@@ -565,11 +712,34 @@ export class ModerationWriteService {
     this.#state = state;
   }
 
+  #personOr404(slug: string): Person {
+    const id = this.#state.personIdBySlug.get(slug);
+    const person = id ? this.#state.people.get(id) : undefined;
+    if (!person) throw new ApiNotFoundError(`Person '${slug}' not found`);
+    return person;
+  }
+
   /**
-   * Record the caller's verdict as `person-evaluations/<slug>/human-<caller>`
-   * and apply the lifecycle side effect: spam → deactivate; legit → reactivate
-   * only when the previous latest human vote was spam (a self-deactivation is
-   * never undone by a vote). One record per voter; re-voting replaces it.
+   * The agent behind `session`, re-checked inside the write mutex: a grant
+   * revoked since the request began stops here.
+   */
+  #agentOf(session: SessionContext): Person {
+    const agent = session.person;
+    const grant = session.agent ? this.#state.agentGrants.get(session.agent.grantId) : undefined;
+    if (!agent || !grant || !isGrantActive(grant)) throw new ApiNotFoundError('Not found');
+    return agent;
+  }
+
+  /**
+   * Record the caller's verdict as `person-evaluations/<slug>/<evaluator>`
+   * and apply the lifecycle side effect: spam → deactivate; legit →
+   * reactivate only when the previous latest vote on the account (human or
+   * agent) was spam (a self-deactivation is never undone by a vote). One
+   * record per voter; re-voting replaces it.
+   *
+   * Staff votes are `human-<slug>`, final. An agent session's votes are
+   * `agent-<slug>`, staged, and fenced by the agent vote rules, checked here
+   * inside the write mutex.
    */
   async castVote(
     tx: DualStoreTx,
@@ -579,36 +749,43 @@ export class ModerationWriteService {
   ): Promise<{ person: Person; vote: PersonEvaluation; stateApply: StateApply }> {
     const voter = session.person;
     if (!voter) throw new ApiNotFoundError(`Person '${slug}' not found`);
+    if (session.agent) this.#agentOf(session);
 
-    const id = this.#state.personIdBySlug.get(slug);
-    const existing = id ? this.#state.people.get(id) : undefined;
-    if (!existing) throw new ApiNotFoundError(`Person '${slug}' not found`);
+    const existing = this.#personOr404(slug);
     if (existing.id === voter.id) {
       throw new ApiValidationError('You cannot vote on your own account', { slug: 'self' });
+    }
+    if (isAgentAccount(this.#state, existing.slug)) {
+      throw new ApiValidationError('Nobody votes on an agent account', { slug: 'agent' });
     }
     if (input.reasoning !== undefined && input.reasoning.length > 1000) {
       throw new ApiValidationError('Reasoning is too long', { reasoning: 'max 1000 characters' });
     }
 
-    const previousLatest = latestHumanVerdict(this.#state, slug);
     const now = nowIso();
-    const vote: PersonEvaluation = PersonEvaluationSchema.parse({
-      personSlug: slug,
-      evaluator: humanEvaluatorFor(voter.slug),
-      verdict: input.verdict,
-      confidence: 1,
-      flags: ['manual-override'],
-      ...(input.reasoning && input.reasoning.trim() !== '' ? { reasoning: input.reasoning.trim() } : {}),
-      evaluatedAt: now,
-    });
+    let vote: PersonEvaluation;
+    if (session.agent) {
+      vote = this.#agentVote(voter, existing, input, now);
+    } else {
+      vote = PersonEvaluationSchema.parse({
+        personSlug: slug,
+        evaluator: humanEvaluatorFor(voter.slug),
+        verdict: input.verdict,
+        confidence: 1,
+        flags: ['manual-override'],
+        ...(input.reasoning && input.reasoning.trim() !== '' ? { reasoning: input.reasoning.trim() } : {}),
+        evaluatedAt: now,
+      });
+    }
 
+    const previousWasSpam = latestVoteWasSpam(this.#state, existing);
     await tx.public['person-evaluations'].upsert(vote);
     const stateApply = new StateApply().upsertPersonEvaluation(vote);
 
     let person = existing;
     if (input.verdict === 'spam' && !existing.deletedAt) {
       person = PersonSchema.parse({ ...existing, deletedAt: now, updatedAt: now });
-    } else if (input.verdict === 'legit' && existing.deletedAt && previousLatest === 'spam') {
+    } else if (input.verdict === 'legit' && existing.deletedAt && previousWasSpam) {
       person = PersonSchema.parse({ ...existing, deletedAt: null, updatedAt: now });
     }
     if (person !== existing) {
@@ -618,16 +795,148 @@ export class ModerationWriteService {
 
     return { person, vote, stateApply };
   }
-}
 
-function latestHumanVerdict(state: InMemoryState, personSlug: string): PersonEvaluation['verdict'] | null {
-  const keys = state.evaluationsByPerson.get(personSlug);
-  if (!keys) return null;
-  let latest: PersonEvaluation | null = null;
-  for (const key of keys) {
-    const rec = state.personEvaluations.get(key);
-    if (!rec || !isHumanEvaluator(rec.evaluator)) continue;
-    if (!latest || rec.evaluatedAt > latest.evaluatedAt) latest = rec;
+  /** The agent vote rules (moderation.md → Agent votes, 1–4) and the record. */
+  #agentVote(agent: Person, target: Person, input: CastVoteInput, now: string): PersonEvaluation {
+    const reasoning = input.reasoning?.trim() ?? '';
+    if (reasoning.length < 1 || reasoning.length > 1000) {
+      throw new ApiValidationError('An agent must say why (1–1000 characters)', { reasoning: 'required, 1–1000 characters' });
+    }
+    // Committed for good: no URL in any form, no control characters.
+    const problem = agentTextProblem(input.reasoning ?? '');
+    if (problem) throw new ApiValidationError(`Reasoning ${problem}`, { reasoning: problem });
+    const flags = validateFlags(input.flags);
+
+    // 1. Humans are final.
+    if (hasHumanVote(this.#state, target)) {
+      throw new ConflictError('A person has already voted on this member', 'human_verdict_exists');
+    }
+    // 2. Only ordinary members.
+    if (target.accountLevel !== 'user') {
+      throw new ConflictError('Only ordinary members can be voted on by an agent', 'protected_account');
+    }
+    if (input.verdict === 'spam') {
+      // 3. Only new members, for spam.
+      if (Date.parse(now) - Date.parse(target.createdAt) > AGENT_SPAM_VOTE_MAX_AGE_DAYS * DAY_MS) {
+        throw new ConflictError(
+          `A spam vote needs a member who joined in the last ${AGENT_SPAM_VOTE_MAX_AGE_DAYS} days`,
+          'member_too_old',
+        );
+      }
+      // 4. Volume: 20 spam votes in any rolling 24 hours, from its own records.
+      const recent = this.#agentSpamVoteTimes(agent.slug, Date.parse(now));
+      if (recent.length >= AGENT_SPAM_VOTES_PER_DAY) {
+        const frees = recent[recent.length - AGENT_SPAM_VOTES_PER_DAY]! + DAY_MS;
+        throw new RateLimitedError(Math.max(1, Math.ceil((frees - Date.parse(now)) / 1000)));
+      }
+    }
+
+    return PersonEvaluationSchema.parse({
+      personSlug: target.slug,
+      evaluator: agentEvaluatorFor(agent.slug),
+      verdict: input.verdict,
+      flags: ['agent', ...flags.filter((f) => f !== 'agent')],
+      reasoning,
+      evaluatedAt: now,
+    });
   }
-  return latest?.verdict ?? null;
+
+  /** `evaluatedAt` (ms) of the agent's spam votes in the last 24 hours, oldest first. */
+  #agentSpamVoteTimes(agentSlug: string, now: number): number[] {
+    const evaluator = agentEvaluatorFor(agentSlug);
+    const times: number[] = [];
+    for (const rec of this.#state.personEvaluations.values()) {
+      if (rec.evaluator !== evaluator || rec.verdict !== 'spam' || rec.flags.includes('purged')) continue;
+      const at = Date.parse(rec.evaluatedAt);
+      if (now - at < DAY_MS) times.push(at);
+    }
+    return times.sort((a, b) => a - b);
+  }
+
+  /**
+   * `DELETE /api/admin/members/:slug/vote` — the calling agent takes back
+   * its own vote. Refused once a human has voted (the agent's vote is then
+   * history). If it was the latest vote, it was `spam`, and no other agent's
+   * `spam` vote remains, the member is reactivated.
+   */
+  async withdrawVote(
+    tx: DualStoreTx,
+    slug: string,
+    session: SessionContext,
+  ): Promise<{ person: Person; stateApply: StateApply }> {
+    const agent = this.#agentOf(session);
+    const existing = this.#personOr404(slug);
+    const evaluator = agentEvaluatorFor(agent.slug);
+    const mine = agentVotesOnAccount(this.#state, existing).find((v) => v.evaluator === evaluator);
+    if (!mine) throw new ApiNotFoundError(`No vote by ${agent.slug} on '${slug}'`);
+    if (hasHumanVote(this.#state, existing)) {
+      throw new ConflictError('A person has voted on this member; the agent vote is the record', 'human_verdict_exists');
+    }
+    return this.#removeAgentVotes(tx, existing, [mine], new StateApply());
+  }
+
+  /**
+   * Delete `votes` (agent votes on `person`'s account) and apply the reversal
+   * rule: reactivate when the latest vote was one of them and `spam`, and no
+   * other agent's `spam` vote remains.
+   */
+  async #removeAgentVotes(
+    tx: DualStoreTx,
+    existing: Person,
+    votes: readonly PersonEvaluation[],
+    stateApply: StateApply,
+  ): Promise<{ person: Person; stateApply: StateApply; reactivated: boolean }> {
+    const all = votesOnAccount(this.#state, existing).filter((v) => evaluatorKind(v.evaluator) !== 'machine');
+    const latest = newestVote(all);
+    const removing = new Set(votes.map((v) => v.evaluator));
+    for (const v of votes) {
+      await tx.public['person-evaluations'].delete(v);
+      stateApply.removePersonEvaluation(v);
+    }
+    const otherSpam = all.some(
+      (v) => !removing.has(v.evaluator) && evaluatorKind(v.evaluator) === 'agent' && v.verdict === 'spam',
+    );
+    let person = existing;
+    if (
+      existing.deletedAt &&
+      latest !== null &&
+      removing.has(latest.evaluator) &&
+      latest.verdict === 'spam' &&
+      !otherSpam
+    ) {
+      const now = nowIso();
+      person = PersonSchema.parse({ ...existing, deletedAt: null, updatedAt: now });
+      await tx.public.people.upsert(person);
+      stateApply.upsertPerson(person);
+    }
+    return { person, stateApply, reactivated: person !== existing };
+  }
+
+  /**
+   * `POST /api/admin/agents/:slug/withdraw-votes` — delete every vote agent
+   * `agentSlug` cast (newer than `since`) on a person with no human vote,
+   * reactivating each person its vote hid. Votes on people a human has since
+   * voted on, and on people who no longer exist (or on an earlier account
+   * under a slug), are left as the record. One commit.
+   */
+  async withdrawAll(
+    tx: DualStoreTx,
+    agentSlug: string,
+    since: string | null,
+    stateApply: StateApply = new StateApply(),
+  ): Promise<{ withdrawn: number; reactivated: number; stateApply: StateApply }> {
+    const evaluator = agentEvaluatorFor(agentSlug);
+    let withdrawn = 0;
+    let reactivated = 0;
+    for (const person of [...this.#state.people.values()]) {
+      const mine = agentVotesOnAccount(this.#state, person).find((v) => v.evaluator === evaluator);
+      if (!mine) continue;
+      if (since && Date.parse(mine.evaluatedAt) < Date.parse(since)) continue;
+      if (hasHumanVote(this.#state, person)) continue;
+      const result = await this.#removeAgentVotes(tx, person, [mine], stateApply);
+      withdrawn++;
+      if (result.reactivated) reactivated++;
+    }
+    return { withdrawn, reactivated, stateApply };
+  }
 }

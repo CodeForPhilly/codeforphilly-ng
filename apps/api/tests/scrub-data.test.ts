@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildSlugMap,
   rewriteMentions,
+  rewritePersonReferences,
   scrubPersonRecord,
   scrubProjectRecord,
   scrubRepo,
@@ -144,6 +145,22 @@ describe('buildSlugMap', () => {
 // ---------------------------------------------------------------------------
 // Unit tests: rewriteMentions
 // ---------------------------------------------------------------------------
+
+describe('rewritePersonReferences', () => {
+  const map = new Map([['jane-admin', 'pseudo-a'], ['reborn', 'pseudo-b']]);
+
+  it('pseudonymizes the person slugs agent grants and spam purges hold', () => {
+    expect(rewritePersonReferences('agent-grants', { personSlug: 'jane-admin', createdBySlug: 'jane-admin' }, map)).toEqual({
+      personSlug: 'pseudo-a',
+      createdBySlug: 'pseudo-a',
+    });
+    // A purged slug that nobody holds now stays as it is; one re-taken since is a real person's.
+    expect(
+      rewritePersonReferences('spam-purges', { personSlug: 'reborn', unblockedBySlug: 'jane-admin', by: 'human-x' }, map),
+    ).toEqual({ personSlug: 'pseudo-b', unblockedBySlug: 'pseudo-a', by: 'human-x' });
+    expect(rewritePersonReferences('spam-purges', { personSlug: 'long-gone' }, map)).toEqual({ personSlug: 'long-gone' });
+  });
+});
 
 describe('rewriteMentions', () => {
   it('rewrites @slug in text to pseudo-slug', () => {

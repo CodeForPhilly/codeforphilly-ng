@@ -55,6 +55,17 @@ function touchedByOthers(state: InMemoryState, project: Project, batch: Batch): 
   return false;
 }
 
+/** Projects someone in `people` created (the field, else the maintainer for older records). */
+export function projectsCreatedBy(state: InMemoryState, people: readonly Person[]): Project[] {
+  const batch = batchOf(people);
+  return [...state.projects.values()].filter((p) => createdBy(p, batch));
+}
+
+/** Whether anyone outside `people` has a record on `project`. */
+export function isTouchedByOthers(state: InMemoryState, project: Project, people: readonly Person[]): boolean {
+  return touchedByOthers(state, project, batchOf(people));
+}
+
 /** Live or soft-deleted projects a purge of `people` deletes, by title. */
 export function purgeableProjects(state: InMemoryState, people: readonly Person[]): Project[] {
   const batch = batchOf(people);

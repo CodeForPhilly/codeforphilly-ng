@@ -777,3 +777,141 @@ describe('Anti-PII commit trailers', () => {
     expect(log.stdout).not.toContain('pii-test@private-domain.example');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Agent accounts are never claimed (specs/behaviors/account-migration.md,
+// specs/api/agents.md → The agent account)
+// ---------------------------------------------------------------------------
+
+describe('an agent account is never a claim candidate', () => {
+  let dataRepo: { path: string; cleanup: () => Promise<void> };
+  let privateStore: { path: string; cleanup: () => Promise<void> };
+  let app: FastifyInstance;
+  const agentId = '01951a3c-0000-7000-8000-0000abab0001';
+  const staffId = '01951a3c-0000-7000-8000-0000abab0002';
+  const freshId = '01951a3c-0000-7000-8000-0000abab0003';
+  const grantId = '01951a3c-0000-7000-8000-0000abab0004';
+
+  beforeAll(async () => {
+    dataRepo = await createFullDataRepo();
+    privateStore = await createPrivateStorageDir();
+    await seedPerson(dataRepo.path, 'helper-bot', agentId);
+    // Its only grant has been revoked: still an agent account.
+    await seedRawToml(
+      dataRepo.path,
+      `agent-grants/helper-bot/${grantId}.toml`,
+      [
+        `id = "${grantId}"`,
+        `personSlug = "helper-bot"`,
+        `label = "test host"`,
+        `scopes = ["moderation:read"]`,
+        `createdAt = "2026-05-01T00:00:00Z"`,
+        `createdBySlug = "staff3"`,
+        `expiresAt = "2026-08-01T00:00:00Z"`,
+        `revokedAt = "2026-05-02T00:00:00Z"`,
+      ].join('\n'),
+      'seed agent grant',
+    );
+    await seedPerson(dataRepo.path, 'staff3', staffId, {
+      accountLevel: 'staff',
+      githubUserId: 9101,
+      githubLogin: 'staff3',
+      githubLinkedAt: '2026-04-01T00:00:00Z',
+    });
+    await seedPrivateProfile(privateStore.path, staffId, 'staff3@example.com');
+    await seedPerson(dataRepo.path, 'fresh-three', freshId, {
+      githubUserId: 9102,
+      githubLogin: 'fresh-three',
+      githubLinkedAt: '2026-05-15T00:00:00Z',
+    });
+    await seedPrivateProfile(privateStore.path, freshId, 'fresh-three@example.com');
+    app = await buildTestApp(dataRepo.path, privateStore.path);
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await dataRepo.cleanup();
+    await privateStore.cleanup();
+  });
+
+  it('a GitHub login equal to its slug is not matched to it', async () => {
+    const { resolveIdentity } = await import('../src/services/account-matching.js');
+    const result = await resolveIdentity(
+      { id: 9200, login: 'helper-bot', name: null, emails: [], primaryEmail: null },
+      app.inMemoryState,
+      app.store.private,
+    );
+    expect(result).toEqual({ kind: 'create-fresh' });
+  });
+
+  it('is dropped from a claim token that names it', async () => {
+    const token = await mintClaim('9201', 'helper-bot', ['someone@example.com'], [agentId]);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/account-claim/candidates',
+      remoteAddress: nextTestIp(),
+      cookies: { cfp_claim: token },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { data: { candidates: unknown[] } }).data.candidates).toEqual([]);
+  });
+
+  it('is not found by the post-sign-up search', async () => {
+    const { access } = await issueSession(freshId, 'user', JWT_KEY);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/account-claim/legacy?q=helper-bot',
+      remoteAddress: nextTestIp(),
+      cookies: { cfp_session: access },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { data: { candidates: unknown[] } }).data.candidates).toEqual([]);
+  });
+
+  it('staff cannot approve a claim on it, pre- or post-onboarding (409 agent_account)', async () => {
+    const { access: staffAccess } = await issueSession(staffId, 'staff', JWT_KEY);
+    const claimToken = await mintClaim('9203', 'helper-bot', ['claimer@example.com'], []);
+    const pre = await app.inject({
+      method: 'POST',
+      url: '/api/account-claim/request-staff-review',
+      remoteAddress: nextTestIp(),
+      cookies: { cfp_claim: claimToken },
+      payload: { claimedSlug: 'helper-bot', evidence: 'It is my bot.' },
+    });
+    expect(pre.statusCode).toBe(202);
+    const { access: freshAccess } = await issueSession(freshId, 'user', JWT_KEY);
+    const post = await app.inject({
+      method: 'POST',
+      url: '/api/account-claim/legacy/request',
+      remoteAddress: nextTestIp(),
+      cookies: { cfp_session: freshAccess },
+      payload: { claimedSlug: 'helper-bot', evidence: 'It is my bot.' },
+    });
+    expect(post.statusCode, post.body).toBeLessThan(300);
+
+    const queue = await app.inject({
+      method: 'GET',
+      url: '/api/staff/account-claim/queue',
+      remoteAddress: nextTestIp(),
+      cookies: { cfp_session: staffAccess },
+    });
+    const ids = (queue.json() as { data: Array<{ requestId: string; claimedSlug: string }> }).data
+      .filter((r) => r.claimedSlug === 'helper-bot')
+      .map((r) => r.requestId);
+    expect(ids).toHaveLength(2);
+    for (const requestId of ids) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/staff/account-claim/${requestId}/approve`,
+        remoteAddress: nextTestIp(),
+        cookies: { cfp_session: staffAccess },
+        payload: { reason: 'looks fine' },
+      });
+      expect(res.statusCode, res.body).toBe(409);
+      expect((res.json() as { error: { code: string } }).error.code).toBe('agent_account');
+    }
+    const agent = app.inMemoryState.people.get(agentId);
+    expect(agent?.githubUserId).toBeUndefined();
+    expect(app.inMemoryState.people.get(freshId)).toBeDefined();
+  });
+});

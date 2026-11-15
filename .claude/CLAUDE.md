@@ -9,8 +9,8 @@ These auto-trigger by topic — you don't load them manually. Mentioned here so 
 | Skill | Triggers on | What it covers |
 | --- | --- | --- |
 | [`specops`](./skills/specops/SKILL.md) | `specs/`, `plans/`, "spec", "closeout commit", new features | Spec-driven workflow (specs are source of truth), plans-as-micro-DAG protocol, closeout commit ritual, follow-ups taxonomy, spec-drift auditor |
-| [`backend-fastify`](./skills/backend-fastify/SKILL.md) | New routes, services, plugins, env vars | Fastify 5 patterns, plugin ordering, `@fastify/env` validation, error handling |
-| [`frontend-shadcn`](./skills/frontend-shadcn/SKILL.md) | New screens, components, routing, styling | Vite + React 19 + shadcn/ui + Tailwind v4 + React Router v7 patterns |
+| [`jarvus-fastify`](./skills/jarvus-fastify/SKILL.md) | New routes, services, plugins, env vars | Fastify 5 patterns, plugin ordering, `@fastify/env` validation, error handling |
+| [`jarvus-react`](./skills/jarvus-react/SKILL.md) | New screens, components, routing, styling | Vite + React 19 + shadcn/ui + Tailwind v4 + React Router v7 patterns |
 
 Skills are version-pinned via `skills-lock.json`. To update: `npx skills update`.
 
@@ -143,7 +143,7 @@ GitOps. Releases publish a Docker image to GHCR; two cluster repos — [`cfp-san
 
 Typical change flow:
 
-1. **Merge to `develop`** — CI builds + tests; pushing `develop` opens/updates a `Release: vX.Y.Z` PR into `main` (see `docs/operations/releases.md` and the `release-flow` skill).
+1. **Merge to `develop`** — CI builds + tests; pushing `develop` opens/updates a `Release: vX.Y.Z` PR into `main` (see `docs/operations/releases.md` and the `jarvus-release-flow` skill).
 2. **Publish image** — merging the Release PR tags `vX.Y.Z`; `container-publish.yml` builds and pushes `ghcr.io/codeforphilly/codeforphilly-ng:vX.Y.Z` (+ `:latest`). No manual `docker push`.
 3. **GitOps pickup** — in the cluster repo, bump `.holo/sources/codeforphilly-ng.toml` (`ref = "refs/tags/vX.Y.Z"`) and `images[].newTag` in `codeforphilly-ng/app/kustomization.yaml` together; merge to `main`; "Build k8s-manifests" projects to `releases/k8s-manifests`; a bot PR into `deploys/k8s-manifests` applies on merge. Sandbox first, then live.
 4. **Pod boot** — single replica, `Recreate` strategy. Container entrypoint bare-clones the data repo on every pod start (the data volume is `emptyDir`, so first boot = every fresh pod). Node boots: env → store load → **reconcile** (ff/replay/escape-hatch against `origin/<CFP_DATA_BRANCH>`) → **push daemon** → routes → SPA. `/api/health/ready` returns 200 once stores are loaded *and* reconciled.

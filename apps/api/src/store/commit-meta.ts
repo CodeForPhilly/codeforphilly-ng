@@ -37,6 +37,12 @@ export interface CommitContext {
   readonly extraTrailers?: Readonly<Record<string, string>>;
   /** Optional override for the human summary in the commit body. */
   readonly summary?: string;
+  /**
+   * The session the write is made as, when it is not `request.session` — an
+   * agent's writes are made as `agentSessionContext(request.agent)`, since
+   * `request.session` is anonymous for a grant.
+   */
+  readonly session?: SessionContext;
 }
 
 /**
@@ -45,7 +51,7 @@ export interface CommitContext {
  */
 export function buildTransactionOptions(ctx: CommitContext): TransactionOptions {
   const { request, action, subjectType, subjectId, subjectSlug, responseCode, summary } = ctx;
-  const session = request.session;
+  const session = ctx.session ?? request.session;
   const author = pseudonymousAuthor(session);
   const actorSlug = session.person?.slug ?? 'anon';
 
@@ -67,6 +73,13 @@ export function buildTransactionOptions(ctx: CommitContext): TransactionOptions 
     'Response-Message': STATUS_CODES[responseCode] ?? 'Unknown',
   };
 
+  // An agent grant's writes say so, and which grant (never the token):
+  // specs/behaviors/storage.md → Commit message shape.
+  if (session.agent) {
+    trailers['Actor-Kind'] = 'agent';
+    trailers['Grant-Id'] = session.agent.grantId;
+  }
+
   if (subjectType) trailers['Subject-Type'] = subjectType;
   if (subjectId) trailers['Subject-Id'] = subjectId;
   if (subjectSlug) trailers['Subject-Slug'] = subjectSlug;
@@ -78,4 +91,23 @@ export function buildTransactionOptions(ctx: CommitContext): TransactionOptions 
   }
 
   return { author, committer: author, message, trailers };
+}
+
+/**
+ * Move every trailer into the message itself, with `repeated` trailers (one
+ * key, several values — e.g. one `Evidence:` per cited record) after them.
+ * gitsheets takes trailers as a map, one value per key, and appends them as
+ * their own paragraph; a commit that needs a repeated key carries the whole
+ * trailer block in the message and passes no map, so `git interpret-trailers`
+ * still parses one block.
+ */
+export function withInlineTrailers(
+  opts: TransactionOptions,
+  repeated: ReadonlyArray<readonly [string, string]>,
+): TransactionOptions {
+  const lines = [...Object.entries(opts.trailers ?? {}), ...repeated].map(([k, v]) => {
+    if (/[\r\n]/.test(v)) throw new Error(`trailer ${k} has a newline`);
+    return `${k}: ${v}`;
+  });
+  return { ...opts, message: `${opts.message.replace(/\s+$/, '')}\n\n${lines.join('\n')}\n`, trailers: {} };
 }

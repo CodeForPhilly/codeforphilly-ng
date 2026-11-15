@@ -78,6 +78,14 @@ async function seedReferencingRecords(): Promise<void> {
       flags: [], evaluatedAt: NOW,
     });
 
+    // A person holding a grant is an agent account, which is never renamed
+    // (specs/api/agents.md), so the renamed fixture holds none; another
+    // person's grant must be left alone.
+    await tx.sheet('agent-grants').upsert({
+      id: '01951a3c-0000-7000-8000-0000000000e7', personSlug: 'other-person', label: 'test grant',
+      scopes: ['moderation:read'], createdAt: NOW, createdBySlug: 'other-person', expiresAt: '2026-08-13T18:42:00Z',
+    });
+
     // A buzz image: an attachment of the buzz record, keyed under its path.
     const buzzSheet = tx.sheet('project-buzz');
     const [buzz] = (await buzzSheet.queryAll()) as Array<Record<string, unknown>>;
@@ -134,6 +142,7 @@ function inMemory(state: InMemoryState, sheet: ContractSheet): Rec[] {
     'help-wanted-interest': state.helpWantedInterest,
     'event-rsvps': state.eventRsvps,
     'person-evaluations': state.personEvaluations,
+    'agent-grants': state.agentGrants,
   };
   const map = maps[sheet];
   if (!map) throw new Error(`test has no in-memory view of ${sheet}`);
@@ -192,6 +201,9 @@ async function rename(target: string, oldSlug: string, newSlug: string): Promise
   expect(res.statusCode, res.body).toBe(200);
 }
 
+/** References whose target is never renamed while they exist: an agent account (one with grants). */
+const NEVER_RENAMED_HOLDERS = new Set(['people:agent-grants.personSlug']);
+
 describe('rename cascade', () => {
   it('every declared reference targets a renameable sheet the cascade can walk', () => {
     expect(SHEET_REFERENCES.length).toBeGreaterThan(0);
@@ -209,7 +221,9 @@ describe('rename cascade', () => {
 
     const before = await referenceCounts(target, oldSlug);
     for (const [ref, counts] of before) {
-      // The fixture must exercise every referencing sheet.
+      // The fixture must exercise every referencing sheet, but for references
+      // whose holder is never renamed (an agent account's grants).
+      if (NEVER_RENAMED_HOLDERS.has(`${target}:${ref}`)) continue;
       expect(counts.disk, `fixture has no ${ref} referencing ${target}/${oldSlug}`).toBeGreaterThan(0);
       expect(counts.memory, ref).toBe(counts.disk);
     }

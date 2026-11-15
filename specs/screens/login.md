@@ -63,6 +63,7 @@ When `?error=<code>` is present (from the OAuth callback or the password-login r
 | `github_unreachable` | "We couldn't reach GitHub. Please try again in a moment." |
 | `email_unverified` | "Your GitHub account doesn't have a verified email address visible to us. To sign in here, please [verify a primary email on GitHub](https://github.com/settings/emails) and ensure email visibility is enabled for our app." |
 | `invalid_credentials` | "The username or password you entered is incorrect." (rendered inline in the password form, not as a top-banner) |
+| `signup_blocked` | "An account for this GitHub user was removed for spam, so it can't sign up again. If you think that's a mistake, email <accounts@codeforphilly.org>." ([api/auth.md](../api/auth.md#get-apiauthgithubcallback)) |
 
 ## Actions
 

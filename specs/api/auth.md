@@ -85,6 +85,10 @@ Handles the OAuth callback after the user authorizes (or denies) on GitHub.
    - **b) New Person needed, no legacy match.** Create a fresh `Person` + `PrivateProfile`, link the GitHub identity, issue session, redirect.
    - **c) Legacy candidate(s) found.** Issue a short-lived **claim-pending JWT** (5 minutes, scope `claim`) and redirect to `/account-claim?candidates=...`. The user confirms or declines, finalizing identity via [api/account-claim.md](account-claim.md).
 
+   **Purged as spam.** Before (b) or (c): if no live Person holds `gh.id` and a [`spam-purges`](../data-model.md#spampurge) record with `githubUserId = gh.id` has `blocksSignIn = true` and no `unblockedAt`, nothing is written and the user is redirected to `/login?error=signup_blocked`. Case (a) is never blocked: a live Person with that id is a member staff restored ([person-lifecycle.md → Restoring a purged member](../behaviors/person-lifecycle.md#restoring-a-purged-member)). The check is an in-memory index lookup (`spamPurgesByGithubUserId`), so it adds no latency.
+
+   Without this, a purged account signs straight back in: the purge deleted the Person, so step 6 finds no `githubUserId` match, no email match (the private profile went with it) and no username match (no Person holds the slug any more), and creates a fresh Person — whose slug, derived from the GitHub login, is the one the purge freed.
+
 ### Response
 
 In every successful case the user is redirected to either `return` (validated same-origin) or `/account-claim`. The redirect carries `Set-Cookie` headers for the session JWTs (cases a, b) or for the claim-pending JWT (case c).
@@ -95,6 +99,7 @@ In every successful case the user is redirected to either `return` (validated sa
 - `401 unauthenticated` with code `oauth_session_invalid` — signed-session cookie tampered/expired
 - `502 bad_gateway` with code `github_unreachable` — GitHub API call failed; user redirected to `/login?error=github_unreachable`
 - `403 forbidden` with code `email_unverified` — GitHub returned no verified email (user has email visibility off AND no verified primary); user redirected to `/login?error=email_unverified` with a help message about GitHub email visibility
+- `403 forbidden` with code `signup_blocked` — this GitHub account was purged as spam and staff have not unblocked it; user redirected to `/login?error=signup_blocked`
 
 ## POST /api/auth/login
 
@@ -201,7 +206,7 @@ Empty body. The flow is purely redirect-driven.
 ### Behavior
 
 1. The route sets a short-lived signed cookie (`cfp_oauth_session`) with `mode = 'link'` and the current `personId`, then redirects to GitHub OAuth (same `?return=...` mechanics as `/api/auth/github/start`).
-2. The callback verifies the OAuth result. If `Person.githubUserId` is already set on the linking Person: `409 github_already_linked`. If the GitHub `id` is bound to a *different* Person: `409 github_id_in_use_elsewhere` (resolved by admin merge, not self-service).
+2. The callback verifies the OAuth result. If `Person.githubUserId` is already set on the linking Person: `409 github_already_linked`. If the GitHub `id` is bound to a *different* Person: `409 github_id_in_use_elsewhere` (resolved by admin merge, not self-service). If a `spam-purges` record blocks the GitHub `id` (as in the callback's "Purged as spam" check): `403 github_blocked`.
 3. Otherwise: set `Person.githubUserId = gh.id`, `Person.githubLogin = gh.login`, `Person.githubLinkedAt = now`. Refresh `PrivateProfile.email` to the GitHub primary verified email **only if the user consents** at the link-confirmation screen (toggle defaults to "keep current email").
 4. Redirect to `?return` or `/account`.
 
@@ -213,6 +218,7 @@ Empty body. The flow is purely redirect-driven.
 
 - `github_already_linked` — caller already has a GitHub link
 - `github_id_in_use_elsewhere` — another Person already owns this `gh.id`
+- `github_blocked` — this GitHub account was purged as spam and is blocked
 - `oauth_state_mismatch`, `oauth_session_invalid`, `github_unreachable` — same as `/api/auth/github/start`
 
 ## GET /api/auth/me

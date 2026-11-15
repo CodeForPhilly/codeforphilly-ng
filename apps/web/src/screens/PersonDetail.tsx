@@ -3,6 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -44,6 +47,20 @@ export function PersonDetail() {
     enabled: confirmPurgeOpen,
   });
   const purgeProjects = purgePreviewQ.data?.data.projects ?? [];
+
+  // "This was spam" (specs/api/people.md → purge): checked by default when the
+  // person has a spam vote on their current account, so an erase-me request
+  // never lands on the sign-up block list by default. Read from the roster
+  // detail, which an administrator (staff) can always see.
+  const moderationQ = useQuery({
+    queryKey: ['admin-member', slug],
+    queryFn: () => api.admin.member(slug),
+    enabled: confirmPurgeOpen,
+  });
+  const hasSpamVote = (moderationQ.data?.data.votes ?? []).some((v) => v.verdict === 'spam');
+  const [spamChoice, setSpamChoice] = useState<boolean | null>(null);
+  const markSpam = spamChoice ?? hasSpamVote;
+  const [spamReason, setSpamReason] = useState('');
 
   if (personQ.isLoading) {
     return <div className="container mx-auto px-4 py-12 text-muted-foreground">Loading member…</div>;
@@ -97,7 +114,7 @@ export function PersonDetail() {
   const handlePurge = async () => {
     setActionPending(true);
     try {
-      await api.people.purge(person.slug);
+      await api.people.purge(person.slug, markSpam ? { spam: true, reason: spamReason.trim() || undefined } : {});
       toast.success(`${person.fullName} and all their content have been permanently purged.`);
       void navigate('/members', { replace: true });
     } catch (err) {
@@ -351,6 +368,36 @@ export function PersonDetail() {
                           </>
                         ) : (
                           <p className="text-muted-foreground">No projects will be deleted.</p>
+                        )}
+                      </div>
+                      <div className="space-y-2 text-sm" data-testid="purge-spam">
+                        <label className="flex items-start gap-2">
+                          <Checkbox
+                            checked={markSpam}
+                            onCheckedChange={(v) => setSpamChoice(v === true)}
+                            disabled={moderationQ.isLoading}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            This was spam: block this GitHub account from signing up again
+                            <span className="block text-xs text-muted-foreground">
+                              Leave unchecked when a member asked to be erased. Staff can unblock it from the purge log.
+                            </span>
+                          </span>
+                        </label>
+                        {markSpam && (
+                          <div className="space-y-1">
+                            <Label htmlFor="purge-reason" className="text-xs">
+                              Why (optional, public; no links)
+                            </Label>
+                            <Textarea
+                              id="purge-reason"
+                              value={spamReason}
+                              onChange={(e) => setSpamReason(e.target.value)}
+                              maxLength={1000}
+                              rows={2}
+                            />
+                          </div>
                         )}
                       </div>
                       <DialogFooter>

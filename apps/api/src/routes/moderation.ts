@@ -1,27 +1,28 @@
 /**
  * Moderation API — specs/api/moderation.md.
  *
- *   GET  /api/admin/members             — staff roster, newest signup first
- *   GET  /api/admin/members/:slug       — one member's footprint + human votes
- *   POST /api/admin/members/:slug/vote  — record the caller's spam/legit verdict
+ *   GET    /api/admin/members             — staff | agent:moderation:read
+ *   GET    /api/admin/members/:slug       — staff | agent:moderation:read
+ *   POST   /api/admin/members/:slug/vote  — staff | agent:moderation:vote
+ *   DELETE /api/admin/members/:slug/vote  — agent:moderation:vote
+ *   POST   /api/admin/members/:slug/purge — agent:moderation:purge
+ *   GET    /api/admin/spam-purges         — staff | agent:moderation:read
+ *   POST   /api/admin/spam-purges/:id/unblock — staff
  *
- * Every route is staff/admin only and answers 404 to anyone else: like the
- * other staff surfaces, the endpoints' existence is not a signal.
+ * Anyone else gets 404: like the other staff surfaces, the endpoints'
+ * existence is not a signal. An agent reads the roster without emails and
+ * its votes are staged (moderation.md → Agent callers, Agent votes).
  */
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
+import { uuidv7 } from 'uuidv7';
 import { ok, paginated } from '../lib/response.js';
 import { ApiNotFoundError, ApiValidationError } from '../lib/errors.js';
 import { getCallerSession } from '../services/permissions.js';
-import { buildTransactionOptions } from '../store/commit-meta.js';
+import { buildTransactionOptions, withInlineTrailers } from '../store/commit-meta.js';
+import { evidenceTrailer, validatePurgeBody, type AgentPurgeInput } from '../services/agent-purge.js';
+import { agentCaller, moderationCaller, staffCaller } from '../auth/caller.js';
 import type { MemberOrigin, VoteFilter } from '../services/moderation.js';
 import { findOrphanPrivateData, purgeOrphanPrivateData } from '../services/private-orphans.js';
-
-function requireStaffOr404(request: FastifyRequest): void {
-  const level = request.session.accountLevel;
-  if (level !== 'staff' && level !== 'administrator') {
-    throw new ApiNotFoundError('Not found');
-  }
-}
 
 export async function moderationRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
@@ -34,7 +35,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
           type: 'object',
           properties: {
             q: { type: 'string' },
-            vote: { type: 'string', enum: ['none', 'spam', 'legit'] },
+            vote: { type: 'string', enum: ['none', 'staged', 'spam', 'legit'] },
             origin: { type: 'string', enum: ['imported', 'signed-up'] },
             joinedAfter: { type: 'string' },
             joinedBefore: { type: 'string' },
@@ -48,7 +49,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
       },
     },
     async (request) => {
-      requireStaffOr404(request);
+      const caller = moderationCaller(request, 'moderation:read');
       const q = request.query as Record<string, unknown>;
       const result = await fastify.services.moderation.listMembers({
         q: q['q'] as string | undefined,
@@ -60,6 +61,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
         sort: q['sort'] as string | undefined,
         page: q['page'] as number | undefined,
         perPage: q['perPage'] as number | undefined,
+        viewer: caller.kind,
       });
       if ('error' in result) {
         throw new ApiValidationError('Unknown sort key', { sort: 'unknown sort key' });
@@ -78,21 +80,28 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
     {
       schema: {
         tags: ['moderation'],
-        summary: "One member's footprint on the site and every human vote",
+        summary: "One member's footprint on the site and every vote on record",
         params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
       },
     },
     async (request) => {
-      requireStaffOr404(request);
+      const caller = moderationCaller(request, 'moderation:read');
       const { slug } = request.params as { slug: string };
-      const caller = getCallerSession(request);
-      const person = await fastify.services.people.get(slug, caller);
-      const footprint = fastify.services.moderation.footprint(slug);
-      if (!person || !footprint) throw new ApiNotFoundError(`Person '${slug}' not found`);
+      const moderation = fastify.services.moderation;
+      const person =
+        caller.kind === 'agent'
+          ? await fastify.services.people.get(slug, undefined, { moderationReader: true })
+          : await fastify.services.people.get(slug, getCallerSession(request));
+      const footprint = moderation.footprint(slug);
+      const row = await moderation.memberRow(slug, caller.kind);
+      if (!person || !footprint || !row) throw new ApiNotFoundError(`Person '${slug}' not found`);
       return ok({
+        ...row,
         person,
         footprint,
-        votes: fastify.services.moderation.humanVotes(slug),
+        votes: moderation.votes(slug),
+        earlierVotes: moderation.earlierVotes(slug),
+        earlierPurges: moderation.earlierPurges(slug),
       });
     },
   );
@@ -109,6 +118,7 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
           properties: {
             verdict: { type: 'string', enum: ['spam', 'legit'] },
             reasoning: { type: 'string', maxLength: 1000 },
+            flags: { type: 'array', items: { type: 'string' } },
           },
           required: ['verdict'],
           additionalProperties: false,
@@ -116,28 +126,235 @@ export async function moderationRoutes(fastify: FastifyInstance): Promise<void> 
       },
     },
     async (request) => {
-      requireStaffOr404(request);
+      const caller = moderationCaller(request, 'moderation:vote');
       const { slug } = request.params as { slug: string };
-      const body = request.body as { verdict: 'spam' | 'legit'; reasoning?: string };
+      const body = request.body as { verdict: 'spam' | 'legit'; reasoning?: string; flags?: string[] };
+      if (caller.kind === 'staff' && body.flags !== undefined) {
+        throw new ApiValidationError('Flags are for agent votes', { flags: 'not accepted on a staff vote' });
+      }
       const result = await fastify.store.transact(
         buildTransactionOptions({
           request,
+          session: caller.session,
           action: 'moderation.vote',
           subjectType: 'person',
           subjectSlug: slug,
           responseCode: 200,
           summary: `${body.verdict}${body.reasoning ? `: ${body.reasoning}` : ''}`,
         }),
-        async (tx) => fastify.services.moderationWrite.castVote(tx, slug, request.session, body),
+        async (tx) => fastify.services.moderationWrite.castVote(tx, slug, caller.session, body),
+        // Applied under the store lock: the next vote or purge is checked
+        // against this one (moderation.md → Agent votes).
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
       );
-      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
-      const caller = getCallerSession(request);
-      const person = await fastify.services.people.get(result.value.person.slug, caller);
+      const person =
+        caller.kind === 'agent'
+          ? await fastify.services.people.get(result.value.person.slug, undefined, { moderationReader: true })
+          : await fastify.services.people.get(result.value.person.slug, getCallerSession(request));
       return ok({
         person,
         vote: result.value.vote,
         latestVote: fastify.services.moderation.latestHumanVote(slug),
+        stagedVote: fastify.services.moderation.stagedVote(slug),
+        purgeAfter: (await fastify.services.moderation.memberRow(slug, caller.kind))?.purgeAfter ?? null,
       });
+    },
+  );
+
+  // DELETE /api/admin/members/:slug/vote — an agent takes back its own vote.
+  fastify.delete(
+    '/api/admin/members/:slug/vote',
+    {
+      schema: {
+        tags: ['moderation'],
+        summary: "Withdraw the calling agent's own vote (agents only)",
+        params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+      },
+    },
+    async (request) => {
+      const caller = agentCaller(request, 'moderation:vote');
+      const { slug } = request.params as { slug: string };
+      await fastify.store.transact(
+        buildTransactionOptions({
+          request,
+          session: caller.session,
+          action: 'moderation.vote-withdraw',
+          subjectType: 'person',
+          subjectSlug: slug,
+          responseCode: 200,
+        }),
+        async (tx) => fastify.services.moderationWrite.withdrawVote(tx, slug, caller.session),
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
+      );
+      return ok({
+        person: await fastify.services.people.get(slug, undefined, { moderationReader: true }),
+        stagedVote: fastify.services.moderation.stagedVote(slug),
+      });
+    },
+  );
+
+  // POST /api/admin/members/:slug/purge — an agent purges a new member who
+  // posted spam (moderation.md → Agent purges). One commit per purge.
+  fastify.post(
+    '/api/admin/members/:slug/purge',
+    {
+      schema: {
+        tags: ['moderation'],
+        summary: 'Purge a new member who posted spam, citing the evidence (agents only)',
+        params: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+        body: {
+          type: 'object',
+          properties: {
+            reason: { type: 'string' },
+            flags: { type: 'array', items: { type: 'string' } },
+            evidence: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  record: { type: 'string' },
+                  field: { type: 'string' },
+                  project: { type: 'string' },
+                  number: { type: 'integer' },
+                  slug: { type: 'string' },
+                  roleId: { type: 'string' },
+                },
+                required: ['record'],
+                additionalProperties: false,
+              },
+            },
+            dryRun: { type: 'boolean' },
+          },
+          required: ['reason', 'evidence'],
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request) => {
+      const caller = agentCaller(request, 'moderation:purge');
+      const { slug } = request.params as { slug: string };
+      const input = request.body as AgentPurgeInput;
+      const service = fastify.services.agentPurge;
+      const member = service.memberOr404(slug);
+      const body = validatePurgeBody(member.slug, input);
+      const head = async (): Promise<string> => (await fastify.publicRepo.resolveRef('HEAD')) ?? 'unknown';
+
+      if (input.dryRun) {
+        // Every check, under the store lock and the write lock, against the
+        // member as it is then, and nothing written.
+        const preview = await fastify.store.exclusive(() =>
+          fastify.publicRepo.withLock(async () => {
+            const now = new Date();
+            const current = service.memberOr404(slug);
+            if (current.id !== member.id) throw new ApiNotFoundError(`Person '${slug}' not found`);
+            const { deleted } = await service.check(caller.agent.person, caller.agent.grant.id, current, body, now);
+            const purge = service.record(uuidv7(), caller.agent.person, caller.agent.grant.id, current, body, await head(), now);
+            return { purge, deleted };
+          }),
+        );
+        return ok({ ...preview, dryRun: true });
+      }
+
+      const purgeId = uuidv7();
+      const opts = withInlineTrailers(
+        buildTransactionOptions({
+          request,
+          session: caller.session,
+          action: 'person.purge',
+          subjectType: 'person',
+          subjectId: member.id,
+          subjectSlug: member.slug,
+          responseCode: 200,
+          summary: body.reason,
+          extraTrailers: { 'Purge-Id': purgeId },
+        }),
+        body.evidence.map((e) => ['Evidence', evidenceTrailer(e)] as const),
+      );
+      // Checked, committed and applied under one lock: the next purge or vote
+      // sees this one (moderation.md → Agent purges).
+      const result = await fastify.store.transact(
+        opts,
+        async (tx) => service.purge(tx, caller.session, member, body, purgeId, head),
+        (value) => value.stateApply.apply(fastify.inMemoryState, fastify.fts),
+      );
+      await fastify.sessionMetadata.removeAllFor(member.id, fastify.store.private);
+      return ok({ purge: result.value.purge, deleted: result.value.deleted, dryRun: false });
+    },
+  );
+
+  // GET /api/admin/spam-purges — the purge log, newest first.
+  fastify.get(
+    '/api/admin/spam-purges',
+    {
+      schema: {
+        tags: ['moderation'],
+        summary: 'The spam-purge log, newest first',
+        querystring: {
+          type: 'object',
+          properties: {
+            by: { type: 'string' },
+            slug: { type: 'string' },
+            since: { type: 'string' },
+            blocking: { type: 'boolean' },
+            page: { type: 'integer', minimum: 1 },
+            perPage: { type: 'integer', minimum: 1, maximum: 200 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request) => {
+      moderationCaller(request, 'moderation:read');
+      const q = request.query as { by?: string; slug?: string; since?: string; blocking?: boolean; page?: number; perPage?: number };
+      if (q.since !== undefined && Number.isNaN(Date.parse(q.since))) {
+        throw new ApiValidationError('Invalid date', { since: 'ISO date' });
+      }
+      const result = fastify.services.spamPurges.list(q);
+      return paginated(result.items, {
+        page: result.page,
+        perPage: result.perPage,
+        totalItems: result.totalItems,
+        totalPages: Math.max(1, Math.ceil(result.totalItems / result.perPage)),
+      });
+    },
+  );
+
+  // POST /api/admin/spam-purges/:id/unblock — staff lift a sign-up block.
+  fastify.post(
+    '/api/admin/spam-purges/:id/unblock',
+    {
+      schema: {
+        tags: ['moderation'],
+        summary: 'Let a spam-purged GitHub account sign up again (staff)',
+        params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        body: {
+          type: ['object', 'null'],
+          properties: { reason: { type: 'string', maxLength: 1000 } },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request) => {
+      const session = staffCaller(request);
+      const { id } = request.params as { id: string };
+      const reason = (request.body as { reason?: string } | null)?.reason?.trim() || null;
+      const service = fastify.services.spamPurges;
+      const existing = service.recordOr404(id);
+      if (existing.unblockedAt) return ok({ purge: service.view(existing) });
+      const result = await fastify.store.transact(
+        buildTransactionOptions({
+          request,
+          action: 'spam-purge.unblock',
+          subjectType: 'spam-purge',
+          subjectId: id,
+          subjectSlug: existing.personSlug,
+          responseCode: 200,
+          ...(reason ? { summary: reason } : {}),
+        }),
+        async (tx) => service.unblock(tx, id, session.person!.slug, reason),
+      );
+      result.value.stateApply.apply(fastify.inMemoryState, fastify.fts);
+      return ok({ purge: service.view(result.value.record) });
     },
   );
 

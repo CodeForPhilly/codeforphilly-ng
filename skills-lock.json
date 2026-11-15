@@ -1,23 +1,35 @@
 {
-  "version": 1,
+  "version": 2,
   "skills": {
-    "backend-fastify": {
-      "source": "JarvusInnovations/agent-skills",
+    "gitsheets": {
+      "source": "JarvusInnovations/gitsheets",
       "sourceType": "github",
-      "skillPath": "skills/backend-fastify/SKILL.md",
-      "computedHash": "7d10877300cc1d198b173e759b750dc538a4ed11ee6fb94363fc507be02f8994"
+      "skillPath": "skills/gitsheets/SKILL.md",
+      "computedHash": "e8a05c0d9dbdc284ac6dff4e0c3ee836c2b4178a187da8c55efb16c95fdd4aa8"
     },
-    "frontend-shadcn": {
+    "jarvus-fastify": {
       "source": "JarvusInnovations/agent-skills",
       "sourceType": "github",
-      "skillPath": "skills/frontend-shadcn/SKILL.md",
-      "computedHash": "efb3fd8d6782c943aba5895c2bb7d7ea008f0eeb65c15f383c60b0c545ca4c65"
+      "skillPath": "skills/jarvus-fastify/SKILL.md",
+      "computedHash": "f8129a2024a4a56967ec20a18fe7295069e55cc1d3f5bf1a0fe1f4ca088e6500"
+    },
+    "jarvus-react": {
+      "source": "JarvusInnovations/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/jarvus-react/SKILL.md",
+      "computedHash": "720a5929878f0c0c53934f19036e3eae342efcbfd2b186c4bfb3d9ec116c7e29"
+    },
+    "jarvus-release-flow": {
+      "source": "JarvusInnovations/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/jarvus-release-flow/SKILL.md",
+      "computedHash": "aa0eb56a4a146c566910e71e7b83c32532c1c8abcc105585cfcb9a8fee1bac8a"
     },
     "specops": {
       "source": "JarvusInnovations/specops",
       "sourceType": "github",
       "skillPath": "skills/specops/SKILL.md",
-      "computedHash": "54500128a9406575f8f007b1899c1918186f4dc71df93aac6cab06ff3bf1a10c"
+      "computedHash": "d1ed59e127dfa0ee193faf1ce0ae231e7bc8c0bb2df63cd34b2840d2dea8595d"
     }
   }
 }

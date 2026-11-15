@@ -43,6 +43,7 @@ import type {
   GhIdentitySnapshot,
 } from '../auth/jwt.js';
 import { verifyLegacyPassword } from '../auth/legacy-password.js';
+import { isAgentAccount } from '../auth/agent-grant.js';
 import { GitHubAccountService } from './github-account.js';
 import type { ResolvedGitHubIdentity } from '../auth/github-client.js';
 
@@ -156,6 +157,7 @@ export class AccountClaimService {
     for (const personId of claims.candidates) {
       const person = this.#state.people.get(personId);
       if (!person || person.deletedAt || person.githubUserId) continue;
+      if (isAgentAccount(this.#state, person.slug)) continue;
 
       const profile = await this.#privateStore.getProfile(personId);
       const matchedEmail =
@@ -202,7 +204,7 @@ export class AccountClaimService {
       return { ok: false, code: 'not_a_candidate' };
     }
     const person = this.#state.people.get(personId);
-    if (!person || person.deletedAt) {
+    if (!person || person.deletedAt || isAgentAccount(this.#state, person.slug)) {
       return { ok: false, code: 'not_a_candidate' };
     }
     if (person.githubUserId) {
@@ -264,7 +266,7 @@ export class AccountClaimService {
       return { ok: false, code: 'invalid', reason: 'no_slug' };
     }
     const person = this.#state.people.get(personId);
-    if (!person || person.deletedAt) {
+    if (!person || person.deletedAt || isAgentAccount(this.#state, person.slug)) {
       return { ok: false, code: 'invalid', reason: 'no_slug' };
     }
     if (person.githubUserId) {
@@ -357,6 +359,7 @@ export class AccountClaimService {
 
     const person = this.#state.people.get(personId);
     if (!person || person.deletedAt || person.githubUserId) return null;
+    if (isAgentAccount(this.#state, person.slug)) return null;
 
     return {
       personId: person.id,
@@ -439,7 +442,10 @@ export class AccountClaimService {
     reason: string | null,
   ): Promise<
     | { ok: true; result: StaffApproveResult }
-    | { ok: false; code: 'not_found' | 'already_reviewed' | 'no_claimed_person' | 'requester_missing' | 'already_claimed' }
+    | {
+        ok: false;
+        code: 'not_found' | 'already_reviewed' | 'no_claimed_person' | 'requester_missing' | 'already_claimed' | 'agent_account';
+      }
   > {
     const existing = await this.#privateStore.getClaimRequest(requestId);
     if (!existing) return { ok: false, code: 'not_found' };
@@ -448,6 +454,8 @@ export class AccountClaimService {
 
     const claimed = this.#state.people.get(existing.claimedPersonId);
     if (!claimed || claimed.deletedAt) return { ok: false, code: 'no_claimed_person' };
+    // Nobody takes over an agent account, staff approval or not (specs/api/agents.md).
+    if (isAgentAccount(this.#state, claimed.slug)) return { ok: false, code: 'agent_account' };
 
     const stateApply = new StateApply();
     const now = nowIso();

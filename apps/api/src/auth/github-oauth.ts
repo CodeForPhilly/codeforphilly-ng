@@ -23,7 +23,7 @@ import {
   GitHubApiError,
   type ResolvedGitHubIdentity,
 } from './github-client.js';
-import { resolveIdentity } from '../services/account-matching.js';
+import { isGitHubIdBlocked, resolveIdentity } from '../services/account-matching.js';
 import { buildTransactionOptions } from '../store/commit-meta.js';
 import type { FastifyRequest } from 'fastify';
 
@@ -55,7 +55,8 @@ export type CallbackOutcome =
 
 export type CallbackErrorCode =
   | 'github_unreachable'
-  | 'email_unverified';
+  | 'email_unverified'
+  | 'signup_blocked';
 
 /**
  * Outcomes for the link-github callback. Mirrors `CallbackOutcome` but
@@ -68,7 +69,8 @@ export type LinkCallbackOutcome =
 export type LinkCallbackErrorCode =
   | 'github_unreachable'
   | 'github_already_linked'
-  | 'github_id_in_use_elsewhere';
+  | 'github_id_in_use_elsewhere'
+  | 'github_blocked';
 
 export interface CompleteLinkCallbackParams {
   readonly fastify: FastifyInstance;
@@ -143,6 +145,12 @@ export async function completeLinkCallback(
     if (person.githubUserId === identity.id && person.id !== linkPersonId) {
       return { kind: 'error', code: 'github_id_in_use_elsewhere' };
     }
+  }
+
+  // A GitHub account purged as spam can't come back by linking either
+  // (specs/api/auth.md → link-github).
+  if (isGitHubIdBlocked(fastify.inMemoryState, identity.id)) {
+    return { kind: 'error', code: 'github_blocked' };
   }
 
   const result = await fastify.store.transact(
@@ -222,6 +230,14 @@ export async function completeCallback(
   const primaryEmail: string = identity.primaryEmail;
 
   const match = await resolveIdentity(identity, fastify.inMemoryState, fastify.store.private);
+
+  // Purged as spam: before (b) or (c), a GitHub id a spam-purges record
+  // blocks writes nothing (specs/api/auth.md). Case (a) — a live Person holds
+  // the id — is a member staff restored, and is never blocked.
+  if (match.kind !== 'existing' && isGitHubIdBlocked(fastify.inMemoryState, identity.id)) {
+    fastify.log.info({ githubUserId: identity.id }, 'github sign-up refused: purged as spam');
+    return { kind: 'error', code: 'signup_blocked' };
+  }
 
   if (match.kind === 'existing') {
     const profile = await fastify.store.private.getProfile(match.personId);

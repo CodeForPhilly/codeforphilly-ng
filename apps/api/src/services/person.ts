@@ -136,7 +136,17 @@ export class PersonService {
     return { items, totalItems, facets };
   }
 
-  async get(slug: string, caller?: CallerSession): Promise<PersonDetail | null> {
+  /**
+   * `opts.moderationReader` is an agent reading the roster detail
+   * (specs/api/moderation.md → Agent callers): it sees what staff see of the
+   * record — deactivated people, `deletedAt`, the real `accountLevel` — but
+   * never the email, and holds no permissions.
+   */
+  async get(
+    slug: string,
+    caller?: CallerSession,
+    opts: { readonly moderationReader?: boolean } = {},
+  ): Promise<PersonDetail | null> {
     const personId = this.#state.personIdBySlug.get(slug);
     if (!personId) return null;
     const person = this.#state.people.get(personId);
@@ -145,9 +155,10 @@ export class PersonService {
     const isStaff =
       caller?.accountLevel === 'staff' || caller?.accountLevel === 'administrator';
     const isSelfCaller = caller?.id === person.id;
+    const moderationReader = opts.moderationReader === true;
     // Deactivated profiles 404 for everyone except staff and the person
     // themselves (self may view to reactivate). Per specs/behaviors/person-lifecycle.md.
-    if (person.deletedAt && !isStaff && !isSelfCaller) return null;
+    if (person.deletedAt && !isStaff && !isSelfCaller && !moderationReader) return null;
 
     const memberships = this.#getMembershipsForPerson(person.slug);
     const projectsMap = this.#getProjectsForMemberships(memberships);
@@ -179,7 +190,7 @@ export class PersonService {
       tagAssignments,
       allTags: this.#state.tags,
       permissions,
-      callerAccountLevel: caller?.accountLevel,
+      callerAccountLevel: moderationReader ? 'staff' : caller?.accountLevel,
       callerPersonId: caller?.id,
       visibleEmail,
     });
