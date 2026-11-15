@@ -9,7 +9,7 @@ MCP enables AI agents to interact with your backend through a standardized proto
 ## Dependencies
 
 ```bash
-npm install @modelcontextprotocol/sdk fastify-mcp-server
+bun add @modelcontextprotocol/sdk fastify-mcp-server
 ```
 
 **Package versions:**

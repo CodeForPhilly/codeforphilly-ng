@@ -117,6 +117,12 @@ const routes: FastifyPluginAsync = async (fastify, opts) => {
 
 ## Service Architecture
 
+The service-class patterns in this section (and the query-building/pagination content
+in [api-design.md](api-design.md)) assume the common shape: a **DB-backed CRUD
+service** that owns its data. When the service is instead a stateless gateway over
+gRPC or another upstream API, skip the decorated service classes and use the
+[Upstream-Client Backends](#upstream-client-backends-proxy-shape) pattern below.
+
 ### Single-Responsibility Services
 
 Each service handles one domain:
@@ -206,6 +212,110 @@ export class OrderService {
 const userService = new UserService(fastify)
 const orderService = new OrderService(fastify)
 orderService.setUserService(userService)
+```
+
+## Upstream-Client Backends (Proxy Shape)
+
+Some services own no data at all — they are a thin, stateless translation layer from
+HTTP to gRPC (or to another internal API): validate the request, call the upstream,
+map the result and its error codes back to HTTP. For that shape, the decorated
+service-class pattern above is the wrong tool.
+
+### Inject the Client as an Explicit Function Parameter
+
+Pass the upstream client into route registration as a plain argument — not a fastify
+decoration:
+
+```typescript
+// src/grpc-client.ts
+export function createClient(upstreamUrl: string) {
+  // ... build and return the typed client object
+}
+export type OrchestratorClient = ReturnType<typeof createClient>
+
+// src/routes.ts - routes close over the client parameter
+export function registerRoutes(app: FastifyInstance, client: OrchestratorClient) {
+  app.get('/api/v1/status', async () => {
+    return client.getStatus()
+  })
+  // ...
+}
+
+// index.ts
+const client = createClient(process.env.UPSTREAM_URL ?? 'localhost:50051')
+registerRoutes(app, client)
+```
+
+WHY not a decoration: the dependency is visible in the function signature, TypeScript
+checks it at the call site (no declaration merging), and — the payoff — hermetic
+`app.inject()` tests become trivial: build a Fastify instance, pass a mock client,
+done. No plugin graph, no decoration ordering.
+
+### The Mock Client: Unspecified Methods REJECT
+
+Make the shared test double reject on every method a test didn't explicitly override —
+tests then *declare* their dependencies, and an unexpected upstream call fails loudly
+instead of returning `undefined`:
+
+```typescript
+// src/test-helpers.ts
+export function makeMockClient(overrides: Partial<OrchestratorClient> = {}): OrchestratorClient {
+  const noop = (): Promise<any> => Promise.reject(new Error('not mocked'))
+  return {
+    getStatus: noop,
+    getRuns: noop,
+    triggerPipeline: noop,
+    // ... every client method, all rejecting by default
+    ...overrides
+  }
+}
+
+// In a test
+const app = buildApp(makeMockClient({
+  getStatus: async () => ({ connected_workers: 3 })
+}))
+const res = await app.inject({ method: 'GET', url: '/api/v1/status' })
+```
+
+### Map Upstream Error Codes to HTTP Deliberately
+
+Don't let upstream errors fall through as generic 500s. Maintain one explicit mapping
+from gRPC status codes to HTTP in the route layer:
+
+| gRPC code | HTTP | Meaning |
+| ----------- | ------ | --------- |
+| `INVALID_ARGUMENT` (3) | 400 | Caller sent a bad value — relay the upstream message |
+| `NOT_FOUND` (5) | 404 | Resource doesn't exist |
+| `FAILED_PRECONDITION` (9) | 503 | Upstream not ready to serve this (e.g. no leader) |
+| `ABORTED` (10) | 409 | Domain conflict — upstream sends a JSON payload in `details`; parse it and relay as the 409 body |
+
+The `ABORTED` row is the interesting one: use it as the channel for structured domain
+rejections. The upstream packs a JSON body (e.g. `{"error": "env_promote_only", ...}`)
+into the error details; the route parses it defensively and returns it as the HTTP 409
+body, so API clients get a branchable `error` discriminator instead of a stringly
+message:
+
+```typescript
+function envPromoteOnlyBody(err: any): Record<string, unknown> | null {
+  if (err?.code !== 10) return null // gRPC ABORTED
+  try {
+    const parsed = JSON.parse(err.details ?? err.message ?? '')
+    return parsed?.error === 'env_promote_only' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+app.patch('/api/v1/pipelines/:env/:id', async (request, reply) => {
+  try {
+    return await client.updatePipeline(/* ... */)
+  } catch (err: any) {
+    const promoteOnly = envPromoteOnlyBody(err)
+    if (promoteOnly) return reply.status(409).send(promoteOnly)
+    if (err?.code === 5) return reply.status(404).send({ error: 'not found' })
+    throw err // anything unmapped is a real 500
+  }
+})
 ```
 
 ## Structured Logging
@@ -406,25 +516,25 @@ await fastify.register(healthRoutes, { prefix: '/api/health' })
 
 ## Package Management
 
-Always use npm commands to manage dependencies:
+Always use Bun to manage dependencies:
 
-- Always use `npm install <package-name>` to add dependencies
+- Always use `bun add <package-name>` to add dependencies
 - Never manually edit `package.json` to add packages
-- This ensures the latest compatible versions are installed and `package-lock.json` stays in sync
+- This ensures the latest compatible versions are installed and `bun.lock` stays in sync
 
 ### Adding Dependencies
 
 ```bash
 # Runtime dependencies
-npm install fastify-plugin @fastify/cors pino
+bun add fastify-plugin @fastify/cors pino
 
 # Development dependencies
-npm install -D @types/node typescript
+bun add -d @types/bun typescript
 ```
 
 ### Why This Matters
 
-- `npm install` automatically resolves to the latest compatible version
+- `bun add` automatically resolves to the latest compatible version
 - Manual edits can introduce version mismatches
-- `package-lock.json` won't be properly updated with manual edits
+- `bun.lock` won't be properly updated with manual edits
 - Dependency tree conflicts are harder to debug after manual edits

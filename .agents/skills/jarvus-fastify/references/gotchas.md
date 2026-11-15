@@ -422,6 +422,173 @@ declare module 'fastify' {
 
 ---
 
+## Async Hook Short-Circuit Under Bun `.inject()`
+
+### Problem: The Handler Runs After the Hook's 401
+
+```typescript
+// WRONG - looks correct, silently fails to short-circuit
+fastify.addHook('preHandler', async (req, reply) => {
+  const ok = await authorize(req)
+  if (!ok) {
+    reply.code(401).send({ error: 'unauthorized' })
+    return  // ...but the route handler STILL runs
+  }
+})
+```
+
+An async hook that calls `reply.send()` and returns does **not** reliably stop the
+request — observed in anger via `.inject()` on Bun: the 401 is in flight, yet the route
+handler executes anyway. Fastify only auto-relays a *route handler's* return value; for
+hooks, completion signaling through the async return path is runtime-dependent. This is
+a silent **authorization-bypass class of bug**: tests may see the 401 status while the
+protected side effect still happened.
+
+### Solution: Callback-Style Hook, done() Only on the Allow Path
+
+```typescript
+// CORRECT - done() is the only way the chain continues
+fastify.addHook('preHandler', (req, reply, done) => {
+  authorize(req, reply)
+    .then((shouldContinue) => {
+      if (shouldContinue) done()
+      // else: the reply was already sent - do NOT call done(), which
+      // would resume the chain and run the handler after the reply.
+    })
+    .catch((err) => done(err as Error))
+})
+```
+
+Register security-critical hooks callback-style `(req, reply, done)` and only call
+`done()` on the allow path — never after a reply has been sent. Add a test asserting
+the handler did NOT run (e.g. a spy on the downstream side effect), not just that the
+status code was 401.
+
+---
+
+## Environment Variable Parsing Footguns
+
+### Problem: Silently Wrong Numbers and Booleans
+
+```typescript
+// WRONG - all of these pass silently with garbage input
+const port = Number(process.env.PORT)          // "abc" -> NaN, listen() fails cryptically
+const ttl = parseInt(process.env.TTL ?? '')    // "3600abc" -> 3600, "-5" -> -5
+const debug = process.env.DEBUG === 'true'     // "TRUE", "1", "ture" all -> false, silently
+```
+
+`Number()` accepts `NaN` without complaint; `parseInt` truncates trailing garbage and
+accepts negatives; a `=== 'true'` boolean check turns any typo into a silent mode
+selection. Each surfaces far from the bad env var — as a broken `listen()`, an
+immediately-expired session, or the wrong auth mode.
+
+### Solution: Strict Parses That Throw at Boot
+
+```typescript
+// CORRECT - digit-only match, range check, named error
+function resolvePort(env: NodeJS.ProcessEnv): number {
+  const raw = env.PORT
+  if (raw === undefined || raw.trim() === '') return 8080
+  const trimmed = raw.trim()
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`PORT must be a positive integer (got "${raw}")`)
+  }
+  const port = parseInt(trimmed, 10)
+  if (port < 1 || port > 65535) {
+    throw new Error(`PORT must be between 1 and 65535 (got "${raw}")`)
+  }
+  return port
+}
+
+// CORRECT - strict tri-state boolean: unset, true-ish, false-ish; anything else throws
+const TRUE_VALUES = new Set(['1', 'true', 'yes'])
+const FALSE_VALUES = new Set(['', '0', 'false', 'no'])
+
+function parseBoolEnv(name: string, raw: string | undefined): boolean {
+  if (raw === undefined) return false
+  const value = raw.trim().toLowerCase()
+  if (TRUE_VALUES.has(value)) return true
+  if (FALSE_VALUES.has(value)) return false
+  throw new Error(`${name} must be one of 1/true/yes or 0/false/no (got "${raw}")`)
+}
+```
+
+The tri-state parse matters most on security-relevant flags: a typo'd value must
+**throw** rather than silently picking a mode (a typo that quietly disabled auth would
+be dangerous; one that quietly required it would be confusing).
+
+---
+
+## Accepted-but-Unenforced Config Knobs
+
+### Problem: Parsed Config That Silently Does Nothing
+
+```typescript
+// Config schema accepts SESSION_IDLE_TIMEOUT, the code parses and stores it...
+sessionIdleTimeoutSeconds: parseIntEnv('SESSION_IDLE_TIMEOUT', env.SESSION_IDLE_TIMEOUT)
+// ...but nothing enforces it yet. An operator sets it expecting idle
+// logout and gets a silent no-op with no indication anything is missing.
+```
+
+This happens naturally when config is wired ahead of the feature (spec'd but deferred).
+Rejecting the var breaks forward compatibility; accepting it silently misleads the
+operator.
+
+### Solution: Loud Boot Warning for Every Set-but-Unenforced Knob
+
+```typescript
+export function unenforcedConfigWarnings(env: NodeJS.ProcessEnv): string[] {
+  const warnings: string[] = []
+  if (env.SESSION_IDLE_TIMEOUT !== undefined) {
+    warnings.push(
+      'SESSION_IDLE_TIMEOUT is set but not yet enforced - no idle-timeout logout is applied.'
+    )
+  }
+  return warnings
+}
+
+// At boot:
+for (const warning of unenforcedConfigWarnings(process.env)) {
+  app.log.warn(warning)
+}
+```
+
+Warn only when the var is **explicitly set** — a default-derived value needs no noise.
+Say what is NOT happening ("no absolute session cap is applied"), not just that the
+knob is unwired.
+
+---
+
+## Swagger Registration Order
+
+### Problem: Deferred Swagger Register Yields an Empty Spec
+
+```typescript
+// WRONG - routes registered before swagger's onRoute hook exists
+app.register(fastifySwagger, { openapi: { /* ... */ } })  // not awaited
+registerRoutes(app)
+// GET /docs/json -> { "paths": {} }  - silently empty, no error anywhere
+```
+
+`@fastify/swagger` captures routes via an `onRoute` hook — which only sees routes added
+*after* the hook exists. A bare (deferred) `register` queues the plugin behind the route
+registration, so every route escapes capture and the document is silently empty.
+
+### Solution: Await Swagger Before Registering Routes
+
+```typescript
+// CORRECT
+await app.register(fastifySwagger, { openapi: { /* ... */ } })
+await app.register(fastifySwaggerUI, { routePrefix: '/docs' })
+
+registerRoutes(app)  // now every route is captured
+```
+
+Add a smoke test that injects `GET /docs/json` and asserts `Object.keys(body.paths)`
+is non-empty — it catches any future registration reordering.
+
+---
+
 ## Testing Considerations
 
 ### Problem: Testing Routes Without Full Server
