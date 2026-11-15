@@ -4,7 +4,25 @@ Patterns for designing consistent, well-documented APIs with Fastify.
 
 ## Response Format
 
-Use a consistent response structure across all endpoints:
+Pick **one** response convention and apply it consistently across the API. The
+`{success, data, error}` envelope below is one solid option — not a requirement.
+Structured domain-specific bodies are equally valid and often spec-mandated: returning
+the resource directly on success, and on error a body whose `error` field is a
+**machine-branchable discriminator** with domain fields alongside, e.g.
+
+```typescript
+// 403 - the client can branch on error and render a specific message
+{ error: 'forbidden', required: 'operator', environment: 'production', your_role: 'viewer' }
+
+// 409 - a domain conflict carrying its own contract
+{ error: 'env_promote_only', environment: 'production', promotes_from: 'staging' }
+```
+
+If a spec defines error contracts like these, follow the spec — don't wrap them in an
+envelope. What matters is consistency and that error bodies are branchable, not the
+particular wrapper.
+
+### The Envelope Option
 
 ```typescript
 // Success response
@@ -123,7 +141,7 @@ fastify.post('/users', async (request, reply) => {
 ### HTTP Status Codes
 
 | Code | Usage |
-|------|-------|
+| ------ | ------- |
 | 200 | Successful GET, PUT, PATCH |
 | 201 | Successful POST (resource created) |
 | 204 | Successful DELETE (no content) |
@@ -139,7 +157,7 @@ fastify.post('/users', async (request, reply) => {
 ### Installation
 
 ```bash
-npm install @fastify/swagger @fastify/swagger-ui
+bun add @fastify/swagger @fastify/swagger-ui
 ```
 
 ### Configuration in app.ts
