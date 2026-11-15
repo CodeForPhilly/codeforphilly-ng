@@ -25,7 +25,7 @@ feature branch ──▶ develop ──(push)──▶ "Release: vX.Y.Z" PR into
    comment. The version is computed from the last `v*` tag + the commits since.
 3. **Review the Release PR.** Sort the changelog, confirm the semver bump
    (edit the PR title to override the version if needed — `release-validate.yml`
-   keeps it well-formed). Use the **`release-flow`** skill for the changelog +
+   keeps it well-formed). Use the **`jarvus-release-flow`** skill for the changelog +
    bump conventions.
 4. **Merge the Release PR.** `release-publish.yml` creates the `vX.Y.Z` tag and
    GitHub release. The tag push triggers `container-publish.yml`, which builds

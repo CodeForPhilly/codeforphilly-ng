@@ -12,8 +12,8 @@ Out of scope for v1: see [deferred.md](deferred.md).
 
 | Layer | Choice | Why |
 | ------- | -------- | ----- |
-| Backend framework | **Fastify 5.x + TypeScript** | Per `backend-fastify` skill. Plugin model maps cleanly to laddr's RequestHandler hierarchy. Schema-validated routes replace ad-hoc PHP validation. |
-| Frontend framework | **Vite + React 19 + TypeScript** | Per `frontend-shadcn` skill. SPA for the dynamic surface; SSR not required for v1 (search engines find existing project pages via sitemap). |
+| Backend framework | **Fastify 5.x + TypeScript** | Per `jarvus-fastify` skill. Plugin model maps cleanly to laddr's RequestHandler hierarchy. Schema-validated routes replace ad-hoc PHP validation. |
+| Frontend framework | **Vite + React 19 + TypeScript** | Per `jarvus-react` skill. SPA for the dynamic surface; SSR not required for v1 (search engines find existing project pages via sitemap). |
 | Routing (web) | **React Router v7** | Per skill. Use `react-router` (not `react-router-dom`). |
 | UI components | **shadcn/ui (New York) + Tailwind v4** | Per skill. Replaces Bootstrap 4 + jQuery widgets from laddr. |
 | Public storage | **gitsheets** (git-backed TOML record store) | No persistent OLTP. Records committed atomically to a git repo; pushed to GitHub for backup. Single-replica API loads all data into typed in-memory state on boot. Public-by-design — drives the civic-transparency win and free contributor onboarding via scrubbed snapshot. See [behaviors/storage.md](behaviors/storage.md). |
