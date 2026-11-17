@@ -51,7 +51,7 @@ function profile(personId: string, extra: Partial<PrivateProfile> = {}): Private
   };
 }
 
-const NO_FOOTPRINT = { memberships: 0, updates: 0, buzz: 0, blogPosts: 0, helpWantedInterest: 0, tags: 0 };
+const NO_FOOTPRINT = { memberships: 0, updates: 0, buzz: 0, blogPosts: 0, helpWantedInterest: 0, tags: 0, rsvps: 0 };
 
 describe('emailMatchesName', () => {
   it('matches when the local part contains a name token', () => {
@@ -100,6 +100,21 @@ describe('computeSignals', () => {
     });
     expect(established.signals).toEqual(['slack-sso', 'has-footprint']);
     expect(established.attention).toBe(0);
+  });
+
+  it('does not count RSVPs (or tags) toward has-footprint', () => {
+    // specs/api/moderation.md → signals: an RSVP is shown, not scored (issue #266).
+    const r = computeSignals({
+      person: person({ id: '01951a3c-0000-7000-8000-000000000104', slug: 'rsvp-only', bio: 'hi', avatarKey: 'x' }),
+      email: 'rsvp-only@example.org',
+      signInCount: 1,
+      github: null,
+      emailBounce: null,
+      lastSlackSsoAt: null,
+      footprint: { ...NO_FOOTPRINT, rsvps: 2, tags: 1 },
+    });
+    expect(r.signals).not.toContain('has-footprint');
+    expect(r.attention).toBe(0);
   });
 
   it('flags gone, new, and inactive GitHub accounts and bounced email', () => {

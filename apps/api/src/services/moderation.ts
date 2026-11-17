@@ -33,7 +33,7 @@ import {
 } from '@cfp/shared/schemas';
 import { agentHasActiveGrant, isAgentAccount, isGrantActive } from '../auth/agent-grant.js';
 import { agentTextProblem } from './agent-text.js';
-import { projectBySlug, type InMemoryState } from '../store/memory/state.js';
+import { eventBySlug, projectBySlug, type InMemoryState } from '../store/memory/state.js';
 import type { PrivateStore } from '../store/private/interface.js';
 import type { DualStoreTx } from '../store/store.js';
 import { StateApply } from '../store/state-apply.js';
@@ -102,6 +102,8 @@ export interface FootprintCounts {
   readonly blogPosts: number;
   readonly helpWantedInterest: number;
   readonly tags: number;
+  /** Event RSVPs on record, past and upcoming events alike. */
+  readonly rsvps: number;
 }
 
 export type MemberOrigin = 'imported' | 'signed-up';
@@ -160,6 +162,14 @@ export interface MemberFootprint {
   readonly blogPosts: Array<{ slug: string; title: string; postedAt: string }>;
   readonly helpWantedInterest: Array<{ project: ProjectRef; role: { title: string }; createdAt: string }>;
   readonly tags: Array<{ handle: string; type: string }>;
+  /** Event RSVPs, newest RSVP first (specs/api/moderation.md → GET /api/admin/members/:slug). */
+  readonly rsvps: Array<{ event: EventRef; createdAt: string }>;
+}
+
+export interface EventRef {
+  readonly slug: string;
+  readonly title: string;
+  readonly startsAt: string;
 }
 
 interface AuthoredCounts {
@@ -552,6 +562,7 @@ export class ModerationService {
       blogPosts: authored.blogPosts.get(p.id) ?? 0,
       helpWantedInterest: authored.interest.get(p.slug) ?? 0,
       tags: this.#state.tagAssignmentsByTaggable.get(p.id)?.size ?? 0,
+      rsvps: this.#state.rsvpsByPerson.get(p.slug)?.size ?? 0,
     };
     const email = profile?.email ?? null;
     const lastSlackSsoAt = profile?.lastSlackSsoAt ?? null;
@@ -647,7 +658,18 @@ export class ModerationService {
         return tag ? [{ handle: `${tag.namespace}.${tag.slug}`, type: tag.namespace }] : [];
       });
 
-    return { memberships, updates, buzz, blogPosts, helpWantedInterest, tags };
+    // RSVPs reference the person by slug (event-rsvps/${year}/${eventSlug}/${personSlug}).
+    const rsvps = [...(s.rsvpsByPerson.get(slug) ?? [])]
+      .map((rid) => s.eventRsvps.get(rid))
+      .flatMap((r) => {
+        const event = r ? eventBySlug(s, r.eventSlug) : undefined;
+        return r && event
+          ? [{ event: { slug: event.slug, title: event.title, startsAt: event.startsAt }, createdAt: r.createdAt }]
+          : [];
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    return { memberships, updates, buzz, blogPosts, helpWantedInterest, tags, rsvps };
   }
 
   #voteView(rec: PersonEvaluation): VoteView {

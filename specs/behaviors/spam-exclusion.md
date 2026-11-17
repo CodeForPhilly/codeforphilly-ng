@@ -123,6 +123,7 @@ Applied to `published`, re-runnably. For each pruned person:
 2. Cascade-delete records that belong to that person:
    - `project-membership` where `personId` matches
    - `help-wanted-interest` where `personId` matches
+   - `event-rsvps` where `personSlug` matches
    - `tag-assignment` where `taggableType = "person"` and the taggable is that person
 3. Unlink (do **not** delete) `project-update` records whose `authorId` is the
    pruned person: set `authorId = null` so project history is preserved with an

@@ -820,6 +820,8 @@ export interface MemberRow {
     readonly blogPosts: number;
     readonly helpWantedInterest: number;
     readonly tags: number;
+    /** Event RSVPs on record, past and upcoming events alike. */
+    readonly rsvps: number;
   };
   readonly latestVote: VoteView | null;
   readonly stagedVote?: StagedVoteView | null;
@@ -855,6 +857,8 @@ export interface MemberFootprint {
   readonly blogPosts: Array<{ slug: string; title: string; postedAt: string }>;
   readonly helpWantedInterest: Array<{ project: ProjectRef; role: { title: string }; createdAt: string }>;
   readonly tags: Array<{ handle: string; type: string }>;
+  /** Event RSVPs, newest RSVP first. */
+  readonly rsvps: Array<{ event: { slug: string; title: string; startsAt: string }; createdAt: string }>;
 }
 
 export interface MemberDetail {

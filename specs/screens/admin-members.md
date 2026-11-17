@@ -61,7 +61,8 @@ See [api/moderation.md](../api/moderation.md).
   (`signed in 4× · last 2h ago` or `never signed in`), email (staff-visible;
   the domain is a button that searches `@domain` across the whole roster, so
   one throwaway address leads to every account from that domain),
-  bio excerpt, compact footprint counts (`2 projects · 1 update · 3 tags`), and
+  bio excerpt, compact footprint counts (`2 projects · 1 update · 1 RSVP · 3 tags`;
+  updates, buzz, posts, help-wanted interest and RSVPs only when non-zero), and
   the vote state:
   - no vote → two buttons **Spam** / **Not spam**
   - voted → a badge `Spam · by {voter} · {when}` or `Not spam · …` with a
@@ -103,7 +104,8 @@ See [api/moderation.md](../api/moderation.md).
 
 Full bio (rendered markdown, server-side), then the footprint as lists with
 links: project memberships (role, joined), authored updates, buzz, blog posts,
-help-wanted interest, tags. Then the vote history, newest first, each with
+help-wanted interest, event RSVPs (the event linked, its date, and when they
+RSVP'd; past events included), tags. Then the vote history, newest first, each with
 voter, verdict, reasoning, and time; an agent's vote is marked "AI agent" and
 shows its flags, and once a human has voted the agent's votes read "overruled"
 or "confirmed". When the slug was used before, an **Earlier account** block

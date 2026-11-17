@@ -93,7 +93,7 @@ vote nobody had cast on it.)
       "lastSlackSsoAt": "2026-09-18T01:15:00Z",
       "emailBounce": null,
       "bioExcerpt": "first ~160 chars of bio, markdown stripped",
-      "footprint": { "memberships": 2, "updates": 1, "buzz": 0, "blogPosts": 0, "helpWantedInterest": 1, "tags": 3 },
+      "footprint": { "memberships": 2, "updates": 1, "buzz": 0, "blogPosts": 0, "helpWantedInterest": 1, "tags": 3, "rsvps": 1 },
       "latestVote": { "verdict": "legit", "voter": { "slug": "chris", "fullName": "Chris Alfano" }, "evaluatedAt": "…" },
       "stagedVote": null,
       "purgeAfter": null,
@@ -124,7 +124,12 @@ Field notes:
   `github-new-account` (< 30 days), `github-no-activity` (0 repos and 0
   followers), `slug-purged-before` (a [`spam-purges`](../data-model.md#spampurge)
   record names this slug: an earlier account under it was purged as spam).
-  Informational: `slack-sso`, `has-footprint`.
+  Informational: `slack-sso`, `has-footprint` (any membership, update, buzz
+  item, blog post or help-wanted interest; tags and RSVPs do not count toward
+  it).
+- `footprint` counts the member's records of each kind in the detail's
+  `footprint` lists below; `rsvps` counts every event RSVP on record for the
+  member, past and upcoming events alike.
 
 `purgeAfter` is when the [scheduled spam purge](../behaviors/person-lifecycle.md#scheduled-spam-purge) will take the member — three days after the newest **deciding** vote, when every deciding vote is `spam` and the member is still deactivated and not staff — or `null`. The deciding votes are the human votes; when there are none, the votes of agents that still hold an active grant.
 
@@ -166,7 +171,8 @@ The row above, plus the full footprint and vote history:
       "buzz":        [ { "project": { "slug", "title" }, "slug", "title", "postedAt" } ],
       "blogPosts":   [ { "slug", "title", "postedAt" } ],
       "helpWantedInterest": [ { "project": { "slug", "title" }, "role": { "title" }, "createdAt" } ],
-      "tags":        [ { "handle", "type" } ]
+      "tags":        [ { "handle", "type" } ],
+      "rsvps":       [ { "event": { "slug", "title", "startsAt" }, "createdAt" } ]
     },
     "votes": [
       { "kind": "human", "verdict": "spam", "reasoning": "…", "flags": ["manual-override"], "voter": { "slug", "fullName" }, "evaluatedAt": "…" },
@@ -177,6 +183,14 @@ The row above, plus the full footprint and vote history:
   }
 }
 ```
+
+`rsvps` lists the member's [event RSVPs](../data-model.md#eventrsvp) (looked
+up by the RSVP's `personSlug`), newest RSVP first: the event's `slug`, `title`
+and `startsAt`, and `createdAt`, when the member RSVP'd. Every RSVP on record is
+listed, whether the event is upcoming, past or cancelled; an RSVP is often the
+only thing a new volunteer has done on the site. The follow-up answer (`plan`,
+`projectId`) is not included. RSVPs are public records, so an agent caller sees
+the same list.
 
 `votes` is newest first, human and agent votes together; `kind` tells them
 apart (from the `evaluator` prefix — [spam-exclusion.md](../behaviors/spam-exclusion.md#where-verdicts-come-from)).
