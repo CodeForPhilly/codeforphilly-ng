@@ -333,6 +333,7 @@ function MemberRowView({
     fp.buzz ? `${fp.buzz} buzz` : null,
     fp.blogPosts ? `${fp.blogPosts} post${fp.blogPosts === 1 ? '' : 's'}` : null,
     fp.helpWantedInterest ? `${fp.helpWantedInterest} help-wanted` : null,
+    fp.rsvps ? `${fp.rsvps} RSVP${fp.rsvps === 1 ? '' : 's'}` : null,
     `${fp.tags} tag${fp.tags === 1 ? '' : 's'}`,
   ].filter(Boolean);
   const signIns =
@@ -482,6 +483,14 @@ function MemberDetailView({ slug }: { slug: string }) {
           'Help-wanted interest',
           footprint.helpWantedInterest.map((i, idx) => (
             <li key={idx}>{i.role.title} on {i.project.title}, {formatAbsoluteDate(i.createdAt)}</li>
+          )),
+        )}
+        {section(
+          'Event RSVPs',
+          footprint.rsvps.map((r) => (
+            <li key={r.event.slug}>
+              <Link to={`/events/${r.event.slug}`} className="hover:underline">{r.event.title}</Link>, {formatAbsoluteDate(r.event.startsAt)} — RSVP'd {formatAbsoluteDate(r.createdAt)}
+            </li>
           )),
         )}
         {footprint.tags.length > 0 && (
