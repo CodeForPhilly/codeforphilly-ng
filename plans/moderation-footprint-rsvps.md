@@ -7,6 +7,7 @@ specs:
   - specs/behaviors/person-lifecycle.md
   - specs/behaviors/spam-exclusion.md
 issues: [266]
+pr: 267
 ---
 
 # Plan: Event RSVPs in the moderation footprint
